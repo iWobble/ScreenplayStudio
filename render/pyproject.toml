@@ -1,0 +1,16 @@
+[project]
+name = "storyrender"
+version = "0.1.0"
+description = "Storyworld manifest (shots, lines, captions) to a vertical narrated video with ffmpeg."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+storyrender = "storyrender.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

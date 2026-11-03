@@ -1,0 +1,142 @@
+"""Assemble: a still per shot moved by its focal path, the shots' audio mixed on one timeline, captions burned in, one mp4 out.
+
+Per shot a silent clip (zoompan over the still, eased); one narration wav per shot (lines and sound effects delayed into
+place, padded to the shot's length), joined without re-encoding so there are no seams; then a single final encode that burns
+the captions, adds the music bed under everything, normalises loudness and muxes. ffmpeg runs in a temp folder so the
+caption file needs no path escaping.
+"""
+
+import tempfile
+from pathlib import Path
+
+from . import captions, ffmpeg
+from .manifest import MAX_SHORT_SECONDS, Manifest, Move, PlannedShot, Timeline, plan
+
+SUPERSAMPLE = 2  # zoompan on a larger picture moves smoothly instead of in whole-pixel steps
+SAMPLE_RATE = 48000
+
+
+def zoompan_filter(planned: PlannedShot, size: tuple[int, int], fps: int) -> str:
+    """cover-fit the still to the frame, then ease the camera from the shot's first position to its second."""
+    width, height = size
+    frames = max(2, round(planned.duration * fps))
+    a, b = planned.shot.move_from, planned.shot.move_to
+    p = f"(0.5-0.5*cos(PI*on/{frames - 1}))"  # eased 0 → 1 over the shot
+
+    def mix(x: float, y: float) -> str:
+        return f"({x}+({y}-{x})*{p})"
+
+    zoom = mix(a.zoom, b.zoom)
+    cx, cy = mix(a.x, b.x), mix(a.y, b.y)
+    x = f"max(0,min(iw-iw/({zoom}),{cx}*iw-iw/(2*{zoom})))"
+    y = f"max(0,min(ih-ih/({zoom}),{cy}*ih-ih/(2*{zoom})))"
+    big = (width * SUPERSAMPLE, height * SUPERSAMPLE)
+    return (
+        f"scale={big[0]}:{big[1]}:force_original_aspect_ratio=increase,crop={big[0]}:{big[1]},"
+        f"zoompan=z='{zoom}':x='{x}':y='{y}':d=1:s={width}x{height}:fps={fps},format=yuv420p"
+    )
+
+
+def _clip(planned: PlannedShot, size, fps, out: Path, *, draft: bool) -> None:
+    ffmpeg.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-framerate", str(fps), "-t", f"{planned.duration:.3f}",
+            "-i", str(planned.shot.still), "-vf", zoompan_filter(planned, size, fps), "-frames:v", str(max(2, round(planned.duration * fps))),
+            "-c:v", "libx264", "-preset", "ultrafast" if draft else "veryfast", "-crf", "20" if draft else "12", "-an", str(out),
+        ]
+    )  # fmt: skip
+
+
+def _cut(line) -> str:
+    """The filter that takes a line out of a longer take (empty when it is the whole file)."""
+    if not line.start and line.end is None:
+        return ""
+    end = f":end={line.end:.4f}" if line.end is not None else ""
+    return f"atrim=start={line.start:.4f}{end},asetpts=PTS-STARTPTS,"
+
+
+def _narration(planned: PlannedShot, out: Path) -> None:
+    """One wav, exactly the shot's length: its lines and sound effects delayed into place."""
+    inputs: list[str] = []
+    chains: list[str] = []
+    labels: list[str] = []
+    pieces = [(p.line.audio, p.start - planned.start, 1.0, _cut(p.line)) for p in planned.lines if p.line.audio] + [
+        (fx.audio, fx.at, fx.volume, "") for fx in planned.shot.sfx
+    ]
+    for n, (file, at, volume, cut) in enumerate(pieces):
+        inputs += ["-i", str(file)]
+        chains.append(
+            f"[{n}:a]{cut}aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,adelay={round(max(at, 0) * 1000)}:all=1,volume={volume}[a{n}]"
+        )
+        labels.append(f"[a{n}]")
+    if not pieces:
+        ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo", "-t", f"{planned.duration:.3f}", str(out)])
+        return
+    mix = f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest,apad,atrim=0:{planned.duration:.3f}[out]"
+    ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), str(out)])
+
+
+def _join(files: list[Path], out: Path, work: Path, *, kind: str) -> None:
+    listing = work / f"{kind}.txt"
+    listing.write_text("".join(f"file '{f}'\n" for f in files))
+    ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(out)])
+
+
+def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | None = None) -> dict:
+    """Render the manifest to `out`. Returns what was made: duration and the measured result."""
+    timeline: Timeline = plan(manifest)
+    size = (manifest.size[0] // 2, manifest.size[1] // 2) if draft else manifest.size
+    fps = 24 if draft else manifest.fps
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="storyrender-") as tmp:
+        work = Path(keep) if keep else Path(tmp)
+        work.mkdir(parents=True, exist_ok=True)
+        clips, wavs = [], []
+        for i, planned in enumerate(timeline.shots):
+            clip, wav = work / f"clip{i:03d}.mp4", work / f"narration{i:03d}.wav"
+            _clip(planned, size, fps, clip, draft=draft)
+            _narration(planned, wav)
+            clips.append(clip)
+            wavs.append(wav)
+        _join(clips, work / "video.mp4", work, kind="video")
+        _join(wavs, work / "narration.wav", work, kind="audio")
+        (work / "captions.ass").write_text(captions.ass(timeline, size, manifest.caption))
+        _final(manifest, timeline, work, out, size, fps, draft=draft)
+    result = ffmpeg.probe(out)
+    seconds = float(result["format"]["duration"])
+    return {
+        "output": str(out),
+        "planned_seconds": round(timeline.duration, 3),
+        "measured_seconds": round(seconds, 3),
+        "shots": len(timeline.shots),
+        "captions": len(captions.cues(timeline)),
+        "short_ok": seconds <= MAX_SHORT_SECONDS,
+    }
+
+
+def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, fps, *, draft: bool) -> None:
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", "video.mp4", "-i", "narration.wav"]
+    audio = "[1:a]"
+    chain: list[str] = []
+    if manifest.music:
+        cmd += ["-stream_loop", "-1", "-i", manifest.music["audio"]]
+        fade_at = max(0.0, timeline.duration - 2.0)
+        chain.append(
+            f"[2:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,volume={manifest.music['volume']},afade=t=out:st={fade_at:.3f}:d=2,atrim=0:{timeline.duration:.3f}[bed]"
+        )
+        chain.append("[1:a][bed]amix=inputs=2:normalize=0:duration=first[mix]")
+        audio = "[mix]"
+    if manifest.loudnorm:
+        chain.append(f"{audio}loudnorm=I=-16:TP=-1.5:LRA=11[aout]")
+        audio = "[aout]"
+    cmd += ["-filter_complex", ";".join(chain)] if chain else []
+    cmd += [
+        "-vf", "subtitles=captions.ass", "-map", "0:v", "-map", audio if chain else "1:a",
+        "-c:v", "libx264", "-preset", "ultrafast" if draft else "medium", "-crf", "28" if draft else "18", "-pix_fmt", "yuv420p", "-r", str(fps),
+        "-c:a", "aac", "-b:a", "192k", "-ar", str(SAMPLE_RATE), "-t", f"{timeline.duration:.3f}", "-movflags", "+faststart",
+        "-metadata", f"title={manifest.title}", str(out.resolve()),
+    ]  # fmt: skip
+    ffmpeg.run(cmd, cwd=work)
+
+
+
