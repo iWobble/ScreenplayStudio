@@ -12,7 +12,9 @@ In Claude Code the default is a prompt handoff (see SKILL.md): `cast/<Name>.prom
 
 ## Bases belong to the world
 
-A base is the general figure an actor is made from. Storyworld's two adult bases are in `assets/adult-bases.jpg`. Children (the twins) need their own girl and boy bases, since child proportions are not a smaller adult; animals, or anything else a world has, need theirs. Make each base as a front, side and back sheet in the world's style, list it in the world's `bases`, and only then make actors from it.
+A base is the general figure an actor is made from. It is for **construction**: proportions and silhouette. Add a base only when making an actor from another one would look wrong (a different body, not a different person). Age within a base is the actor's business: an older adult is the same construction with a different look.
+
+Storyworld has three: **woman** and **man** (`assets/adult-bases.jpg`) and **child** (`assets/child-base.jpg`, a neutral child of about 12; hair and clothes make the girl or the boy, since the two share proportions at that age). Prompt for the child sheet: `cast/bases/child-base.prompt.txt`. Another world lists its own, one per body plan (a farm world: hen, cow, pig, dog; not one per animal). Make each base as a front, side and back sheet in the world's style, list it in the world's `bases`, and only then make actors from it.
 
 ## The actor record
 
@@ -22,7 +24,7 @@ Fill these `actor` fields in Marvin from the sheet and the brief. Leave a field 
 |---|---|
 | `title` | the actor's name (the slug is the name in lower case: `nell`) |
 | `world` | the world's slug, e.g. `storyworld` |
-| `base` | the general figure it was made from: one of the **world's bases** (Storyworld has woman and man from `adult-bases.jpg`; children need girl and boy bases, and another world would have its own, say a dog or a cat). A world lists its bases in its `bases` field, each with a base sheet |
+| `base` | the general figure it was made from: one of the **world's bases** (Storyworld has woman, man and child). A world lists its bases in its `bases` field, each with a base sheet |
 | `presence` | `on screen`, or `voice only` for a voice actor (no picture is made; a placeholder stands in) |
 | `age` | years, only when set |
 | `build`, `hair`, `skin_tone` | one line each. Skin tone describes the artwork, not ethnicity |
