@@ -16,7 +16,13 @@ def story_of(job: dict) -> str:
     return story.strip()
 
 
-@job_kind("audio-cut")
+@job_kind(
+    "audio-cut",
+    description="Stitch a story's recorded speech lines, sound effects and scene ambience into one mp3 with a timeline naming each line",
+    inputs={"story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"}},
+    produces=["audio/mpeg"],
+    needs=["ffmpeg"],
+)
 def audio_cut(job: dict, ctx: Context) -> dict:
     """The recorded lines of a story stitched into one mp3, with a timeline naming each line (see `listen`)."""
     story, name = story_of(job), job["job"]

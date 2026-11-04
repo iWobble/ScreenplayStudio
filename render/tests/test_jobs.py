@@ -104,4 +104,13 @@ def test_audio_cut_of_a_story_that_isnt_there_says_why_on_the_record(marvin):
 def test_audio_cut_needs_a_story(marvin):
     serve.run_job({"kind": "audio-cut", "job": "render-job-1", "args": {}}, marvin)
 
-    assert _data("render-job-1")["status"] == "failed" and "args.story" in _data("render-job-1")["log"]
+    assert _data("render-job-1")["status"] == "failed" and "“story” is needed" in _data("render-job-1")["log"]
+
+
+def test_audio_cut_declares_its_contract_so_a_worker_can_tell_marvin_what_it_takes_and_needs():
+    from marvin_worker import jobs as worker_jobs
+
+    (contract,) = worker_jobs.describe_kinds(["audio-cut"])
+
+    assert contract["inputs"]["story"]["required"] is True and contract["produces"] == ["audio/mpeg"] and contract["needs"] == ["ffmpeg"]
+    assert "story" in worker_jobs.META["audio-cut"]["inputs"]
