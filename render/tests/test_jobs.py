@@ -20,6 +20,7 @@ class FakeMarvin(BaseHTTPRequestHandler):
 
     entries: list = []
     uploads: list = []
+    trashed: list = []
     audio: bytes = b""
 
     def _json(self, status, body):
@@ -52,6 +53,10 @@ class FakeMarvin(BaseHTTPRequestHandler):
         row = next(e for e in FakeMarvin.entries if f"/{e['id']}" in self.path)
         row["dataJson"] = body["dataJson"]
         self._json(200, row)
+
+    def do_DELETE(self):  # noqa: N802
+        FakeMarvin.trashed.append(self.path.rsplit("/", 1)[-1])
+        self._json(200, {"status": "ok"})
 
     def log_message(self, *args):
         pass
@@ -147,3 +152,15 @@ def test_script_declares_what_it_takes_gives_and_needs():
 
     assert contract["inputs"]["story"]["required"] is True and contract["needs"] == ["screenplain"]
     assert contract["produces"] == ["text/plain", "application/pdf", "text/html"]
+
+
+@needs_screenplain
+def test_making_the_script_again_trashes_the_copies_it_replaces(marvin):
+    story = next(e for e in FakeMarvin.entries if e["slug"] == STORY)
+    story["dataJson"] = {**story["dataJson"], "script_pdf": "old-pdf", "script_html": "old-html", "script_fountain": "asset-new"}
+    FakeMarvin.entries.append({"id": "e6", "slug": "render-job-3", "dataJson": {"kind": "script", "args": {"story": STORY}, "status": "claimed"}})
+    FakeMarvin.trashed.clear()
+
+    serve.run_job({"kind": "script", "job": "render-job-3", "args": {"story": STORY}}, marvin)
+
+    assert sorted(FakeMarvin.trashed) == ["old-html", "old-pdf"]  # the fountain's id did not change, so it is not trashed

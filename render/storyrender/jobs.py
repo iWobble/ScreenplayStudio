@@ -75,7 +75,14 @@ def make_script(job: dict, ctx: Context) -> dict:
         )
         for kind, mime in SCRIPT_FILES.items()
     }
+    before = {kind: (records["story"].get("dataJson") or {}).get(f"script_{kind}") for kind in assets}
     marvin_api.update_entry(ctx.creds, story, {f"script_{kind}": asset["id"] for kind, asset in assets.items()})
+    for kind, old in before.items():  # the script is made from the records, so the last copy is not kept: it goes to the Trash (restorable), not piled up beside the new one
+        if old and old != assets[kind]["id"]:
+            try:
+                marvin_api.request(ctx.creds, f"/api/platform/assets/{old}", method="DELETE")
+            except marvin_api.MarvinError:
+                pass  # an old copy that cannot be trashed must not fail a script that was made
     pages = {"pdf": made["pdf"].name}
     return {
         "result": {**{kind: asset["id"] for kind, asset in assets.items()}, "urls": {kind: asset.get("publicUrl") for kind, asset in assets.items()}, "beats": len(records["beats"])},
