@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "15",
+  "version": "16",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -2599,17 +2599,16 @@
       "kind": "collection",
       "slug": "screenplay-troupe",
       "name": "Screenplay Studio: Troupe",
-      "description": "The world's actors, and their voices: who can be cast.",
+      "description": "The world's actors: who can be cast. Each is a person with a name and a general look; the characters they play are in the Cast.",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [
-        "entry_type:actor",
-        "entry_type:voice"
+        "entry_type:actor"
       ],
       "parameters": [],
       "payload": {
-        "description": "The world's actors, and their voices: who can be cast.",
+        "description": "The world's actors: who can be cast. Each is a person with a name and a general look; the characters they play are in the Cast.",
         "icon": "\ud83e\uddd1\u200d\ud83c\udfa4",
         "color": "#0EA5E9",
         "is_smart": true,
@@ -2618,8 +2617,7 @@
         "sort_order": 3,
         "smart_rules": {
           "entry_types": [
-            "actor",
-            "voice"
+            "actor"
           ],
           "match": "all"
         }
@@ -2629,17 +2627,18 @@
       "kind": "collection",
       "slug": "screenplay-cast",
       "name": "Screenplay Studio: Cast",
-      "description": "The characters, with the actors who play them, and the castings (who was considered for a role).",
+      "description": "The characters, shown as Character (Actor), with their voices, and the castings (who was considered for a role).",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [
         "entry_type:cast-member",
-        "entry_type:casting"
+        "entry_type:casting",
+        "entry_type:voice"
       ],
       "parameters": [],
       "payload": {
-        "description": "The characters, with the actors who play them, and the castings (who was considered for a role).",
+        "description": "The characters, shown as Character (Actor), with their voices, and the castings (who was considered for a role).",
         "icon": "\ud83c\udfad",
         "color": "#DB2777",
         "is_smart": true,
@@ -2649,7 +2648,8 @@
         "smart_rules": {
           "entry_types": [
             "cast-member",
-            "casting"
+            "casting",
+            "voice"
           ],
           "match": "all"
         }
