@@ -15,7 +15,7 @@ When the story lives in a Marvin workspace (my-studio on your-marvin.example.com
 | `beat` | one moment: shot, cast in frame, `expression`, `focus` prop, `references`, `lead_seconds`/`gap_seconds`/`tail_seconds`, `sounds` | status queued, made, approved |
 | `still` | the request and the picture made from a beat | |
 | `speech-line` | what is spoken (`text` is the source; `direction`, `delivery_text`, `caption`, `stability`, `similarity_boost`, `style`, `speed`, `take_notes`), its voice, its takes | the script and beat sheet are copies of this |
-| `voice` | an ElevenLabs voice id: an **actor's** voice (listed in the Troupe, titled `Sarah's voice`), which a character uses unless it names another | free tier cannot use library voices; premade ones work |
+| `voice` | one voice from the workspace's ElevenLabs key: its id, kind (`category`), a `preview` clip to hear, and its labels as **tags** (male, british, deep...). The **Voice library** lists them all; an actor's `voice` names one and a character uses it unless it names another. Re-run List voices to pick up new ones (library voices need a paid plan) | one per ElevenLabs voice; a story's own record (`the-last-onion-voice-cook`) also carries the `speaker` its lines use |
 | `sound` | a reusable sound (`kind` effect or ambience, `source`, optional `story`), tagged | **library item**: any story's beat or scene may name it by slug |
 | `job`, `job-kind`, `worker` | heavy work queued for a worker (the audio cut), what runs it, who is alive | see Workers |
 

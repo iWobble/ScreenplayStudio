@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "20",
+  "version": "21",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1425,17 +1425,34 @@
         "schema_json": {
           "fields": [
             {
-              "key": "speaker",
-              "label": "Speaker",
-              "type": "text",
-              "required": true,
-              "helpText": "Narrator, Cook, Captain, ..."
-            },
-            {
               "key": "elevenlabs_voice_id",
               "label": "ElevenLabs voice id",
               "type": "text",
               "required": true
+            },
+            {
+              "key": "category",
+              "label": "Kind",
+              "type": "text",
+              "helpText": "premade, cloned, generated or professional (as ElevenLabs lists it). Its other labels (gender, age, accent, style) are the voice's tags."
+            },
+            {
+              "key": "language",
+              "label": "Language",
+              "type": "text"
+            },
+            {
+              "key": "preview",
+              "label": "Preview",
+              "type": "asset",
+              "role": "preview",
+              "helpText": "A short clip of the voice, to hear it."
+            },
+            {
+              "key": "speaker",
+              "label": "Speaker",
+              "type": "text",
+              "helpText": "Only on a story's own voice: the name its speech lines use (narrator, cook, captain)."
             },
             {
               "key": "settings",
@@ -2791,6 +2808,34 @@
         "smart_rules": {
           "entry_types": [
             "render-job"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "screenplay-voices",
+      "name": "Screenplay Studio: Voice library",
+      "description": "Every ElevenLabs voice on the workspace's key, with its preview to hear and its labels as tags (male, british, deep...). An actor picks one.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:voice"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "Every ElevenLabs voice on the workspace's key, with its preview to hear and its labels as tags (male, british, deep...). An actor picks one.",
+        "icon": "\ud83c\udfa4",
+        "color": "#0891B2",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 8,
+        "smart_rules": {
+          "entry_types": [
+            "voice"
           ],
           "match": "all"
         }
