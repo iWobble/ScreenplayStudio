@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "18",
+  "version": "19",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -215,17 +215,24 @@
               "rows": 3
             },
             {
+              "key": "distinguishing_features",
+              "label": "Distinguishing features",
+              "type": "textarea",
+              "rows": 2,
+              "helpText": "What picks them out in a lineup (a beard, an earring, a hairstyle). Not costume or props; this is how you find an actor for a role."
+            },
+            {
+              "key": "baseline_wardrobe",
+              "label": "Baseline wardrobe",
+              "type": "textarea",
+              "rows": 3,
+              "helpText": "What they wear in the plain actor sheet. A role's costume replaces it; it is not part of who they are."
+            },
+            {
               "key": "voice",
               "label": "Default voice (voice entry slug)",
               "type": "text",
               "helpText": "The voice they have unless a character gives another."
-            },
-            {
-              "key": "voice_sample",
-              "label": "Voice sample",
-              "type": "asset",
-              "role": "voice_sample",
-              "helpText": "A short clip of their voice, to hear who they are: ElevenLabs' own preview, a line made in their voice, or your own recording."
             },
             {
               "key": "general_view",
@@ -233,6 +240,13 @@
               "type": "asset",
               "helpText": "The actor in plain base clothes: front, side and back.",
               "role": "general_view"
+            },
+            {
+              "key": "voice_sample",
+              "label": "Voice sample",
+              "type": "asset",
+              "role": "voice_sample",
+              "helpText": "A short clip of their voice, to hear who they are: ElevenLabs' own preview, a line made in their voice, or your own recording."
             },
             {
               "key": "status",
