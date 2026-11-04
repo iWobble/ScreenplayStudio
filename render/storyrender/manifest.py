@@ -45,6 +45,7 @@ class Line:
     speaker: str | None = None
     words: list[dict] = field(default_factory=list)
     caption: bool = True
+    ref: str | None = None  # what the line is called outside the manifest (its Marvin speech-line slug), so a timeline can name it
     start: float = 0.0  # seconds into the audio file where the line begins (a line cut from a longer take)
     end: float | None = None  # …and where it ends; None = the file's end. Word times are from `start`.
 
@@ -126,8 +127,9 @@ def _trim(ln: dict, total: float, where: str) -> tuple[float, float | None]:
     return start, end
 
 
-def load(path: Path, *, probe: Callable[[Path], float]) -> Manifest:
-    """Read and check a manifest. `probe` measures an audio file's seconds (ffprobe in real use)."""
+def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True) -> Manifest:
+    """Read and check a manifest. `probe` measures an audio file's seconds (ffprobe in real use). `need_stills=False` is for
+    listening: a shot's still may be missing then, because only the sound is made."""
     base = path.parent
     try:
         raw = json.loads(path.read_text())
@@ -147,9 +149,9 @@ def load(path: Path, *, probe: Callable[[Path], float]) -> Manifest:
     for i, s in enumerate(shots_raw, 1):
         sid = str(s.get("id") or f"shot{i}")
         where = f"shot {sid}"
-        if not s.get("still"):
+        if not s.get("still") and need_stills:
             raise ManifestError(f"{where}: no still")
-        still = audio_path(s["still"], f"{where} still")
+        still = audio_path(s["still"], f"{where} still") if (s.get("still") and (need_stills or (base / s["still"]).is_file())) else Path()
         move = s.get("move") or {}
         shot = Shot(
             id=sid,
@@ -181,6 +183,7 @@ def load(path: Path, *, probe: Callable[[Path], float]) -> Manifest:
                     speaker=ln.get("speaker"),
                     words=[w for w in ln.get("words") or [] if isinstance(w, dict)],
                     caption=bool(ln.get("caption", file is not None)),
+                    ref=ln.get("id"),
                     start=start,
                     end=end,
                 )

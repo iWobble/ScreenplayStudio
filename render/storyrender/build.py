@@ -140,3 +140,51 @@ def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, 
 
 
 
+
+
+def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
+    """Stitch the story's sound alone into one mp3, with the same timing a render would have, and say where each line sits.
+    Returns the length and the `timeline`: every shot and line with its start and end in seconds, so "at 0:41 it needs to
+    say something else" can be turned into the line to change."""
+    timeline: Timeline = plan(manifest)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="storyrender-") as tmp:
+        work = Path(keep) if keep else Path(tmp)
+        work.mkdir(parents=True, exist_ok=True)
+        wavs = []
+        for i, planned in enumerate(timeline.shots):
+            wav = work / f"narration{i:03d}.wav"
+            _narration(planned, wav)
+            wavs.append(wav)
+        _join(wavs, work / "narration.wav", work, kind="audio")
+        ffmpeg.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(work / "narration.wav"), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-q:a", "2", str(out)]
+        )
+    return {
+        "output": str(out),
+        "seconds": round(float(ffmpeg.probe(out)["format"]["duration"]), 3),
+        "timeline": [
+            {
+                "shot": planned.shot.id,
+                "start": round(planned.start, 3),
+                "lines": [
+                    {
+                        "id": p.line.ref,
+                        "speaker": p.line.speaker,
+                        "text": p.line.text,
+                        "start": round(p.start, 3),
+                        "end": round(p.start + p.line.duration, 3),
+                    }
+                    for p in planned.lines
+                ],
+            }
+            for planned in timeline.shots
+            if planned.lines
+        ],
+    }
+
+
+def timecode(seconds: float) -> str:
+    """m:ss.s, as a player shows it, so a note like "at 0:41" matches the timeline."""
+    minutes, rest = divmod(seconds, 60)
+    return f"{int(minutes)}:{rest:04.1f}"

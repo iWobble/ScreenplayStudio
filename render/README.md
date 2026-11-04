@@ -39,3 +39,24 @@ Not run against real YouTube yet: it is tested against a fake Google.
 Quota (checked against Google's docs 2026-11-03): `videos.insert` has its own bucket, 100 calls a day by default, 1 unit each.
 Still unverified: whether a project that hasn't passed Google's API audit has its uploads locked to private. The first real upload
 will show it (the module only uploads private, so this costs nothing to find out).
+
+## The worker (a container)
+
+The heavy jobs run on Marvin's generic job worker (`~/code/MarvinWorker`: an HTTP service that takes a job, does it, and writes the
+outcome back to a record in Marvin). This package supplies the media kinds, in `storyrender/jobs.py`, and a thin image on the worker's
+base image that adds ffmpeg:
+
+```
+docker build -f ../../MarvinWorker/docker/Dockerfile -t marvin-worker-base ../../MarvinWorker
+docker build -t storyrender-worker .
+docker run --rm -p 8080:8080 -e MARVIN_API_URL=https://your-marvin.example.com -e MARVIN_USER_TOKEN=… -e WORKER_TOKEN=… storyrender-worker
+```
+
+| kind | args | does |
+|---|---|---|
+| `audio-cut` | `{"story": "the-last-onion"}` | pulls the recorded lines, stitches them (`listen`), uploads the mp3 as an asset and sets the record's `audio`, `timeline` (each line's start and end, named by its speech-line slug), `status` and `log` |
+
+Without a container platform it is plain Python: `pip install -e ../../MarvinWorker`, then
+`WORKER_JOB_MODULES=storyrender.jobs python -m marvin_worker`. `listen` and `pull` also work by hand
+(`python3 -m storyrender pull the-last-onion --out build/onion`, then `python3 -m storyrender listen build/onion/manifest.json`):
+they print each line's time next to its slug.

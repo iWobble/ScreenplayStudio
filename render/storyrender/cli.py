@@ -1,11 +1,11 @@
-"""storyrender — `render`, `plan`, `from-beats`, `demo`, `youtube`."""
+"""storyrender — `pull`, `listen`, `render`, `plan`, `from-beats`, `demo`, `youtube`."""
 
 import argparse
 import json
 import sys
 from pathlib import Path
 
-from . import beats, build, demo, ffmpeg, manifest, youtube
+from . import beats, build, demo, ffmpeg, manifest, marvin_pull, youtube
 
 
 def _load(path: str) -> manifest.Manifest:
@@ -37,6 +37,27 @@ def cmd_plan(a) -> int:
             indent=2,
         )
     )
+    return 0
+
+
+def cmd_listen(a) -> int:
+    m = manifest.load(Path(a.manifest), probe=ffmpeg.duration, need_stills=False)
+    out = Path(a.output) if a.output else Path(a.manifest).with_name("rough-cut.mp3")
+    result = build.listen(m, out, keep=Path(a.keep) if a.keep else None)
+    (out.with_suffix(".timeline.json")).write_text(json.dumps(result["timeline"], indent=2, ensure_ascii=False))
+    print(f"{out}  ({build.timecode(result['seconds'])})\n")
+    for shot in result["timeline"]:
+        for line in shot["lines"]:
+            who = (line["speaker"] or "").ljust(9)
+            print(f"{build.timecode(line['start'])}  {shot['shot']:<5} {who} {line['text'][:60]}   [{line['id'] or ''}]")
+    return 0
+
+
+def cmd_pull(a) -> int:
+    result = marvin_pull.pull(a.story, Path(a.out))
+    print(json.dumps(result, indent=2))
+    if result["not_recorded"]:
+        print(f"note: {len(result['not_recorded'])} lines have no recording yet and are left out", file=sys.stderr)
     return 0
 
 
@@ -81,6 +102,15 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--draft", action="store_true", help="half size, fast encode, to check timing")
     r.add_argument("--keep", help="keep the intermediate files in this folder")
     r.set_defaults(fn=cmd_render)
+    pl = sub.add_parser("pull", help="Marvin story → manifest.json + the recorded takes (reads with the CLI's token; changes nothing in Marvin)")
+    pl.add_argument("story", help="the story entry's slug, e.g. the-last-onion")
+    pl.add_argument("--out", required=True)
+    pl.set_defaults(fn=cmd_pull)
+    li = sub.add_parser("listen", help="manifest → one rough-cut mp3 of the sound alone, and a timeline naming each line")
+    li.add_argument("manifest")
+    li.add_argument("-o", "--output")
+    li.add_argument("--keep", help="keep the intermediate files in this folder")
+    li.set_defaults(fn=cmd_listen)
     s = sub.add_parser("plan", help="print the timeline a manifest implies (measures audio, renders nothing)")
     s.add_argument("manifest")
     s.set_defaults(fn=cmd_plan)
@@ -105,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         p.error("youtube upload needs a video file and --title")
     try:
         return args.fn(args)
-    except (manifest.ManifestError, ffmpeg.FfmpegError, youtube.YouTubeError) as e:
+    except (manifest.ManifestError, ffmpeg.FfmpegError, youtube.YouTubeError, marvin_pull.PullError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
 
