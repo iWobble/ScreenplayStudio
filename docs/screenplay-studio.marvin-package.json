@@ -1,9 +1,9 @@
 {
   "format": 1,
-  "slug": "storyworld",
-  "name": "Storyworld",
-  "description": "Narrated illustrated stories: cast, scenes, beats, speech lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "13",
+  "slug": "screenplay-studio",
+  "name": "Screenplay Studio",
+  "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
+  "version": "14",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1168,7 +1168,7 @@
       "kind": "entry_type",
       "slug": "story",
       "name": "Story",
-      "description": "A narrated, illustrated Storyworld story.",
+      "description": "A narrated, illustrated story: a screenplay made into a film.",
       "required": false,
       "category": "General",
       "source": "core",
@@ -1178,7 +1178,7 @@
         "name": "Story",
         "icon": "\ud83d\udcd6",
         "color": "#7C3AED",
-        "description": "A narrated, illustrated Storyworld story.",
+        "description": "A narrated, illustrated story: a screenplay made into a film.",
         "sort_order": 0,
         "is_rendered": false,
         "schema_json": {
@@ -1503,7 +1503,7 @@
       "kind": "entry_type",
       "slug": "world",
       "name": "World",
-      "description": "A Storyworld setting: premise, rules and place.",
+      "description": "A world: its premise, the rules of its look, and its place. Stories, actors and characters belong to a world.",
       "required": false,
       "category": "General",
       "source": "core",
@@ -1513,7 +1513,7 @@
         "name": "World",
         "icon": "\ud83c\udf0d",
         "color": "#16A34A",
-        "description": "A Storyworld setting: premise, rules and place.",
+        "description": "A world: its premise, the rules of its look, and its place. Stories, actors and characters belong to a world.",
         "sort_order": 0,
         "is_rendered": false,
         "schema_json": {
@@ -1548,8 +1548,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-audio-cut",
-      "name": "Storyworld: cut the audio of a story",
+      "slug": "screenplay-audio-cut",
+      "name": "Screenplay: cut the audio of a story",
       "description": "",
       "required": false,
       "category": "General",
@@ -1557,7 +1557,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: cut the audio of a story",
+        "name": "Screenplay: cut the audio of a story",
         "definition": {
           "trigger": {
             "type": "manual",
@@ -1592,8 +1592,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-audio-cut-done",
-      "name": "Storyworld: listen to a finished audio cut",
+      "slug": "screenplay-audio-cut-done",
+      "name": "Screenplay: listen to a finished audio cut",
       "description": "",
       "required": false,
       "category": "General",
@@ -1601,7 +1601,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: listen to a finished audio cut",
+        "name": "Screenplay: listen to a finished audio cut",
         "definition": {
           "trigger": {
             "type": "event",
@@ -1641,8 +1641,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-make-line",
-      "name": "Storyworld: queue a speech line for a new take",
+      "slug": "screenplay-make-line",
+      "name": "Screenplay: queue a speech line for a new take",
       "description": "",
       "required": false,
       "category": "General",
@@ -1650,7 +1650,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: queue a speech line for a new take",
+        "name": "Screenplay: queue a speech line for a new take",
         "definition": {
           "trigger": {
             "type": "manual",
@@ -1678,8 +1678,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-make-sound",
-      "name": "Storyworld: queue a sound for a new take",
+      "slug": "screenplay-make-sound",
+      "name": "Screenplay: queue a sound for a new take",
       "description": "",
       "required": false,
       "category": "General",
@@ -1687,7 +1687,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: queue a sound for a new take",
+        "name": "Screenplay: queue a sound for a new take",
         "definition": {
           "trigger": {
             "type": "manual",
@@ -1715,8 +1715,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-make-still",
-      "name": "Storyworld: queue a beat for a new still",
+      "slug": "screenplay-make-still",
+      "name": "Screenplay: queue a beat for a new still",
       "description": "",
       "required": false,
       "category": "General",
@@ -1724,7 +1724,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: queue a beat for a new still",
+        "name": "Screenplay: queue a beat for a new still",
         "definition": {
           "trigger": {
             "type": "manual",
@@ -1752,8 +1752,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-record-lines",
-      "name": "Storyworld: record the next lines of a story",
+      "slug": "screenplay-record-lines",
+      "name": "Screenplay: record the next lines of a story",
       "description": "",
       "required": false,
       "category": "General",
@@ -1761,7 +1761,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: record the next lines of a story",
+        "name": "Screenplay: record the next lines of a story",
         "definition": {
           "trigger": {
             "type": "manual",
@@ -1885,8 +1885,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-still-beat-03",
-      "name": "Storyworld still: beat 03 (references trial)",
+      "slug": "screenplay-take-created",
+      "name": "Screenplay: a new take is the one in use",
       "description": "",
       "required": false,
       "category": "General",
@@ -1894,104 +1894,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld still: beat 03 (references trial)",
-        "definition": {
-          "trigger": {
-            "type": "manual"
-          },
-          "actions": [
-            {
-              "kind": "approval",
-              "id": "spend",
-              "message": "Make the still for beat 03 (the cook at the near-empty shelf) with the cook master as the reference? It uses OpenAI image credit."
-            },
-            {
-              "kind": "integration",
-              "id": "still",
-              "integration": "openai_images",
-              "action": "edit",
-              "args": {
-                "prompt": "Use the reference picture for the old ship cook: keep his face shape, hair, beard, build, clothes, peg leg and the rounded miniature illustration style exactly as drawn. New scene: the cook stands in front of an almost empty wooden provision shelf in a ship's hold, warm lantern light. Only three things sit on the otherwise bare shelf, clearly visible together: two small scraps of pork, one flat hard ship's biscuit with a few small weevil holes in it, and a single onion. His brows are tilted down and his mouth is a flat, tired line: weary resignation, not a smile. Vertical portrait composition, the same warm palette and soft rounded shapes. No text, no writing."
-              },
-              "references": [
-                "old-ship-cook-master-v1"
-              ]
-            },
-            {
-              "kind": "approval",
-              "id": "keep",
-              "message": "Keep this still for beat 03?",
-              "choices": [
-                "Keep",
-                "Redo"
-              ],
-              "image": "${steps.still.output.asset.url}"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "kind": "workflow",
-      "slug": "storyworld-still-beat-04",
-      "name": "Storyworld still: beat 04 (two-shot trial)",
-      "description": "",
-      "required": false,
-      "category": "General",
-      "source": "core",
-      "requires": [],
-      "parameters": [],
-      "payload": {
-        "name": "Storyworld still: beat 04 (two-shot trial)",
-        "definition": {
-          "trigger": {
-            "type": "manual"
-          },
-          "actions": [
-            {
-              "kind": "approval",
-              "id": "spend",
-              "message": "Redo beat 04 (cook and captain, cabin two-shot) with the unfinished letters on the table and no invented props? It uses OpenAI image credit."
-            },
-            {
-              "kind": "integration",
-              "id": "still",
-              "integration": "openai_images",
-              "action": "edit",
-              "args": {
-                "prompt": "Two reference pictures: the old ship cook (peg leg, apron) and the pirate captain (navy and gold coat, burgundy waistcoat, auburn hair). Keep each character's face, hair, build, clothes and the rounded miniature illustration style exactly as drawn in their reference. New scene: the captain's cabin, warm lantern light, a plain wooden table. The captain sits behind a spread nautical chart, composed and dismissive. A single whole onion lies in the middle of the chart. The cook stands at the table's edge, his hand just withdrawn from the onion, chin slightly lifted. His mouth is a flat straight line and his brows are level: deadpan, not smiling. On the table beside the chart: a few folded letters, an inkwell with a quill, and one open unfinished sheet near the captain's hand with only faint scribbled lines, no readable writing. Both characters clearly visible together, a cabin two-shot. Keep the cabin simple: no sextant, globe, painting or other extra props. Vertical portrait composition, the same warm palette and soft rounded shapes. No text, no letters, no writing."
-              },
-              "references": [
-                "old-ship-cook-master-v1",
-                "pirate-captain-master-v1"
-              ]
-            },
-            {
-              "kind": "approval",
-              "id": "keep",
-              "message": "Keep this still for beat 04? Check both faces against their masters.",
-              "choices": [
-                "Keep",
-                "Redo"
-              ],
-              "image": "${steps.still.output.asset.url}"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "kind": "workflow",
-      "slug": "storyworld-take-created",
-      "name": "Storyworld: a new take is the one in use",
-      "description": "",
-      "required": false,
-      "category": "General",
-      "source": "core",
-      "requires": [],
-      "parameters": [],
-      "payload": {
-        "name": "Storyworld: a new take is the one in use",
+        "name": "Screenplay: a new take is the one in use",
         "definition": {
           "trigger": {
             "type": "event",
@@ -2054,8 +1957,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-take-line",
-      "name": "Storyworld: take a speech line",
+      "slug": "screenplay-take-line",
+      "name": "Screenplay: take a speech line",
       "description": "",
       "required": false,
       "category": "General",
@@ -2063,7 +1966,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: take a speech line",
+        "name": "Screenplay: take a speech line",
         "definition": {
           "trigger": {
             "type": "event",
@@ -2194,8 +2097,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-take-line-tagged",
-      "name": "Storyworld: take a line with delivery tags",
+      "slug": "screenplay-take-line-tagged",
+      "name": "Screenplay: take a line with delivery tags",
       "description": "",
       "required": false,
       "category": "General",
@@ -2203,7 +2106,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: take a line with delivery tags",
+        "name": "Screenplay: take a line with delivery tags",
         "definition": {
           "trigger": {
             "type": "event",
@@ -2336,8 +2239,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-take-sound",
-      "name": "Storyworld: take a sound effect",
+      "slug": "screenplay-take-sound",
+      "name": "Screenplay: take a sound effect",
       "description": "",
       "required": false,
       "category": "General",
@@ -2345,7 +2248,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: take a sound effect",
+        "name": "Screenplay: take a sound effect",
         "definition": {
           "trigger": {
             "type": "event",
@@ -2434,8 +2337,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-take-still",
-      "name": "Storyworld: take a still for a beat",
+      "slug": "screenplay-take-still",
+      "name": "Screenplay: take a still for a beat",
       "description": "",
       "required": false,
       "category": "General",
@@ -2443,7 +2346,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: take a still for a beat",
+        "name": "Screenplay: take a still for a beat",
         "definition": {
           "trigger": {
             "type": "event",
@@ -2551,8 +2454,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-use-take",
-      "name": "Storyworld: use a take",
+      "slug": "screenplay-use-take",
+      "name": "Screenplay: use a take",
       "description": "",
       "required": false,
       "category": "General",
@@ -2560,7 +2463,7 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: use a take",
+        "name": "Screenplay: use a take",
         "definition": {
           "trigger": {
             "type": "event",
@@ -2634,8 +2537,8 @@
     },
     {
       "kind": "collection",
-      "slug": "storyworld-stories",
-      "name": "Storyworld: Stories",
+      "slug": "screenplay-stories",
+      "name": "Stories",
       "description": "Every story.",
       "required": false,
       "category": "General",
@@ -2662,8 +2565,8 @@
     },
     {
       "kind": "collection",
-      "slug": "storyworld-world",
-      "name": "Storyworld: World",
+      "slug": "screenplay-world",
+      "name": "World",
       "description": "The world and its pictures: the look every story shares.",
       "required": false,
       "category": "General",
@@ -2694,8 +2597,8 @@
     },
     {
       "kind": "collection",
-      "slug": "storyworld-troupe",
-      "name": "Storyworld: Troupe",
+      "slug": "screenplay-troupe",
+      "name": "Troupe",
       "description": "The world's actors, and their voices: who can be cast.",
       "required": false,
       "category": "General",
@@ -2724,8 +2627,8 @@
     },
     {
       "kind": "collection",
-      "slug": "storyworld-cast",
-      "name": "Storyworld: Cast",
+      "slug": "screenplay-cast",
+      "name": "Cast",
       "description": "The characters, with the actors who play them, and the castings (who was considered for a role).",
       "required": false,
       "category": "General",
@@ -2754,8 +2657,8 @@
     },
     {
       "kind": "collection",
-      "slug": "storyworld-script",
-      "name": "Storyworld: Script",
+      "slug": "screenplay-script",
+      "name": "Script",
       "description": "Scenes, beats, spoken lines and the takes recorded of them.",
       "required": false,
       "category": "General",
@@ -2788,7 +2691,7 @@
     },
     {
       "kind": "collection",
-      "slug": "storyworld-sounds",
+      "slug": "screenplay-sounds",
       "name": "Sound library",
       "description": "Reusable sounds any story can use: effects and ambience.",
       "required": false,
@@ -2816,8 +2719,8 @@
     },
     {
       "kind": "collection",
-      "slug": "storyworld-renders",
-      "name": "Storyworld: Renders",
+      "slug": "screenplay-renders",
+      "name": "Renders",
       "description": "Render jobs: the finished films.",
       "required": false,
       "category": "General",

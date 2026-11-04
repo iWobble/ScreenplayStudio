@@ -104,7 +104,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
             shot["still"] = str(still.relative_to(out))
         shots.append(shot)
     if not shots:
-        raise PullError(f"“{story}” has no recorded lines yet: record some with the storyworld-record-lines workflow")
+        raise PullError(f"“{story}” has no recorded lines yet: record some with the screenplay-record-lines workflow")
     out.mkdir(parents=True, exist_ok=True)
     (out / "manifest.json").write_text(json.dumps({"title": story_row.get("title") or story, "shots": shots}, indent=2, ensure_ascii=False))
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing}
