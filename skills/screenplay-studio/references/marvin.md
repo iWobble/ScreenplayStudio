@@ -9,13 +9,13 @@ When the story lives in a Marvin workspace (my-studio on your-marvin.example.com
 | `world` | style rules for every picture | one place; never repeated into prompts by hand |
 | `story` | premise, `world`, `script` (markdown), format, status | `status`: script, voices, rough-cut, final, published |
 | `actor` | a person in the world's troupe: the look that stays the same in every role (`base` woman or man, build, hair, skin, a general-view picture, a default voice). Belongs to the **world** | not costume or props: a peg leg is a prop of the character, the actor has both legs |
-| `cast-member` (shown as **Character**) | an actor playing a role in **one story**: `story`, `actor`, `role`, `speaker` (the name its speech lines use, e.g. `captain`: the script breakdown joins lines to characters by it), `costume`, `props`, a voice override, and the approved master picture | a master must be approved before a still uses it; the same actor can be a different character in the next story |
+| `cast-member` (shown as **Character**) | an actor playing a role in **one story**: `story`, `actor`, `role`, `presence` (`on screen`, or `voice only` for someone heard and never seen, like the narrator: no picture needed), `speaker` (the name its speech lines use, e.g. `captain`: the script breakdown joins lines to characters by it), `costume`, `props`, a voice override, and the approved master picture | a master must be approved before a still uses it; the same actor can be a different character in the next story |
 | `casting` | the search for a role: a candidate `actor` for a `character`, `fit` (look, feel, voice), a `screen_test` picture, `status` (considering, auditioned, chosen, passed) | the chosen casting sets the character's `actor` |
 | `scene` | place, light, set dressing, continuity, `anchor` picture, ambience (and whether it is muffled) | every beat in the scene inherits it; put recurring props (the letters on the table) here, not in each beat |
 | `beat` | one moment: shot, cast in frame, `expression`, `focus` prop, `references`, `lead_seconds`/`gap_seconds`/`tail_seconds`, `sounds` | status queued, made, approved |
 | `still` | the request and the picture made from a beat | |
 | `speech-line` | what is spoken (`text` is the source; `direction`, `delivery_text`, `caption`, `stability`, `similarity_boost`, `style`, `speed`, `take_notes`), its voice, its takes | the script and beat sheet are copies of this |
-| `voice` | an ElevenLabs voice id | free tier cannot use library voices; premade ones work |
+| `voice` | an ElevenLabs voice id: an **actor's** voice (listed in the Troupe, titled `Sarah's voice`), which a character uses unless it names another | free tier cannot use library voices; premade ones work |
 | `sound` | a reusable sound (`kind` effect or ambience, `source`, optional `story`), tagged | **library item**: any story's beat or scene may name it by slug |
 | `job`, `job-kind`, `worker` | heavy work queued for a worker (the audio cut), what runs it, who is alive | see Workers |
 
