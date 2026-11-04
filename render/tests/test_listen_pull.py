@@ -141,27 +141,42 @@ def test_a_manifest_with_no_stills_still_needs_them_to_render(tmp_path):
         manifest.load(tmp_path / "m.json", probe=ffmpeg.duration)
 
 
-class _FakeMarvin(BaseHTTPRequestHandler):
-    seen_agents: list = []
-    audio = b"ID3 not really audio"
+S = "the-last-onion"
+_ROWS = [
 
-    def do_GET(self):  # noqa: N802
-        _FakeMarvin.seen_agents.append(self.headers.get("User-Agent"))
-        S = "the-last-onion"
-        routes = {
-            "/api/platform/entries?limit=500": [
                 {"slug": S, "title": "The Last Onion", "dataJson": {}},
                 {"slug": f"{S}-beat-02", "dataJson": {"story": S, "number": "02"}},
                 {"slug": f"{S}-beat-01", "dataJson": {"story": S, "number": "01", "scene": f"{S}-cabin", "ambience_volume": 0.05, "lead_seconds": 2.5, "tail_seconds": 0.5, "sounds": [{"sound": f"{S}-sound-waves", "at": 0, "volume": 0.4}]}},
-                {"slug": f"{S}-beat-03", "dataJson": {"story": S, "number": "03", "scene": f"{S}-deck", "hold_seconds": 6, "sounds": [{"sound": f"{S}-sound-waves", "at": 0.3}, {"sound": f"{S}-sound-not-made", "at": 1}]}},
+                {"slug": f"{S}-beat-03", "dataJson": {"story": S, "number": "03", "scene": f"{S}-deck", "hold_seconds": 6, "sounds": [{"sound": f"{S}-sound-waves", "at": 0.3}, {"sound": f"{S}-sound-not-made", "at": 1}, {"sound": "porridge-sound-spoon", "at": 2}]}},
+{"slug": "porridge-sound-spoon", "dataJson": {"audio": "asset-1", "volume": 0.5}},  # a library sound: no story, another story's name
                 {"slug": f"{S}-sound-waves", "dataJson": {"story": S, "audio": "asset-1", "volume": 0.7}},
                 {"slug": f"{S}-cabin", "dataJson": {"story": S, "ambience": f"{S}-sound-waves", "ambience_volume": 0.12, "ambience_muffled": True}},
                 {"slug": f"{S}-deck", "dataJson": {"story": S, "ambience": f"{S}-sound-waves"}},
                 {"slug": f"{S}-sound-not-made", "dataJson": {"story": S}},
                 {"slug": f"{S}-line-01-1", "dataJson": {"story": S, "beat": f"{S}-beat-01", "speaker": "narrator", "text": "One.", "audio": "asset-1"}},
                 {"slug": f"{S}-line-02-1", "dataJson": {"story": S, "beat": f"{S}-beat-02", "speaker": "cook", "text": "Two."}},  # not recorded
-                {"slug": "other-story-line-01-1", "dataJson": {"story": "other-story", "beat": "x", "audio": "asset-9"}},
-            ],
+                {"slug": "other-story-line-01-1", "dataJson": {"story": "other-story", "beat": "x", "audio": "asset-9"}}
+]
+
+
+class _FakeMarvin(BaseHTTPRequestHandler):
+    seen_agents: list = []
+    audio = b"ID3 not really audio"
+    rows = _ROWS
+
+    def do_POST(self):  # noqa: N802
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        wanted = body["spec"]["entries"]
+        hits = [e for e in _FakeMarvin.rows if e["slug"] in wanted]
+        payload = json.dumps({"entries": hits, "total": len(hits)}).encode()
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_GET(self):  # noqa: N802
+        _FakeMarvin.seen_agents.append(self.headers.get("User-Agent"))
+        routes = {
+            "/api/platform/entries?limit=500": _FakeMarvin.rows,
             "/api/platform/assets/asset-1": {"mimeType": "audio/mpeg"},
         }
         if self.path == "/api/platform/assets/asset-1/file":
@@ -199,6 +214,7 @@ def test_pull_writes_a_manifest_of_the_recorded_lines_in_beat_order_and_names_th
     assert (shot["lead"], shot["tail"], "gap" in shot) == (2.5, 0.5, False)  # the beat's own timing; a blank one keeps the default
     assert shot["sfx"][0]["id"] == "the-last-onion-sound-waves" and shot["sfx"][0]["volume"] == 0.4 and (tmp_path / shot["sfx"][0]["audio"]).read_bytes() == _FakeMarvin.audio  # the beat's volume wins
     assert silent["id"] == "b03" and silent["lines"] == [] and silent["hold"] == 6 and silent["sfx"][0]["volume"] == 0.7  # sound only: the sound's own volume
+    assert [fx["id"] for fx in silent["sfx"]] == ["the-last-onion-sound-waves", "porridge-sound-spoon"]  # found by the slug the beat names, whichever story made it
     assert (shot["ambience"]["volume"], shot["ambience"]["muffled"]) == (0.05, True)  # the beat's own level beats the scene's (the cabin goes quiet), still heard from inside
     assert (silent["ambience"]["volume"], silent["ambience"]["muffled"]) == (0.7, False)  # an outside scene with no level of its own: the sound's volume, not muffled
     assert (tmp_path / shot["ambience"]["audio"]).read_bytes() == _FakeMarvin.audio

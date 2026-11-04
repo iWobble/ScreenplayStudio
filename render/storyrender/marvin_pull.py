@@ -59,8 +59,11 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
     for line in lines:
         by_beat.setdefault(str(data(line).get("beat")), []).append(line)
 
-    sounds = {e["slug"]: e for e in rows if e.get("slug", "").startswith(f"{story}-sound-") and data(e).get("story") == story}
     scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and "ambience" in data(e)}  # scenes that name an ambience
+    # Sounds belong to the library, not to a story: each is found by the slug a beat or scene names, whichever story made it.
+    wanted = {str(item.get("sound")) for b in beats for item in (data(b).get("sounds") if isinstance(data(b).get("sounds"), list) else []) if isinstance(item, dict)}
+    wanted |= {str(data(sc).get("ambience")) for sc in scenes.values() if data(sc).get("ambience")}
+    sounds = {e["slug"]: e for e in marvin_api.query(creds, {"entries": sorted(wanted)}, limit=max(len(wanted), 1))} if wanted else {}
     taken: dict[str, Path] = {}  # an ambience's take is downloaded once, however many beats use it
     shots, missing = [], []
     for beat in beats:
