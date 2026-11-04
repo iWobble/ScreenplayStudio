@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "21",
+  "version": "22",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1604,6 +1604,13 @@
               "type": "textarea",
               "rows": 5,
               "helpText": "The general figures actors in this world are made from, one per line: name, then what it is. Each needs a base sheet (front, side, back) to make an actor from."
+            },
+            {
+              "key": "base_sheets",
+              "label": "Base sheets",
+              "type": "asset-list",
+              "role": "base_sheet",
+              "helpText": "One sheet per base listed above (front, side, back): what actors are made from."
             },
             {
               "key": "references",
