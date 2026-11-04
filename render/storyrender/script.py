@@ -122,6 +122,7 @@ def pull_records(story: str, creds: tuple[str, str]) -> dict:
         "lines": lines,
         "scenes": {e["slug"]: e for e in rows if _data(e).get("story") == story and "ambience" in _data(e)},
         "sounds": {e["slug"]: e for e in rows if e.get("slug", "").find("-sound-") >= 0},
+        "characters": [e for e in rows if _data(e).get("story") == story and "profile" in _data(e) and _data(e).get("cast_id")],  # a character has a profile; a casting (also story + cast_id) does not
     }
 
 
@@ -133,7 +134,7 @@ def _ids(value: object) -> list[str]:
 def breakdown(records: dict) -> dict:
     """What the script needs, read from the records (the "script breakdown" film crews make): who appears and speaks, where, which sounds.
 
-    {"story", "beats", "seconds_spoken", "target_seconds", "characters": [{"id", "speaks", "words", "seconds", "beats"}], "locations": [...], "sounds": [...]}
+    {"story", "beats", "seconds_spoken", "target_seconds", "characters": [{"id", "role", "actor", "speaks", "words", "seconds", "beats"}], "locations": [...], "sounds": [...]}
     A character is anyone named as a speaker or on screen (a beat's `cast`); beat numbers are the story's own, so they stay stable when beats are added.
     """
     scenes, sounds = records.get("scenes", {}), records.get("sounds", {})
@@ -141,9 +142,23 @@ def breakdown(records: dict) -> dict:
     people: dict[str, dict] = {}
     places: dict[str, dict] = {}
     heard: dict[str, dict] = {}
+    # One person is one row, however a record names them: a character is named by its id on a beat (`cast`) and by its `speaker` on a speech line.
+    named: dict[str, dict] = {}
+    for character in records.get("characters", []):
+        cd = _data(character)
+        cast_id = str(cd.get("cast_id") or character.get("slug") or "").strip()
+        if not cast_id:
+            continue
+        for alias in (cast_id, str(cd.get("speaker") or "").strip().lower()):
+            if alias:
+                named[alias] = {"id": cast_id, "role": _clean(cd.get("role")), "actor": _clean(cd.get("actor"))}
 
     def person(name: str) -> dict:
-        return people.setdefault(name, {"id": name, "speaks": 0, "words": 0, "seconds": 0.0, "beats": []})
+        who = named.get(name) or named.get(name.lower()) or {"id": name, "role": "", "actor": ""}
+        return people.setdefault(who["id"], {**who, "speaks": 0, "words": 0, "seconds": 0.0, "beats": []})
+
+    for who in {w["id"]: w for w in named.values()}.values():  # everyone cast in the story is listed, spoken or not
+        person(who["id"])
 
     def mark(item: dict, number: str) -> None:
         if number and number not in item["beats"]:
@@ -212,7 +227,7 @@ def breakdown_html(info: dict) -> str:
 
     target = _seconds(info.get("target_seconds"))
     summary = f"{info['beats']} beats · {info['seconds_spoken']:g}s of recorded speech" + (f" · aimed at {target}" if target else "")
-    characters = table(["Character", "Lines", "Words", "Spoken", "Beats"], [[c["id"], c["speaks"], c["words"], f"{c['seconds']:g}s", _range(c["beats"])] for c in info["characters"]])
+    characters = table(["Character", "Role", "Actor", "Lines", "Words", "Spoken", "Beats"], [[c["id"], c["role"], c["actor"], c["speaks"], c["words"], f"{c['seconds']:g}s", _range(c["beats"])] for c in info["characters"]])
     locations = table(["Scene", "Place and look", "Ambience", "Beats"], [[p["title"], " ".join(x for x in (p["place"], p["look"]) if x), p["ambience"], _range(p["beats"])] for p in info["locations"]])
     sound_rows = table(["Sound", "Beats"], [[x["title"], _range(x["beats"])] for x in info["sounds"]])
     style = "body{font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#222}h1{margin-bottom:0}.sub{color:#666;margin-top:.25rem}table{border-collapse:collapse;width:100%;margin:.5rem 0 1.5rem}th,td{text-align:left;border-bottom:1px solid #ddd;padding:.4rem .6rem;vertical-align:top}th{background:#f4f4f4}@media print{body{margin:0}}"

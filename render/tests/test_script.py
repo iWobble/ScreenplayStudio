@@ -151,3 +151,39 @@ def test_the_breakdown_page_is_a_whole_page_and_escapes_what_the_records_say():
 def test_a_long_run_of_beats_is_shortened_to_a_range():
     assert script._range(["01", "02", "03"]) == "01, 02, 03"
     assert script._range([f"{n:02d}" for n in range(1, 10)]) == "01–09 (9 beats)"
+
+
+CHARACTERS = [
+    _row("pirate-captain", cast_id="pirate-captain", story="the-last-onion", role="captain", actor="actor-captain", speaker="captain", profile={}),
+    _row("old-ship-cook", cast_id="old-ship-cook", story="the-last-onion", role="ship's cook", actor="actor-cook", speaker="cook", profile={}),
+]
+
+
+def test_a_speaker_and_a_beats_cast_id_are_one_character_with_their_role_and_actor():
+    records = {**BREAKDOWN_RECORDS, "characters": CHARACTERS, "beats": [_row("the-last-onion-beat-04", "Beat 04", story="the-last-onion", number="04", scene="the-last-onion-cabin", cast="pirate-captain, old-ship-cook")]}
+    records["lines"] = {"the-last-onion-beat-04": [_row("l1", speaker="captain", text="Make do.", duration_seconds=1), _row("l2", speaker="cook", text="Aye.", duration_seconds=1)]}
+    by = {c["id"]: c for c in script.breakdown(records)["characters"]}
+    assert sorted(by) == ["old-ship-cook", "pirate-captain"]  # not four rows: captain/cook are their speaker names
+    assert by["pirate-captain"]["speaks"] == 1 and by["pirate-captain"]["beats"] == ["04"] and by["pirate-captain"]["actor"] == "actor-captain"
+    assert by["old-ship-cook"]["role"] == "ship's cook"
+
+
+def test_someone_cast_in_the_story_is_listed_even_with_no_line_and_the_narrator_stays_separate():
+    info = script.breakdown({**BREAKDOWN_RECORDS, "characters": CHARACTERS})
+    ids = [c["id"] for c in info["characters"]]
+    assert "pirate-captain" in ids and "narrator" in ids and "captain" not in ids and "cook" not in ids
+    assert next(c for c in info["characters"] if c["id"] == "narrator")["role"] == ""
+
+
+def test_pulling_a_story_takes_its_characters_but_not_its_castings(monkeypatch):
+    import marvin_worker.marvin_api as api
+
+    rows = [
+        _row("the-last-onion", "The Last Onion"),
+        _row("pirate-captain", cast_id="pirate-captain", story="the-last-onion", profile={}),
+        _row("casting-1", cast_id="pirate-captain", story="the-last-onion", character="pirate-captain", fit="good"),
+        _row("other", cast_id="x", story="another-story", profile={}),
+    ]
+    monkeypatch.setattr(api, "entries", lambda creds: rows)
+    got = script.pull_records("the-last-onion", ("u", "t"))
+    assert [c["slug"] for c in got["characters"]] == ["pirate-captain"]

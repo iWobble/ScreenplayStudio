@@ -3,7 +3,7 @@
   "slug": "storyworld",
   "name": "Storyworld",
   "description": "Narrated illustrated stories: cast, scenes, beats, speech lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "12",
+  "version": "13",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -277,6 +277,12 @@
               "key": "role",
               "label": "Role",
               "type": "text"
+            },
+            {
+              "key": "speaker",
+              "label": "Speaker name (as written on speech lines)",
+              "type": "text",
+              "helpText": "The name this character's speech lines use, e.g. captain. The script breakdown joins lines to characters by it."
             },
             {
               "key": "profile",
@@ -2630,17 +2636,16 @@
       "kind": "collection",
       "slug": "storyworld-stories",
       "name": "Storyworld: Stories",
-      "description": "The stories and the world they are set in.",
+      "description": "Every story.",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [
-        "entry_type:story",
-        "entry_type:world"
+        "entry_type:story"
       ],
       "parameters": [],
       "payload": {
-        "description": "The stories and the world they are set in.",
+        "description": "Every story.",
         "icon": "\ud83d\udcd6",
         "color": "#7C3AED",
         "is_smart": true,
@@ -2649,8 +2654,39 @@
         "sort_order": 1,
         "smart_rules": {
           "entry_types": [
-            "story",
-            "world"
+            "story"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "storyworld-world",
+      "name": "Storyworld: World",
+      "description": "The world and its pictures: the look every story shares.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:world",
+        "entry_type:still",
+        "entry_type:shot"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "The world and its pictures: the look every story shares.",
+        "icon": "\ud83c\udf0d",
+        "color": "#16A34A",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 2,
+        "smart_rules": {
+          "entry_types": [
+            "world",
+            "still",
+            "shot"
           ],
           "match": "all"
         }
@@ -2660,31 +2696,57 @@
       "kind": "collection",
       "slug": "storyworld-troupe",
       "name": "Storyworld: Troupe",
-      "description": "Actors, the characters they play in each story, and the castings (who is being considered for a role).",
+      "description": "The world's actors, and their voices: who can be cast.",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [
         "entry_type:actor",
-        "entry_type:cast-member",
-        "entry_type:casting",
         "entry_type:voice"
       ],
       "parameters": [],
       "payload": {
-        "description": "Actors, the characters they play in each story, and the castings (who is being considered for a role).",
+        "description": "The world's actors, and their voices: who can be cast.",
+        "icon": "\ud83e\uddd1\u200d\ud83c\udfa4",
+        "color": "#0EA5E9",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 3,
+        "smart_rules": {
+          "entry_types": [
+            "actor",
+            "voice"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "storyworld-cast",
+      "name": "Storyworld: Cast",
+      "description": "The characters, with the actors who play them, and the castings (who was considered for a role).",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:cast-member",
+        "entry_type:casting"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "The characters, with the actors who play them, and the castings (who was considered for a role).",
         "icon": "\ud83c\udfad",
         "color": "#DB2777",
         "is_smart": true,
         "is_public": false,
         "in_sidebar": true,
-        "sort_order": 2,
+        "sort_order": 4,
         "smart_rules": {
           "entry_types": [
-            "actor",
             "cast-member",
-            "casting",
-            "voice"
+            "casting"
           ],
           "match": "all"
         }
@@ -2712,7 +2774,7 @@
         "is_smart": true,
         "is_public": false,
         "in_sidebar": true,
-        "sort_order": 3,
+        "sort_order": 5,
         "smart_rules": {
           "entry_types": [
             "scene",
@@ -2726,30 +2788,26 @@
     },
     {
       "kind": "collection",
-      "slug": "storyworld-pictures-sound",
-      "name": "Storyworld: Pictures and sound",
-      "description": "Stills, shots and the reusable sounds.",
+      "slug": "storyworld-sounds",
+      "name": "Sound library",
+      "description": "Reusable sounds any story can use: effects and ambience.",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [
-        "entry_type:still",
-        "entry_type:shot",
         "entry_type:sound"
       ],
       "parameters": [],
       "payload": {
-        "description": "Stills, shots and the reusable sounds.",
-        "icon": "\ud83d\uddbc\ufe0f",
-        "color": "#CA8A04",
+        "description": "Reusable sounds any story can use: effects and ambience.",
+        "icon": "\ud83c\udf0a",
+        "color": "#0891B2",
         "is_smart": true,
         "is_public": false,
         "in_sidebar": true,
-        "sort_order": 4,
+        "sort_order": 6,
         "smart_rules": {
           "entry_types": [
-            "still",
-            "shot",
             "sound"
           ],
           "match": "all"
@@ -2775,7 +2833,7 @@
         "is_smart": true,
         "is_public": false,
         "in_sidebar": true,
-        "sort_order": 5,
+        "sort_order": 7,
         "smart_rules": {
           "entry_types": [
             "render-job"
