@@ -14,6 +14,7 @@ The records are the source of truth, so the script is made from them, not writte
 `fountain()` is pure (records in, text out); `pull_records()` reads Marvin; `render()` runs `screenplain` for the PDF and HTML.
 """
 
+import html
 import re
 import shutil
 import subprocess
@@ -124,6 +125,36 @@ def pull_records(story: str, creds: tuple[str, str]) -> dict:
     }
 
 
+def title_page(text: str) -> dict[str, str]:
+    """The `Title:` / `Credit:` / `Notes:` lines at the top of Fountain `text`, by lower-cased key."""
+    found: dict[str, str] = {}
+    for line in text.split("\n"):
+        key, colon, value = line.partition(":")
+        if not colon or key.strip().lower() not in ("title", "credit", "notes"):
+            break
+        found[key.strip().lower()] = value.strip()
+    return found
+
+
+def with_title_page(page: str, text: str) -> str:
+    """screenplain's HTML leaves out the title page (the PDF has one) and calls the tab "Screenplay": name the page after the
+    story and put the title page first, then the script on its own page when printed."""
+    info = title_page(text)
+    title = info.get("title")
+    if not title:
+        return page
+    safe = html.escape(title)
+    extra = "".join(f'<p class="{k}">{html.escape(info[k])}</p>' for k in ("credit", "notes") if info.get(k))
+    cover = (
+        '<style>.titlepage{text-align:center;margin:0 auto;padding:180pt 0 120pt;font-family:\'Courier Final Draft\',\'Courier Screenplay\',Courier;font-size:12pt}'
+        ".titlepage .title{text-transform:uppercase;text-decoration:underline;margin-bottom:24pt}"
+        ".titlepage p{margin:0 0 12pt}@media print{.titlepage{page-break-after:always}}</style>"
+        f'<div class="titlepage"><p class="title">{safe}</p>{extra}</div>'
+    )
+    page = page.replace("<title>Screenplay</title>", f"<title>{safe}: script</title>", 1)
+    return page.replace("<body>", f"<body>{cover}", 1)
+
+
 def render(text: str, out: Path, stem: str) -> dict[str, Path]:
     """Write `<stem>.fountain`, and a PDF and an HTML page made from it with screenplain (Courier 12, the standard screenplay layout)."""
     out.mkdir(parents=True, exist_ok=True)
@@ -138,5 +169,7 @@ def render(text: str, out: Path, stem: str) -> dict[str, Path]:
         done = subprocess.run([exe, "-f", fmt, str(source), str(target)], capture_output=True, text=True, timeout=120)  # noqa: S603
         if done.returncode != 0:
             raise RuntimeError(f"screenplain {fmt} failed: {(done.stderr or done.stdout).strip()[:300]}")
+        if fmt == "html":
+            target.write_text(with_title_page(target.read_text(encoding="utf-8"), text), encoding="utf-8")
         made[fmt] = target
     return made

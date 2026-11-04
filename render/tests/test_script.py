@@ -83,3 +83,29 @@ def test_screenplain_makes_a_pdf_and_an_html_page(tmp_path):
     assert made["pdf"].read_bytes().startswith(b"%PDF") and made["pdf"].stat().st_size > 1000
     html = made["html"].read_text()
     assert "THE CABIN" in html and "NARRATOR" in html
+
+
+def test_the_title_page_is_read_from_the_fountain_header():
+    assert script.title_page(script.fountain(RECORDS)) == {"title": "The Last Onion", "credit": "A Storyworld film", "notes": "about 146s long"}
+    assert script.title_page(".A SCENE\n\nAction: not a title") == {}
+
+
+def test_the_html_gets_a_title_page_and_the_story_as_its_tab_name():
+    page = script.with_title_page("<html><head><title>Screenplay</title></head><body><div>x</div></body></html>", script.fountain(RECORDS))
+    assert "<title>The Last Onion: script</title>" in page
+    assert page.index("titlepage") < page.index("<div>x</div>")
+    assert "A Storyworld film" in page and "about 146s long" in page
+
+
+def test_a_title_with_markup_is_escaped_and_a_script_without_one_is_left_alone():
+    assert "&lt;b&gt;" in script.with_title_page("<title>Screenplay</title><body>", "Title: <b>\n\n.X")
+    plain = "<title>Screenplay</title><body>"
+    assert script.with_title_page(plain, ".X\n\nhi") == plain
+
+
+@pytest.mark.skipif(shutil.which("screenplain") is None, reason="screenplain not installed")
+def test_the_rendered_html_opens_on_the_title_page(tmp_path):
+    made = script.render(script.fountain(RECORDS), tmp_path, "onion")
+    page = made["html"].read_text()
+    assert "<title>The Last Onion: script</title>" in page and "A Storyworld film" in page
+    assert page.index("titlepage") < page.index("THE CABIN")
