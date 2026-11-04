@@ -131,10 +131,10 @@ def test_script_makes_fountain_pdf_and_html_and_names_them_on_the_story(marvin):
     serve.run_job({"kind": "script", "job": "render-job-2", "args": {"story": STORY}}, marvin)
 
     data = _data("render-job-2")
-    assert data["status"] == "done" and data["result"]["beats"] == 1 and set(data["result"]["urls"]) == {"fountain", "pdf", "html"}
+    assert data["status"] == "done" and data["result"]["beats"] == 1 and set(data["result"]["urls"]) == {"fountain", "pdf", "html", "breakdown"}
     uploaded = b"".join(body for _type, body in FakeMarvin.uploads)
     assert b"Content-Type: application/pdf" in uploaded and b"Content-Type: text/html" in uploaded and b"%PDF" in uploaded
-    assert all(f"script_{kind}" in _data(STORY) for kind in ("fountain", "pdf", "html"))  # named on the story, where a publish step finds them
+    assert all(f"script_{kind}" in _data(STORY) for kind in ("fountain", "pdf", "html", "breakdown"))  # named on the story, where a publish step finds them
 
 
 def test_script_of_a_story_that_isnt_there_says_why_on_the_record(marvin):

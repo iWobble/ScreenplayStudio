@@ -44,14 +44,14 @@ def audio_cut(job: dict, ctx: Context) -> dict:
     return {"result": {"audio": asset["id"], "url": asset.get("publicUrl"), "seconds": result["seconds"], "timeline": result["timeline"], "ambience": result["ambience"]}, "log": note}
 
 
-SCRIPT_FILES = {"fountain": "text/plain", "pdf": "application/pdf", "html": "text/html"}
+SCRIPT_FILES = {"fountain": "text/plain", "pdf": "application/pdf", "html": "text/html", "breakdown": "text/html"}
 
 
 @job_kind(
     "script",
-    description="Make a story's screenplay from its records: scene headings, action, voice-over and dialogue with directions, sound cues. A Fountain file, a PDF in Courier 12 and an HTML page",
+    description="Make a story's screenplay from its records: scene headings, action, voice-over and dialogue with directions, sound cues. A Fountain file, a PDF in Courier 12 and an HTML page, plus a breakdown page: who speaks and appears, where, which sounds",
     inputs={"story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"}},
-    produces=list(SCRIPT_FILES.values()),
+    produces=list(dict.fromkeys(SCRIPT_FILES.values())),
     needs=["screenplain"],
 )
 def make_script(job: dict, ctx: Context) -> dict:
@@ -63,6 +63,8 @@ def make_script(job: dict, ctx: Context) -> dict:
         raise JobError(str(e)) from e
     title = records["story"].get("title") or story
     made = script.render(script.fountain(records), ctx.work / "script", story)
+    made["breakdown"] = ctx.work / "script" / f"{story}-breakdown.html"
+    made["breakdown"].write_text(script.breakdown_html(script.breakdown(records)), encoding="utf-8")
     assets = {
         kind: marvin_api.upload_asset(
             ctx.creds,

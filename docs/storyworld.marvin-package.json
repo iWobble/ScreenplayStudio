@@ -3,7 +3,7 @@
   "slug": "storyworld",
   "name": "Storyworld",
   "description": "Narrated illustrated stories: cast, scenes, beats, speech lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "9",
+  "version": "10",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1069,6 +1069,12 @@
               "label": "Script (web page)",
               "type": "asset",
               "helpText": "The screenplay as an HTML page. Made by the script job."
+            },
+            {
+              "key": "script_breakdown",
+              "label": "Script breakdown (web page)",
+              "type": "asset",
+              "helpText": "Who speaks and appears, where, and which sounds, read from the records. Made by the script job."
             }
           ]
         }

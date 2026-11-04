@@ -109,3 +109,45 @@ def test_the_rendered_html_opens_on_the_title_page(tmp_path):
     page = made["html"].read_text()
     assert "<title>The Last Onion: script</title>" in page and "A Storyworld film" in page
     assert page.index("titlepage") < page.index("THE CABIN")
+
+
+BREAKDOWN_RECORDS = {
+    **RECORDS,
+    "beats": [
+        _row("the-last-onion-beat-04", "Beat 04", story="the-last-onion", number="04", scene="the-last-onion-cabin", cast="captain, cook", picture="Wide."),
+        _row("the-last-onion-beat-05", "Beat 05", story="the-last-onion", number="05", scene="the-last-onion-cabin", cast="captain", picture="Close.", sounds=[{"sound": "the-last-onion-sound-spoon", "at": 1.6}]),
+        _row("the-last-onion-beat-06", "Beat 06", story="the-last-onion", number="06", scene="the-last-onion-galley", cast="cook", picture="Alone."),
+    ],
+    "lines": {
+        "the-last-onion-beat-04": [_row("l4", speaker="narrator", text="The captain ordered a feast.", duration_seconds=2.5)],
+        "the-last-onion-beat-05": [_row("l5", speaker="captain", text="Make do.", duration_seconds=0.75)],
+    },
+}
+
+
+def test_the_breakdown_counts_who_speaks_and_appears_in_which_beats():
+    info = script.breakdown(BREAKDOWN_RECORDS)
+    by = {c["id"]: c for c in info["characters"]}
+    assert by["captain"]["speaks"] == 1 and by["captain"]["words"] == 2 and by["captain"]["beats"] == ["04", "05"]
+    assert by["cook"]["speaks"] == 0 and by["cook"]["beats"] == ["04", "06"]  # on screen without a line is still in the cast
+    assert by["narrator"]["seconds"] == 2.5 and info["seconds_spoken"] == 3.25 and info["beats"] == 3
+    assert info["characters"][0]["id"] in ("captain", "narrator")  # most lines first, ties by name
+
+
+def test_the_breakdown_lists_each_location_once_with_its_beats_and_the_sounds():
+    info = script.breakdown(BREAKDOWN_RECORDS)
+    cabin, galley = info["locations"]
+    assert cabin["beats"] == ["04", "05"] and cabin["ambience"] == "Harbour ambience" and galley["beats"] == ["06"]
+    assert info["sounds"] == [{"id": "the-last-onion-sound-spoon", "title": "Spoon on bowl", "beats": ["05"]}]
+
+
+def test_the_breakdown_page_is_a_whole_page_and_escapes_what_the_records_say():
+    records = {**BREAKDOWN_RECORDS, "story": _row("the-last-onion", "<b>Onion", target_seconds="146")}
+    page = script.breakdown_html(script.breakdown(records))
+    assert page.startswith("<!DOCTYPE html>") and "&lt;b&gt;Onion: script breakdown" in page and "<b>Onion" not in page
+    assert "<h2>Characters</h2>" in page and "aimed at 146s" in page
+
+
+def test_a_long_run_of_beats_is_shortened_to_a_range():
+    assert script._range(["01", "02", "03"]) == "01, 02, 03"
+    assert script._range([f"{n:02d}" for n in range(1, 10)]) == "01–09 (9 beats)"

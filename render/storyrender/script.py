@@ -125,6 +125,105 @@ def pull_records(story: str, creds: tuple[str, str]) -> dict:
     }
 
 
+def _ids(value: object) -> list[str]:
+    """The ids in a beat's `cast` text ("pirate-captain, old-ship-cook")."""
+    return [part for part in re.split(r"[,;\s]+", str(value or "")) if part]
+
+
+def breakdown(records: dict) -> dict:
+    """What the script needs, read from the records (the "script breakdown" film crews make): who appears and speaks, where, which sounds.
+
+    {"story", "beats", "seconds_spoken", "target_seconds", "characters": [{"id", "speaks", "words", "seconds", "beats"}], "locations": [...], "sounds": [...]}
+    A character is anyone named as a speaker or on screen (a beat's `cast`); beat numbers are the story's own, so they stay stable when beats are added.
+    """
+    scenes, sounds = records.get("scenes", {}), records.get("sounds", {})
+    lines_by_beat = records.get("lines", {})
+    people: dict[str, dict] = {}
+    places: dict[str, dict] = {}
+    heard: dict[str, dict] = {}
+
+    def person(name: str) -> dict:
+        return people.setdefault(name, {"id": name, "speaks": 0, "words": 0, "seconds": 0.0, "beats": []})
+
+    def mark(item: dict, number: str) -> None:
+        if number and number not in item["beats"]:
+            item["beats"].append(number)
+
+    total = 0.0
+    for beat in records.get("beats", []):
+        d = _data(beat)
+        number = str(d.get("number") or "").strip()
+        for who in _ids(d.get("cast")):
+            mark(person(who), number)
+        scene_slug = str(d.get("scene") or "")
+        if scene_slug:
+            scene = scenes.get(scene_slug, {})
+            sd = _data(scene)
+            where = places.setdefault(scene_slug, {"id": scene_slug, "title": _clean(scene.get("title") or _slug_words(scene_slug)), "place": _clean(sd.get("place")), "look": _clean(sd.get("look")), "ambience": str(sd.get("ambience") or ""), "beats": []})
+            mark(where, number)
+        for placed in d.get("sounds") if isinstance(d.get("sounds"), list) else []:
+            if isinstance(placed, dict) and placed.get("sound"):
+                key = str(placed["sound"])
+                heard.setdefault(key, {"id": key, "title": _clean(sounds.get(key, {}).get("title") or _slug_words(key)), "beats": []})
+                mark(heard[key], number)
+        for line in lines_by_beat.get(beat.get("slug", ""), []):
+            ld = _data(line)
+            if not _clean(ld.get("text")):
+                continue
+            who = person(str(ld.get("speaker") or "voice").strip().lower())
+            who["speaks"] += 1
+            who["words"] += len(_clean(ld.get("text")).split())
+            try:
+                seconds = float(ld.get("duration_seconds") or 0)
+            except (TypeError, ValueError):
+                seconds = 0.0
+            who["seconds"] = round(who["seconds"] + seconds, 2)
+            total += seconds
+            mark(who, number)
+    for place in places.values():
+        bed = place["ambience"]
+        place["ambience"] = _clean(sounds.get(bed, {}).get("title") or _slug_words(bed)) if bed else ""
+    story = records["story"]
+    return {
+        "story": _clean(story.get("title") or story.get("slug")),
+        "beats": len(records.get("beats", [])),
+        "seconds_spoken": round(total, 2),
+        "target_seconds": _data(story).get("target_seconds"),
+        "characters": sorted(people.values(), key=lambda p: (-p["speaks"], p["id"])),
+        "locations": list(places.values()),
+        "sounds": list(heard.values()),
+    }
+
+
+def _range(beats: list[str]) -> str:
+    return ", ".join(beats) if len(beats) <= 6 else f"{beats[0]}–{beats[-1]} ({len(beats)} beats)"
+
+
+def breakdown_html(info: dict) -> str:
+    """The breakdown as one self-contained page (it previews on the asset's page and prints)."""
+    e = html.escape
+
+    def table(heads: list[str], rows: list[list[str]]) -> str:
+        if not rows:
+            return "<p class='none'>None.</p>"
+        head = "".join(f"<th>{e(h)}</th>" for h in heads)
+        body = "".join("<tr>" + "".join(f"<td>{e(str(c))}</td>" for c in row) + "</tr>" for row in rows)
+        return f"<table><tr>{head}</tr>{body}</table>"
+
+    target = _seconds(info.get("target_seconds"))
+    summary = f"{info['beats']} beats · {info['seconds_spoken']:g}s of recorded speech" + (f" · aimed at {target}" if target else "")
+    characters = table(["Character", "Lines", "Words", "Spoken", "Beats"], [[c["id"], c["speaks"], c["words"], f"{c['seconds']:g}s", _range(c["beats"])] for c in info["characters"]])
+    locations = table(["Scene", "Place and look", "Ambience", "Beats"], [[p["title"], " ".join(x for x in (p["place"], p["look"]) if x), p["ambience"], _range(p["beats"])] for p in info["locations"]])
+    sound_rows = table(["Sound", "Beats"], [[x["title"], _range(x["beats"])] for x in info["sounds"]])
+    style = "body{font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#222}h1{margin-bottom:0}.sub{color:#666;margin-top:.25rem}table{border-collapse:collapse;width:100%;margin:.5rem 0 1.5rem}th,td{text-align:left;border-bottom:1px solid #ddd;padding:.4rem .6rem;vertical-align:top}th{background:#f4f4f4}@media print{body{margin:0}}"
+    title = e(info["story"])
+    return (
+        f"<!DOCTYPE html><html><head><meta charset='utf-8'><title>{title}: script breakdown</title><style>{style}</style></head><body>"
+        f"<h1>{title}: script breakdown</h1><p class='sub'>{e(summary)}</p>"
+        f"<h2>Characters</h2>{characters}<h2>Locations</h2>{locations}<h2>Sounds</h2>{sound_rows}</body></html>\n"
+    )
+
+
 def title_page(text: str) -> dict[str, str]:
     """The `Title:` / `Credit:` / `Notes:` lines at the top of Fountain `text`, by lower-cased key."""
     found: dict[str, str] = {}
