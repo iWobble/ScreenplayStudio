@@ -10,6 +10,10 @@ One image: four full-body views of the actor in plain baseline clothes (front, t
 
 In Claude Code the default is a prompt handoff (see SKILL.md): `cast/<Name>.prompt.txt`, with the anchors to attach listed at the top. Save the result as `cast/actors/<Name>.png`, inspect it, then upload it.
 
+## Bases belong to the world
+
+A base is the general figure an actor is made from. Storyworld's two adult bases are in `assets/adult-bases.jpg`. Children (the twins) need their own girl and boy bases, since child proportions are not a smaller adult; animals, or anything else a world has, need theirs. Make each base as a front, side and back sheet in the world's style, list it in the world's `bases`, and only then make actors from it.
+
 ## The actor record
 
 Fill these `actor` fields in Marvin from the sheet and the brief. Leave a field empty rather than guess; an age is a proposal until Jared confirms it.
@@ -18,7 +22,8 @@ Fill these `actor` fields in Marvin from the sheet and the brief. Leave a field 
 |---|---|
 | `title` | the actor's name (the slug is the name in lower case: `nell`) |
 | `world` | the world's slug, e.g. `storyworld` |
-| `base` | the general figure it was made from (`woman` or `man`) |
+| `base` | the general figure it was made from: one of the **world's bases** (Storyworld has woman and man from `adult-bases.jpg`; children need girl and boy bases, and another world would have its own, say a dog or a cat). A world lists its bases in its `bases` field, each with a base sheet |
+| `presence` | `on screen`, or `voice only` for a voice actor (no picture is made; a placeholder stands in) |
 | `age` | years, only when set |
 | `build`, `hair`, `skin_tone` | one line each. Skin tone describes the artwork, not ethnicity |
 | `look` | the general look: the face and manner that stay the same |
@@ -26,6 +31,7 @@ Fill these `actor` fields in Marvin from the sheet and the brief. Leave a field 
 | `baseline_wardrobe` | what they wear in this plain sheet. A role's costume replaces it |
 | `general_view` | the actor sheet picture |
 | `voice`, `voice_sample` | their default voice (a voice record's slug) and a clip to hear it |
+| `summary`, `description` | one line ("An older adult woman with a sturdy build and a calm, attentive presence.") and one sentence of what the picture shows ("A rounded Storyworld miniature character with warm medium-brown skin, short silver curls, and a simple, softly rendered face."). No age unless confirmed |
 | `status` | `draft` until the sheet is approved |
 | `notes` | anything else that is established, e.g. "Twin of Maya" |
 

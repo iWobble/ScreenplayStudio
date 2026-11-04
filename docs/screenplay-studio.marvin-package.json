@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "19",
+  "version": "20",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -177,12 +177,19 @@
             {
               "key": "base",
               "label": "Base",
+              "type": "text",
+              "helpText": "The general figure it was made from: one of the world's bases (see the world's Bases), e.g. woman, man, girl, boy."
+            },
+            {
+              "key": "presence",
+              "label": "Presence",
               "type": "select",
-              "helpText": "Which general base figure this actor was made from.",
               "options": [
-                "woman",
-                "man"
-              ]
+                "on screen",
+                "voice only"
+              ],
+              "defaultValue": "on screen",
+              "helpText": "Voice only for someone heard and never seen (a narrator's actor): no picture is made, a placeholder stands in."
             },
             {
               "key": "age",
@@ -1573,6 +1580,20 @@
               "label": "Setting",
               "type": "textarea",
               "rows": 4
+            },
+            {
+              "key": "bases",
+              "label": "Bases",
+              "type": "textarea",
+              "rows": 5,
+              "helpText": "The general figures actors in this world are made from, one per line: name, then what it is. Each needs a base sheet (front, side, back) to make an actor from."
+            },
+            {
+              "key": "references",
+              "label": "References",
+              "type": "asset-list",
+              "role": "reference",
+              "helpText": "Background pictures, places, people, things: what the world looks and feels like."
             }
           ]
         }
