@@ -38,3 +38,7 @@ Heavy jobs run on a generic worker (`InnerOpen/marvin-worker`): a standing runne
 - Say "no alphabet characters, signs or captions" in a picture rule, never "no letters": letters are props.
 - After any upload, check the stored `mimeType`; a call can succeed and store the wrong type.
 - Library first: before making a sound, scene or voice, look for one that already exists (tags say what it is, collections group packs).
+
+## The package
+
+All of this (the 15 entry types and the 11 `storyworld-*` workflows) is one Marvin **package**, `storyworld`: in my-studio it shows as one collapsed "Storyworld" section on the Workflows page and under Settings -> Packages. `docs/storyworld.marvin-package.json` is the same package as a file. To use Storyworld in another workspace: Settings -> Packages -> Add a package, choose that file, read the preview, install, then "Turn on workflows" (they arrive off, and need the `elevenlabs` and `openai_images` integrations, which they name). Installing never overwrites. After changing a workflow or record type here, rebuild the file from Settings -> Packages (build from this workspace, pick the same items, "group them here") and commit it, so the file and the live package do not drift.
