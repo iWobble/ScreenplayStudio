@@ -3,7 +3,7 @@
   "slug": "storyworld",
   "name": "Storyworld",
   "description": "Narrated illustrated stories: cast, scenes, beats, speech lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "6",
+  "version": "7",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -150,272 +150,46 @@
     },
     {
       "kind": "entry_type",
-      "slug": "story",
-      "name": "Story",
-      "description": "A narrated, illustrated Storyworld story.",
+      "slug": "cast-member",
+      "name": "Cast Member",
+      "description": "A recurring Storyworld character: who they are and their approved master picture.",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Story",
-        "icon": "\ud83d\udcd6",
-        "color": "#7C3AED",
-        "description": "A narrated, illustrated Storyworld story.",
+        "name": "Cast Member",
+        "icon": "\ud83e\uddd1\u200d\ud83c\udf73",
+        "color": "#D97706",
+        "description": "A recurring Storyworld character: who they are and their approved master picture.",
         "sort_order": 0,
         "is_rendered": false,
         "schema_json": {
           "fields": [
             {
-              "key": "premise",
-              "label": "Premise",
-              "type": "textarea",
-              "rows": 4
+              "key": "cast_id",
+              "label": "Cast id",
+              "type": "text",
+              "required": true,
+              "helpText": "Stable id, e.g. old-ship-cook."
             },
             {
-              "key": "script",
-              "label": "Script",
-              "type": "markdown"
-            },
-            {
-              "key": "target_seconds",
-              "label": "Target seconds",
-              "type": "number",
-              "min": 0
-            },
-            {
-              "key": "format",
-              "label": "Format",
-              "type": "select",
-              "options": [
-                "short-9x16"
-              ],
-              "defaultValue": "short-9x16"
-            },
-            {
-              "key": "status",
-              "label": "Status",
-              "type": "select",
-              "options": [
-                "script",
-                "voices",
-                "rough-cut",
-                "final",
-                "published"
-              ],
-              "defaultValue": "script"
-            },
-            {
-              "key": "youtube_id",
-              "label": "YouTube id",
+              "key": "role",
+              "label": "Role",
               "type": "text"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "kind": "entry_type",
-      "slug": "voice",
-      "name": "Voice",
-      "description": "A speaker's ElevenLabs voice and settings.",
-      "required": false,
-      "category": "General",
-      "source": "core",
-      "requires": [],
-      "parameters": [],
-      "payload": {
-        "name": "Voice",
-        "icon": "\ud83d\udd0a",
-        "color": "#0891B2",
-        "description": "A speaker's ElevenLabs voice and settings.",
-        "sort_order": 0,
-        "is_rendered": false,
-        "schema_json": {
-          "fields": [
-            {
-              "key": "speaker",
-              "label": "Speaker",
-              "type": "text",
-              "required": true,
-              "helpText": "Narrator, Cook, Captain, ..."
             },
             {
-              "key": "elevenlabs_voice_id",
-              "label": "ElevenLabs voice id",
-              "type": "text",
-              "required": true
-            },
-            {
-              "key": "settings",
-              "label": "Settings",
-              "type": "json"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "kind": "entry_type",
-      "slug": "still",
-      "name": "Still",
-      "description": "A source still: its prompt, reference pictures and generated image. Several beats can share one.",
-      "required": false,
-      "category": "General",
-      "source": "core",
-      "requires": [],
-      "parameters": [],
-      "payload": {
-        "name": "Still",
-        "icon": "\ud83d\uddbc\ufe0f",
-        "color": "#CA8A04",
-        "description": "A source still: its prompt, reference pictures and generated image. Several beats can share one.",
-        "sort_order": 0,
-        "is_rendered": false,
-        "schema_json": {
-          "fields": [
-            {
-              "key": "story",
-              "label": "Story (story entry slug)",
-              "type": "text",
-              "required": true,
-              "helpText": "Slug of the parent story entry. There is no entry-to-entry relation field, so children hold the parent's slug."
-            },
-            {
-              "key": "source_id",
-              "label": "Source id",
-              "type": "text",
-              "required": true
-            },
-            {
-              "key": "beats",
-              "label": "Beats served",
+              "key": "profile",
+              "label": "Profile",
               "type": "json",
-              "helpText": "List of beat numbers this still serves."
+              "helpText": "The cast/*.json body."
             },
             {
-              "key": "prompt",
-              "label": "Prompt",
-              "type": "textarea",
-              "required": true,
-              "rows": 6
-            },
-            {
-              "key": "references",
-              "label": "References",
-              "type": "asset-list",
-              "role": "reference",
-              "helpText": "Master pictures and the style sheet."
-            },
-            {
-              "key": "image",
-              "label": "Image",
+              "key": "master",
+              "label": "Master picture",
               "type": "asset",
-              "role": "image"
-            },
-            {
-              "key": "status",
-              "label": "Status",
-              "type": "select",
-              "options": [
-                "draft",
-                "generated",
-                "approved",
-                "redo"
-              ],
-              "defaultValue": "draft"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "kind": "entry_type",
-      "slug": "scene",
-      "name": "Scene",
-      "description": "A place in a story and everything always in it: the light, the set dressing and the continuity props. Every beat in the scene inherits it.",
-      "required": false,
-      "category": "General",
-      "source": "core",
-      "requires": [],
-      "parameters": [],
-      "payload": {
-        "name": "Scene",
-        "icon": "\ud83c\udfac",
-        "description": "A place in a story and everything always in it: the light, the set dressing and the continuity props. Every beat in the scene inherits it.",
-        "sort_order": 0,
-        "is_rendered": false,
-        "schema_json": {
-          "fields": [
-            {
-              "key": "story",
-              "label": "Story (story entry slug)",
-              "type": "text",
-              "required": true,
-              "helpText": "Slug of the parent story entry."
-            },
-            {
-              "key": "place",
-              "label": "Place",
-              "type": "textarea",
-              "rows": 3,
-              "helpText": "What the place is: the structure and layout, from the approved reference photo."
-            },
-            {
-              "key": "look",
-              "label": "Light and time of day",
-              "type": "textarea",
-              "rows": 2,
-              "helpText": "e.g. daylight through arched windows, warm lantern light."
-            },
-            {
-              "key": "set_dressing",
-              "label": "Set dressing (always there)",
-              "type": "textarea",
-              "rows": 4,
-              "helpText": "Objects that stay on the set for every beat here. Say what is NOT there too (no extra props)."
-            },
-            {
-              "key": "continuity",
-              "label": "Continuity notes",
-              "type": "textarea",
-              "rows": 3,
-              "helpText": "What carries between beats: where the onion is, what has changed on the table."
-            },
-            {
-              "key": "ambience",
-              "label": "Ambience (sound slug)",
-              "type": "text",
-              "helpText": "The sound that runs under every beat in this scene, e.g. the-last-onion-sound-harbour. It plays as one continuous bed, looped, and crossfades where the place changes."
-            },
-            {
-              "key": "ambience_volume",
-              "label": "Ambience level (0\u20131)",
-              "type": "number",
-              "min": 0,
-              "max": 1,
-              "helpText": "Loud outside (about 0.7), very low inside (about 0.1). Empty: the sound's own level."
-            },
-            {
-              "key": "ambience_muffled",
-              "label": "Heard from inside (muffled)",
-              "type": "boolean",
-              "defaultValue": false,
-              "helpText": "On for an indoor scene: the same sound, low-passed as if through a wall."
-            },
-            {
-              "key": "photo_ref",
-              "label": "Reference photo id",
-              "type": "text",
-              "helpText": "The source photo's id (ChatGPT library file) while it lives outside Marvin."
-            },
-            {
-              "key": "anchor",
-              "label": "Approved illustrated anchor",
-              "type": "asset",
-              "role": "anchor",
-              "helpText": "The approved painted look of this place. Photos govern structure only."
+              "role": "master"
             },
             {
               "key": "status",
@@ -433,23 +207,29 @@
     },
     {
       "kind": "entry_type",
-      "slug": "render-job",
-      "name": "Render Job",
-      "description": "A request to the renderer for a rough cut or final video.",
+      "slug": "casting",
+      "name": "Casting",
+      "description": "An acting job: a cast member's role, outfit, era and condition in one story.",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Render Job",
-        "icon": "\ud83c\udfed",
-        "color": "#6B7280",
-        "description": "A request to the renderer for a rough cut or final video.",
+        "name": "Casting",
+        "icon": "\ud83c\udfad",
+        "color": "#DB2777",
+        "description": "An acting job: a cast member's role, outfit, era and condition in one story.",
         "sort_order": 0,
         "is_rendered": false,
         "schema_json": {
           "fields": [
+            {
+              "key": "cast_id",
+              "label": "Cast id",
+              "type": "text",
+              "required": true
+            },
             {
               "key": "story",
               "label": "Story (story entry slug)",
@@ -458,57 +238,21 @@
               "helpText": "Slug of the parent story entry. There is no entry-to-entry relation field, so children hold the parent's slug."
             },
             {
-              "key": "stage",
-              "label": "Stage",
-              "type": "select",
-              "options": [
-                "audio-cut",
-                "rough-cut",
-                "final"
-              ],
-              "defaultValue": "rough-cut"
+              "key": "role",
+              "label": "Role played",
+              "type": "text"
             },
             {
-              "key": "manifest",
-              "label": "Manifest",
-              "type": "json"
-            },
-            {
-              "key": "audio",
-              "label": "Audio cut",
-              "type": "asset",
-              "role": "audio",
-              "helpText": "The stitched sound of the recorded lines (an audio-cut job). Play it, then say where a part needs to change."
-            },
-            {
-              "key": "timeline",
-              "label": "Timeline",
-              "type": "json",
-              "helpText": "Where each line sits in the cut: start and end in seconds, with the speech line's slug, so a time you heard maps to the line to change."
-            },
-            {
-              "key": "video",
-              "label": "Video",
-              "type": "asset",
-              "role": "video"
-            },
-            {
-              "key": "status",
-              "label": "Status",
-              "type": "select",
-              "options": [
-                "queued",
-                "rendering",
-                "done",
-                "failed"
-              ],
-              "defaultValue": "queued"
-            },
-            {
-              "key": "log",
-              "label": "Log",
+              "key": "state",
+              "label": "State (outfit, era, condition)",
               "type": "textarea",
-              "rows": 6
+              "rows": 3
+            },
+            {
+              "key": "notes",
+              "label": "Notes",
+              "type": "textarea",
+              "rows": 3
             }
           ]
         }
@@ -682,6 +426,243 @@
     },
     {
       "kind": "entry_type",
+      "slug": "render-job",
+      "name": "Render Job",
+      "description": "A request to the renderer for a rough cut or final video.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Render Job",
+        "icon": "\ud83c\udfed",
+        "color": "#6B7280",
+        "description": "A request to the renderer for a rough cut or final video.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "story",
+              "label": "Story (story entry slug)",
+              "type": "text",
+              "required": true,
+              "helpText": "Slug of the parent story entry. There is no entry-to-entry relation field, so children hold the parent's slug."
+            },
+            {
+              "key": "stage",
+              "label": "Stage",
+              "type": "select",
+              "options": [
+                "audio-cut",
+                "rough-cut",
+                "final"
+              ],
+              "defaultValue": "rough-cut"
+            },
+            {
+              "key": "manifest",
+              "label": "Manifest",
+              "type": "json"
+            },
+            {
+              "key": "audio",
+              "label": "Audio cut",
+              "type": "asset",
+              "role": "audio",
+              "helpText": "The stitched sound of the recorded lines (an audio-cut job). Play it, then say where a part needs to change."
+            },
+            {
+              "key": "timeline",
+              "label": "Timeline",
+              "type": "json",
+              "helpText": "Where each line sits in the cut: start and end in seconds, with the speech line's slug, so a time you heard maps to the line to change."
+            },
+            {
+              "key": "video",
+              "label": "Video",
+              "type": "asset",
+              "role": "video"
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "queued",
+                "rendering",
+                "done",
+                "failed"
+              ],
+              "defaultValue": "queued"
+            },
+            {
+              "key": "log",
+              "label": "Log",
+              "type": "textarea",
+              "rows": 6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "scene",
+      "name": "Scene",
+      "description": "A place in a story and everything always in it: the light, the set dressing and the continuity props. Every beat in the scene inherits it.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Scene",
+        "icon": "\ud83c\udfac",
+        "description": "A place in a story and everything always in it: the light, the set dressing and the continuity props. Every beat in the scene inherits it.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "story",
+              "label": "Story (story entry slug)",
+              "type": "text",
+              "required": true,
+              "helpText": "Slug of the parent story entry."
+            },
+            {
+              "key": "place",
+              "label": "Place",
+              "type": "textarea",
+              "rows": 3,
+              "helpText": "What the place is: the structure and layout, from the approved reference photo."
+            },
+            {
+              "key": "look",
+              "label": "Light and time of day",
+              "type": "textarea",
+              "rows": 2,
+              "helpText": "e.g. daylight through arched windows, warm lantern light."
+            },
+            {
+              "key": "set_dressing",
+              "label": "Set dressing (always there)",
+              "type": "textarea",
+              "rows": 4,
+              "helpText": "Objects that stay on the set for every beat here. Say what is NOT there too (no extra props)."
+            },
+            {
+              "key": "continuity",
+              "label": "Continuity notes",
+              "type": "textarea",
+              "rows": 3,
+              "helpText": "What carries between beats: where the onion is, what has changed on the table."
+            },
+            {
+              "key": "ambience",
+              "label": "Ambience (sound slug)",
+              "type": "text",
+              "helpText": "The sound that runs under every beat in this scene, e.g. the-last-onion-sound-harbour. It plays as one continuous bed, looped, and crossfades where the place changes."
+            },
+            {
+              "key": "ambience_volume",
+              "label": "Ambience level (0\u20131)",
+              "type": "number",
+              "min": 0,
+              "max": 1,
+              "helpText": "Loud outside (about 0.7), very low inside (about 0.1). Empty: the sound's own level."
+            },
+            {
+              "key": "ambience_muffled",
+              "label": "Heard from inside (muffled)",
+              "type": "boolean",
+              "defaultValue": false,
+              "helpText": "On for an indoor scene: the same sound, low-passed as if through a wall."
+            },
+            {
+              "key": "photo_ref",
+              "label": "Reference photo id",
+              "type": "text",
+              "helpText": "The source photo's id (ChatGPT library file) while it lives outside Marvin."
+            },
+            {
+              "key": "anchor",
+              "label": "Approved illustrated anchor",
+              "type": "asset",
+              "role": "anchor",
+              "helpText": "The approved painted look of this place. Photos govern structure only."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "approved"
+              ],
+              "defaultValue": "draft"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "shot",
+      "name": "Shot",
+      "description": "A rendered shot: a still with its focal path and hold.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Shot",
+        "icon": "\ud83c\udfac",
+        "color": "#059669",
+        "description": "A rendered shot: a still with its focal path and hold.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "story",
+              "label": "Story (story entry slug)",
+              "type": "text",
+              "required": true,
+              "helpText": "Slug of the parent story entry. There is no entry-to-entry relation field, so children hold the parent's slug."
+            },
+            {
+              "key": "beat",
+              "label": "Beat (beat number)",
+              "type": "text"
+            },
+            {
+              "key": "still",
+              "label": "Still",
+              "type": "asset",
+              "role": "still"
+            },
+            {
+              "key": "focal_path",
+              "label": "Focal path",
+              "type": "json",
+              "helpText": "The move from the renderer manifest."
+            },
+            {
+              "key": "hold_seconds",
+              "label": "Hold seconds",
+              "type": "number",
+              "min": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
       "slug": "sound",
       "name": "Sound",
       "description": "A reusable sound for any story: what it sounds like and its take. Beats place sounds under their picture; scenes use one as an ambience. Tag it so it can be found again (spoon, kitchen, ambience).",
@@ -784,155 +765,6 @@
               ],
               "defaultValue": "draft",
               "helpText": "Set to queued to make a new take: you are asked to approve the spend, hear the take, then keep it or redo (redo queues it again)."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "kind": "entry_type",
-      "slug": "worker",
-      "name": "Worker",
-      "description": "A dispatcher's heartbeat: it rewrites last_seen about once a minute, so Settings \u2192 Workers can show whether anything is watching the queue.",
-      "required": false,
-      "category": "General",
-      "source": "core",
-      "requires": [],
-      "parameters": [],
-      "payload": {
-        "name": "Worker",
-        "icon": "\ud83e\uddf0",
-        "description": "A dispatcher's heartbeat: it rewrites last_seen about once a minute, so Settings \u2192 Workers can show whether anything is watching the queue.",
-        "sort_order": 0,
-        "is_rendered": false,
-        "schema_json": {
-          "fields": [
-            {
-              "key": "role",
-              "label": "Role",
-              "type": "text",
-              "helpText": "dispatcher"
-            },
-            {
-              "key": "host",
-              "label": "Machine",
-              "type": "text"
-            },
-            {
-              "key": "modes",
-              "label": "Starts",
-              "type": "text",
-              "helpText": "The modes it starts workers in, e.g. docker, kubernetes."
-            },
-            {
-              "key": "last_seen",
-              "label": "Last seen",
-              "type": "text",
-              "helpText": "UTC, ISO. Written by the dispatcher about once a minute."
-            },
-            {
-              "key": "started_at",
-              "label": "Started",
-              "type": "text"
-            },
-            {
-              "key": "jobs_started",
-              "label": "Jobs started",
-              "type": "number",
-              "min": 0
-            },
-            {
-              "key": "status",
-              "label": "Status",
-              "type": "text",
-              "helpText": "idle or busy."
-            },
-            {
-              "key": "current_job",
-              "label": "Current job",
-              "type": "text",
-              "helpText": "The job it is running now, if any."
-            },
-            {
-              "key": "kinds",
-              "label": "Kinds it can do",
-              "type": "json",
-              "helpText": "Each kind it offers, with its contract: what it takes (inputs), the media types it accepts, what it produces, and what it needs."
-            },
-            {
-              "key": "tags",
-              "label": "Needs / has",
-              "type": "text",
-              "helpText": "What this machine has that its kinds need, e.g. ffmpeg."
-            },
-            {
-              "key": "jobs_done",
-              "label": "Jobs done",
-              "type": "number",
-              "min": 0
-            }
-          ]
-        },
-        "capabilities_json": {
-          "publishable": false,
-          "submittable": false,
-          "routable": false,
-          "listed": false
-        }
-      }
-    },
-    {
-      "kind": "entry_type",
-      "slug": "cast-member",
-      "name": "Cast Member",
-      "description": "A recurring Storyworld character: who they are and their approved master picture.",
-      "required": false,
-      "category": "General",
-      "source": "core",
-      "requires": [],
-      "parameters": [],
-      "payload": {
-        "name": "Cast Member",
-        "icon": "\ud83e\uddd1\u200d\ud83c\udf73",
-        "color": "#D97706",
-        "description": "A recurring Storyworld character: who they are and their approved master picture.",
-        "sort_order": 0,
-        "is_rendered": false,
-        "schema_json": {
-          "fields": [
-            {
-              "key": "cast_id",
-              "label": "Cast id",
-              "type": "text",
-              "required": true,
-              "helpText": "Stable id, e.g. old-ship-cook."
-            },
-            {
-              "key": "role",
-              "label": "Role",
-              "type": "text"
-            },
-            {
-              "key": "profile",
-              "label": "Profile",
-              "type": "json",
-              "helpText": "The cast/*.json body."
-            },
-            {
-              "key": "master",
-              "label": "Master picture",
-              "type": "asset",
-              "role": "master"
-            },
-            {
-              "key": "status",
-              "label": "Status",
-              "type": "select",
-              "options": [
-                "draft",
-                "approved"
-              ],
-              "defaultValue": "draft"
             }
           ]
         }
@@ -1085,19 +917,19 @@
     },
     {
       "kind": "entry_type",
-      "slug": "shot",
-      "name": "Shot",
-      "description": "A rendered shot: a still with its focal path and hold.",
+      "slug": "still",
+      "name": "Still",
+      "description": "A source still: its prompt, reference pictures and generated image. Several beats can share one.",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Shot",
-        "icon": "\ud83c\udfac",
-        "color": "#059669",
-        "description": "A rendered shot: a still with its focal path and hold.",
+        "name": "Still",
+        "icon": "\ud83d\uddbc\ufe0f",
+        "color": "#CA8A04",
+        "description": "A source still: its prompt, reference pictures and generated image. Several beats can share one.",
         "sort_order": 0,
         "is_rendered": false,
         "schema_json": {
@@ -1110,27 +942,48 @@
               "helpText": "Slug of the parent story entry. There is no entry-to-entry relation field, so children hold the parent's slug."
             },
             {
-              "key": "beat",
-              "label": "Beat (beat number)",
-              "type": "text"
+              "key": "source_id",
+              "label": "Source id",
+              "type": "text",
+              "required": true
             },
             {
-              "key": "still",
-              "label": "Still",
-              "type": "asset",
-              "role": "still"
-            },
-            {
-              "key": "focal_path",
-              "label": "Focal path",
+              "key": "beats",
+              "label": "Beats served",
               "type": "json",
-              "helpText": "The move from the renderer manifest."
+              "helpText": "List of beat numbers this still serves."
             },
             {
-              "key": "hold_seconds",
-              "label": "Hold seconds",
-              "type": "number",
-              "min": 0
+              "key": "prompt",
+              "label": "Prompt",
+              "type": "textarea",
+              "required": true,
+              "rows": 6
+            },
+            {
+              "key": "references",
+              "label": "References",
+              "type": "asset-list",
+              "role": "reference",
+              "helpText": "Master pictures and the style sheet."
+            },
+            {
+              "key": "image",
+              "label": "Image",
+              "type": "asset",
+              "role": "image"
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "generated",
+                "approved",
+                "redo"
+              ],
+              "defaultValue": "draft"
             }
           ]
         }
@@ -1138,54 +991,306 @@
     },
     {
       "kind": "entry_type",
-      "slug": "casting",
-      "name": "Casting",
-      "description": "An acting job: a cast member's role, outfit, era and condition in one story.",
+      "slug": "story",
+      "name": "Story",
+      "description": "A narrated, illustrated Storyworld story.",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Casting",
-        "icon": "\ud83c\udfad",
-        "color": "#DB2777",
-        "description": "An acting job: a cast member's role, outfit, era and condition in one story.",
+        "name": "Story",
+        "icon": "\ud83d\udcd6",
+        "color": "#7C3AED",
+        "description": "A narrated, illustrated Storyworld story.",
         "sort_order": 0,
         "is_rendered": false,
         "schema_json": {
           "fields": [
             {
-              "key": "cast_id",
-              "label": "Cast id",
+              "key": "premise",
+              "label": "Premise",
+              "type": "textarea",
+              "rows": 4
+            },
+            {
+              "key": "script",
+              "label": "Script",
+              "type": "markdown"
+            },
+            {
+              "key": "target_seconds",
+              "label": "Target seconds",
+              "type": "number",
+              "min": 0
+            },
+            {
+              "key": "format",
+              "label": "Format",
+              "type": "select",
+              "options": [
+                "short-9x16"
+              ],
+              "defaultValue": "short-9x16"
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "script",
+                "voices",
+                "rough-cut",
+                "final",
+                "published"
+              ],
+              "defaultValue": "script"
+            },
+            {
+              "key": "youtube_id",
+              "label": "YouTube id",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "take",
+      "name": "Take",
+      "description": "One recording of a speech line: the audio, how it was made, and your notes on it. A line keeps every take; the one marked In use is what the Audio cut stitches.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Take",
+        "icon": "\ud83c\udf99\ufe0f",
+        "description": "One recording of a speech line: the audio, how it was made, and your notes on it. A line keeps every take; the one marked In use is what the Audio cut stitches.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "line",
+              "label": "Line",
+              "type": "text",
+              "required": true,
+              "helpText": "Slug of the speech line this is a take of."
+            },
+            {
+              "key": "story",
+              "label": "Story",
+              "type": "text",
+              "helpText": "Slug of the story (copied from the line)."
+            },
+            {
+              "key": "audio",
+              "label": "Audio",
+              "type": "asset",
+              "helpText": "The recording. Upload your own to add a take recorded outside Marvin."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "recorded",
+                "in_use"
+              ],
+              "defaultValue": "recorded",
+              "helpText": "Set to in_use and save to make the line use this take (the take that was in use goes back to recorded)."
+            },
+            {
+              "key": "notes",
+              "label": "Notes on this take",
+              "type": "textarea",
+              "rows": 3,
+              "helpText": "How it sounds and what to try next time."
+            },
+            {
+              "key": "spoken",
+              "label": "What was spoken",
+              "type": "textarea",
+              "rows": 2,
+              "helpText": "The text sent to the voice (the delivery text with tags, when the line had one)."
+            },
+            {
+              "key": "model",
+              "label": "Model",
+              "type": "text",
+              "helpText": "The voice model, when it was named (eleven_v3 for tagged takes)."
+            },
+            {
+              "key": "voice",
+              "label": "Voice",
+              "type": "text",
+              "helpText": "Slug of the voice entry used."
+            },
+            {
+              "key": "stability",
+              "label": "Stability",
+              "type": "number",
+              "helpText": "The setting this take was made with. Empty: the voice's own."
+            },
+            {
+              "key": "similarity_boost",
+              "label": "Similarity boost",
+              "type": "number"
+            },
+            {
+              "key": "style",
+              "label": "Style",
+              "type": "number"
+            },
+            {
+              "key": "speed",
+              "label": "Speed",
+              "type": "number"
+            },
+            {
+              "key": "duration_seconds",
+              "label": "Duration (seconds)",
+              "type": "number",
+              "helpText": "How long the recording is."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "voice",
+      "name": "Voice",
+      "description": "A speaker's ElevenLabs voice and settings.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Voice",
+        "icon": "\ud83d\udd0a",
+        "color": "#0891B2",
+        "description": "A speaker's ElevenLabs voice and settings.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "speaker",
+              "label": "Speaker",
+              "type": "text",
+              "required": true,
+              "helpText": "Narrator, Cook, Captain, ..."
+            },
+            {
+              "key": "elevenlabs_voice_id",
+              "label": "ElevenLabs voice id",
               "type": "text",
               "required": true
             },
             {
-              "key": "story",
-              "label": "Story (story entry slug)",
-              "type": "text",
-              "required": true,
-              "helpText": "Slug of the parent story entry. There is no entry-to-entry relation field, so children hold the parent's slug."
-            },
+              "key": "settings",
+              "label": "Settings",
+              "type": "json"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "worker",
+      "name": "Worker",
+      "description": "A dispatcher's heartbeat: it rewrites last_seen about once a minute, so Settings \u2192 Workers can show whether anything is watching the queue.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Worker",
+        "icon": "\ud83e\uddf0",
+        "description": "A dispatcher's heartbeat: it rewrites last_seen about once a minute, so Settings \u2192 Workers can show whether anything is watching the queue.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
             {
               "key": "role",
-              "label": "Role played",
+              "label": "Role",
+              "type": "text",
+              "helpText": "dispatcher"
+            },
+            {
+              "key": "host",
+              "label": "Machine",
               "type": "text"
             },
             {
-              "key": "state",
-              "label": "State (outfit, era, condition)",
-              "type": "textarea",
-              "rows": 3
+              "key": "modes",
+              "label": "Starts",
+              "type": "text",
+              "helpText": "The modes it starts workers in, e.g. docker, kubernetes."
             },
             {
-              "key": "notes",
-              "label": "Notes",
-              "type": "textarea",
-              "rows": 3
+              "key": "last_seen",
+              "label": "Last seen",
+              "type": "text",
+              "helpText": "UTC, ISO. Written by the dispatcher about once a minute."
+            },
+            {
+              "key": "started_at",
+              "label": "Started",
+              "type": "text"
+            },
+            {
+              "key": "jobs_started",
+              "label": "Jobs started",
+              "type": "number",
+              "min": 0
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "text",
+              "helpText": "idle or busy."
+            },
+            {
+              "key": "current_job",
+              "label": "Current job",
+              "type": "text",
+              "helpText": "The job it is running now, if any."
+            },
+            {
+              "key": "kinds",
+              "label": "Kinds it can do",
+              "type": "json",
+              "helpText": "Each kind it offers, with its contract: what it takes (inputs), the media types it accepts, what it produces, and what it needs."
+            },
+            {
+              "key": "tags",
+              "label": "Needs / has",
+              "type": "text",
+              "helpText": "What this machine has that its kinds need, e.g. ffmpeg."
+            },
+            {
+              "key": "jobs_done",
+              "label": "Jobs done",
+              "type": "number",
+              "min": 0
             }
           ]
+        },
+        "capabilities_json": {
+          "publishable": false,
+          "submittable": false,
+          "routable": false,
+          "listed": false
         }
       }
     },
@@ -1539,6 +1644,26 @@
                 },
                 {
                   "kind": "entry",
+                  "op": "create",
+                  "entry_type": "take",
+                  "status": "draft",
+                  "title": "${line.title} \u00b7 take ${steps.say.output.asset.id|split(\"-\")|first}",
+                  "data": {
+                    "line": "${line.slug}",
+                    "story": "${line.data.story}",
+                    "audio": "${steps.say.output.asset.id}",
+                    "status": "in_use",
+                    "spoken": "${line.data.text}",
+                    "voice": "${line.data.voice}",
+                    "stability": "${line.data.stability}",
+                    "similarity_boost": "${line.data.similarity_boost}",
+                    "style": "${line.data.style}",
+                    "speed": "${line.data.speed}",
+                    "duration_seconds": "${steps.say.output.asset.duration_seconds}"
+                  }
+                },
+                {
+                  "kind": "entry",
                   "op": "set_data",
                   "entity_slug": "${line.slug}",
                   "data": {
@@ -1546,13 +1671,6 @@
                     "duration_seconds": "${steps.say.output.asset.duration_seconds}",
                     "status": "recorded"
                   }
-                },
-                {
-                  "kind": "entry",
-                  "op": "attach_asset",
-                  "entity_slug": "${line.slug}",
-                  "asset": "${steps.say.output.asset.id}",
-                  "role": "audio"
                 }
               ]
             }
@@ -1659,6 +1777,78 @@
     },
     {
       "kind": "workflow",
+      "slug": "storyworld-take-created",
+      "name": "Storyworld: a new take is the one in use",
+      "description": "",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Storyworld: a new take is the one in use",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_created"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "take"
+            },
+            {
+              "field": "entry.data.status",
+              "op": "eq",
+              "value": "in_use"
+            }
+          ],
+          "actions": [
+            {
+              "kind": "collect",
+              "id": "others",
+              "entity": "entry",
+              "limit": 50,
+              "query": {
+                "entry_type": "take",
+                "data": {
+                  "line": "${entry.data.line}",
+                  "status": "in_use"
+                }
+              },
+              "fields": [
+                "data.status"
+              ]
+            },
+            {
+              "kind": "repeat",
+              "id": "demote",
+              "for_each": "${steps.others.output.rows}",
+              "as": "other",
+              "on_item_error": "continue",
+              "steps": [
+                {
+                  "kind": "entry",
+                  "op": "set_data",
+                  "entity_slug": "${other.slug}",
+                  "data": {
+                    "status": "recorded"
+                  },
+                  "when": {
+                    "field": "other.slug",
+                    "op": "neq",
+                    "value": "${entry.slug}"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
       "slug": "storyworld-take-line",
       "name": "Storyworld: take a speech line",
       "description": "",
@@ -1731,19 +1921,33 @@
             },
             {
               "kind": "entry",
+              "op": "create",
+              "entry_type": "take",
+              "status": "draft",
+              "title": "${entry.title} \u00b7 take ${steps.say.output.asset.id|split(\"-\")|first}",
+              "data": {
+                "line": "${entry.slug}",
+                "story": "${entry.data.story}",
+                "audio": "${steps.say.output.asset.id}",
+                "status": "in_use",
+                "spoken": "${entry.data.text}",
+                "voice": "${entry.data.voice}",
+                "stability": "${entry.data.stability}",
+                "similarity_boost": "${entry.data.similarity_boost}",
+                "style": "${entry.data.style}",
+                "speed": "${entry.data.speed}",
+                "duration_seconds": "${steps.say.output.asset.duration_seconds}"
+              }
+            },
+            {
+              "kind": "entry",
               "op": "set_data",
               "data": {
                 "audio": "${steps.say.output.asset.id}",
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}",
                 "status": "recorded",
-                "take_notes": "Recorded as written. Listen, then Keep or Redo. Every take stays attached to this line as a take; Audio uses the one set here."
+                "take_notes": "Recorded; saved as a take record. Listen, then Keep or Redo. Pick a different take any time by setting a take's Status to In use."
               }
-            },
-            {
-              "kind": "entry",
-              "op": "attach_asset",
-              "asset": "${steps.say.output.asset.id}",
-              "role": "take"
             },
             {
               "kind": "approval",
@@ -1858,19 +2062,34 @@
             },
             {
               "kind": "entry",
+              "op": "create",
+              "entry_type": "take",
+              "status": "draft",
+              "title": "${entry.title} \u00b7 take ${steps.say.output.asset.id|split(\"-\")|first}",
+              "data": {
+                "line": "${entry.slug}",
+                "story": "${entry.data.story}",
+                "audio": "${steps.say.output.asset.id}",
+                "status": "in_use",
+                "spoken": "${entry.data.delivery_text}",
+                "voice": "${entry.data.voice}",
+                "stability": "${entry.data.stability}",
+                "similarity_boost": "${entry.data.similarity_boost}",
+                "style": "${entry.data.style}",
+                "speed": "${entry.data.speed}",
+                "duration_seconds": "${steps.say.output.asset.duration_seconds}",
+                "model": "eleven_v3"
+              }
+            },
+            {
+              "kind": "entry",
               "op": "set_data",
               "data": {
                 "audio": "${steps.say.output.asset.id}",
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}",
                 "status": "recorded",
-                "take_notes": "Recorded with delivery tags. Listen, then Keep or Redo. Every take stays attached to this line as a take; Audio uses the one set here."
+                "take_notes": "Recorded; saved as a take record. Listen, then Keep or Redo. Pick a different take any time by setting a take's Status to In use."
               }
-            },
-            {
-              "kind": "entry",
-              "op": "attach_asset",
-              "asset": "${steps.say.output.asset.id}",
-              "role": "take"
             },
             {
               "kind": "approval",
@@ -2119,6 +2338,89 @@
                 "field": "steps.keep.output.choice",
                 "op": "eq",
                 "value": "Redo"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "storyworld-use-take",
+      "name": "Storyworld: use a take",
+      "description": "",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Storyworld: use a take",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_updated"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "take"
+            },
+            {
+              "field": "entry.data.status",
+              "op": "changed_to",
+              "value": "in_use"
+            }
+          ],
+          "actions": [
+            {
+              "kind": "collect",
+              "id": "others",
+              "entity": "entry",
+              "limit": 50,
+              "query": {
+                "entry_type": "take",
+                "data": {
+                  "line": "${entry.data.line}",
+                  "status": "in_use"
+                }
+              },
+              "fields": [
+                "data.status"
+              ]
+            },
+            {
+              "kind": "repeat",
+              "id": "demote",
+              "for_each": "${steps.others.output.rows}",
+              "as": "other",
+              "on_item_error": "continue",
+              "steps": [
+                {
+                  "kind": "entry",
+                  "op": "set_data",
+                  "entity_slug": "${other.slug}",
+                  "data": {
+                    "status": "recorded"
+                  },
+                  "when": {
+                    "field": "other.slug",
+                    "op": "neq",
+                    "value": "${entry.slug}"
+                  }
+                }
+              ]
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.data.line}",
+              "data": {
+                "audio": "${entry.data.audio}",
+                "duration_seconds": "${entry.data.duration_seconds}",
+                "status": "approved",
+                "take_notes": "Using the take \u201c${entry.title}\u201d. Change which take is In use on the take records."
               }
             }
           ]
