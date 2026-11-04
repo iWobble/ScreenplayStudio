@@ -6,7 +6,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import build, ffmpeg, manifest, marvin_pull
+from . import build, ffmpeg, manifest, marvin_pull, script
 
 
 def story_of(job: dict) -> str:
@@ -42,3 +42,42 @@ def audio_cut(job: dict, ctx: Context) -> dict:
     if pulled["not_recorded"]:
         note += f" Not recorded yet, so left out: {', '.join(pulled['not_recorded'])}."
     return {"result": {"audio": asset["id"], "url": asset.get("publicUrl"), "seconds": result["seconds"], "timeline": result["timeline"], "ambience": result["ambience"]}, "log": note}
+
+
+SCRIPT_FILES = {"fountain": "text/plain", "pdf": "application/pdf", "html": "text/html"}
+
+
+@job_kind(
+    "script",
+    description="Make a story's screenplay from its records: scene headings, action, voice-over and dialogue with directions, sound cues. A Fountain file, a PDF in Courier 12 and an HTML page",
+    inputs={"story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"}},
+    produces=list(SCRIPT_FILES.values()),
+    needs=["screenplain"],
+)
+def make_script(job: dict, ctx: Context) -> dict:
+    """The story's records as a screenplay, kept as assets and named on the story (`script_fountain`, `script_pdf`, `script_html`)."""
+    story, name = story_of(job), job["job"]
+    try:
+        records = script.pull_records(story, ctx.creds)
+    except LookupError as e:
+        raise JobError(str(e)) from e
+    title = records["story"].get("title") or story
+    made = script.render(script.fountain(records), ctx.work / "script", story)
+    assets = {
+        kind: marvin_api.upload_asset(
+            ctx.creds,
+            made[kind],
+            slug=f"{name}-script-{kind}",
+            name=f"{title}: script ({kind})",
+            mime=mime,
+            description=f"The screenplay of {title}, made from its records.",
+            metadata={"kind": "script", "story": story, "format": kind},
+        )
+        for kind, mime in SCRIPT_FILES.items()
+    }
+    marvin_api.update_entry(ctx.creds, story, {f"script_{kind}": asset["id"] for kind, asset in assets.items()})
+    pages = {"pdf": made["pdf"].name}
+    return {
+        "result": {**{kind: asset["id"] for kind, asset in assets.items()}, "urls": {kind: asset.get("publicUrl") for kind, asset in assets.items()}, "beats": len(records["beats"])},
+        "log": f"{len(records['beats'])} beats, written as {', '.join(SCRIPT_FILES)}. {pages['pdf']} is the one to share.",
+    }

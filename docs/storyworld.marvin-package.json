@@ -3,7 +3,7 @@
   "slug": "storyworld",
   "name": "Storyworld",
   "description": "Narrated illustrated stories: cast, scenes, beats, speech lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "7",
+  "version": "9",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1051,6 +1051,24 @@
               "key": "youtube_id",
               "label": "YouTube id",
               "type": "text"
+            },
+            {
+              "key": "script_pdf",
+              "label": "Script (PDF)",
+              "type": "asset",
+              "helpText": "The screenplay as a PDF in Courier 12: the one to share or print. Made by the script job."
+            },
+            {
+              "key": "script_fountain",
+              "label": "Script (Fountain)",
+              "type": "asset",
+              "helpText": "The screenplay as plain Fountain text, for a screenwriting app. Made by the script job."
+            },
+            {
+              "key": "script_html",
+              "label": "Script (web page)",
+              "type": "asset",
+              "helpText": "The screenplay as an HTML page. Made by the script job."
             }
           ]
         }
@@ -1644,10 +1662,20 @@
                 },
                 {
                   "kind": "entry",
+                  "op": "set_data",
+                  "entity_slug": "${line.slug}",
+                  "data": {
+                    "audio": "${steps.say.output.asset.id}",
+                    "duration_seconds": "${steps.say.output.asset.duration_seconds}",
+                    "status": "recorded"
+                  }
+                },
+                {
+                  "kind": "entry",
                   "op": "create",
                   "entry_type": "take",
                   "status": "draft",
-                  "title": "${line.title} \u00b7 take ${steps.say.output.asset.id|split(\"-\")|first}",
+                  "title": "${line.title} \u00b7 take ${steps.say.output.asset.id|split:-|first}",
                   "data": {
                     "line": "${line.slug}",
                     "story": "${line.data.story}",
@@ -1660,16 +1688,6 @@
                     "style": "${line.data.style}",
                     "speed": "${line.data.speed}",
                     "duration_seconds": "${steps.say.output.asset.duration_seconds}"
-                  }
-                },
-                {
-                  "kind": "entry",
-                  "op": "set_data",
-                  "entity_slug": "${line.slug}",
-                  "data": {
-                    "audio": "${steps.say.output.asset.id}",
-                    "duration_seconds": "${steps.say.output.asset.duration_seconds}",
-                    "status": "recorded"
                   }
                 }
               ]
@@ -1921,10 +1939,20 @@
             },
             {
               "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "audio": "${steps.say.output.asset.id}",
+                "duration_seconds": "${steps.say.output.asset.duration_seconds}",
+                "status": "recorded",
+                "take_notes": "Recorded; saved as a take record. Listen, then Keep or Redo. Pick a different take any time by setting a take's Status to In use."
+              }
+            },
+            {
+              "kind": "entry",
               "op": "create",
               "entry_type": "take",
               "status": "draft",
-              "title": "${entry.title} \u00b7 take ${steps.say.output.asset.id|split(\"-\")|first}",
+              "title": "${entry.title} \u00b7 take ${steps.say.output.asset.id|split:-|first}",
               "data": {
                 "line": "${entry.slug}",
                 "story": "${entry.data.story}",
@@ -1937,16 +1965,6 @@
                 "style": "${entry.data.style}",
                 "speed": "${entry.data.speed}",
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}"
-              }
-            },
-            {
-              "kind": "entry",
-              "op": "set_data",
-              "data": {
-                "audio": "${steps.say.output.asset.id}",
-                "duration_seconds": "${steps.say.output.asset.duration_seconds}",
-                "status": "recorded",
-                "take_notes": "Recorded; saved as a take record. Listen, then Keep or Redo. Pick a different take any time by setting a take's Status to In use."
               }
             },
             {
@@ -2062,10 +2080,20 @@
             },
             {
               "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "audio": "${steps.say.output.asset.id}",
+                "duration_seconds": "${steps.say.output.asset.duration_seconds}",
+                "status": "recorded",
+                "take_notes": "Recorded; saved as a take record. Listen, then Keep or Redo. Pick a different take any time by setting a take's Status to In use."
+              }
+            },
+            {
+              "kind": "entry",
               "op": "create",
               "entry_type": "take",
               "status": "draft",
-              "title": "${entry.title} \u00b7 take ${steps.say.output.asset.id|split(\"-\")|first}",
+              "title": "${entry.title} \u00b7 take ${steps.say.output.asset.id|split:-|first}",
               "data": {
                 "line": "${entry.slug}",
                 "story": "${entry.data.story}",
@@ -2079,16 +2107,6 @@
                 "speed": "${entry.data.speed}",
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}",
                 "model": "eleven_v3"
-              }
-            },
-            {
-              "kind": "entry",
-              "op": "set_data",
-              "data": {
-                "audio": "${steps.say.output.asset.id}",
-                "duration_seconds": "${steps.say.output.asset.duration_seconds}",
-                "status": "recorded",
-                "take_notes": "Recorded; saved as a take record. Listen, then Keep or Redo. Pick a different take any time by setting a take's Status to In use."
               }
             },
             {

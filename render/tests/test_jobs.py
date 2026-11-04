@@ -114,3 +114,36 @@ def test_audio_cut_declares_its_contract_so_a_worker_can_tell_marvin_what_it_tak
 
     assert contract["inputs"]["story"]["required"] is True and contract["produces"] == ["audio/mpeg"] and contract["needs"] == ["ffmpeg"]
     assert "story" in worker_jobs.META["audio-cut"]["inputs"]
+
+
+needs_screenplain = pytest.mark.skipif(shutil.which("screenplain") is None, reason="screenplain not installed")
+
+
+@needs_screenplain
+def test_script_makes_fountain_pdf_and_html_and_names_them_on_the_story(marvin):
+    FakeMarvin.entries.append({"id": "e5", "slug": "render-job-2", "dataJson": {"kind": "script", "args": {"story": STORY}, "status": "claimed"}})
+
+    serve.run_job({"kind": "script", "job": "render-job-2", "args": {"story": STORY}}, marvin)
+
+    data = _data("render-job-2")
+    assert data["status"] == "done" and data["result"]["beats"] == 1 and set(data["result"]["urls"]) == {"fountain", "pdf", "html"}
+    uploaded = b"".join(body for _type, body in FakeMarvin.uploads)
+    assert b"Content-Type: application/pdf" in uploaded and b"Content-Type: text/html" in uploaded and b"%PDF" in uploaded
+    assert all(f"script_{kind}" in _data(STORY) for kind in ("fountain", "pdf", "html"))  # named on the story, where a publish step finds them
+
+
+def test_script_of_a_story_that_isnt_there_says_why_on_the_record(marvin):
+    FakeMarvin.entries.append({"id": "e5", "slug": "render-job-2", "dataJson": {"kind": "script", "args": {"story": "nope"}, "status": "claimed"}})
+
+    serve.run_job({"kind": "script", "job": "render-job-2", "args": {"story": "nope"}}, marvin)
+
+    assert _data("render-job-2")["status"] == "failed" and "nope" in _data("render-job-2")["log"]
+
+
+def test_script_declares_what_it_takes_gives_and_needs():
+    from marvin_worker import jobs as worker_jobs
+
+    (contract,) = worker_jobs.describe_kinds(["script"])
+
+    assert contract["inputs"]["story"]["required"] is True and contract["needs"] == ["screenplain"]
+    assert contract["produces"] == ["text/plain", "application/pdf", "text/html"]
