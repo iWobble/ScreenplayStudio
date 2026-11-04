@@ -3,7 +3,7 @@
   "slug": "storyworld",
   "name": "Storyworld",
   "description": "Narrated illustrated stories: cast, scenes, beats, speech lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "1",
+  "version": "2",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -966,6 +966,20 @@
               "helpText": "The words the voice says. Fix wording, punctuation or a respelling here, then record again; this is the source of truth, the story script is a readable copy."
             },
             {
+              "key": "direction",
+              "label": "Direction",
+              "type": "textarea",
+              "rows": 3,
+              "helpText": "How this line should sound and feel, in your own words (\"tired, a little amused, almost to herself\"). Read by people and by Claude when choosing the voice settings and the delivery tags; the voice itself cannot read it."
+            },
+            {
+              "key": "delivery_text",
+              "label": "Delivery text",
+              "type": "textarea",
+              "rows": 3,
+              "helpText": "Optional: the same words with ElevenLabs v3 tags, like [sighs] or [whispers] or [pause]. When filled in, the next take speaks this (on the v3 model) instead of Text. Captions always use Text, never this."
+            },
+            {
               "key": "voice",
               "label": "Voice (voice entry slug)",
               "type": "text"
@@ -1206,103 +1220,6 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-still-beat-03",
-      "name": "Storyworld still: beat 03 (references trial)",
-      "description": "",
-      "required": false,
-      "category": "General",
-      "source": "core",
-      "requires": [],
-      "parameters": [],
-      "payload": {
-        "name": "Storyworld still: beat 03 (references trial)",
-        "definition": {
-          "trigger": {
-            "type": "manual"
-          },
-          "actions": [
-            {
-              "kind": "approval",
-              "id": "spend",
-              "message": "Make the still for beat 03 (the cook at the near-empty shelf) with the cook master as the reference? It uses OpenAI image credit."
-            },
-            {
-              "kind": "integration",
-              "id": "still",
-              "integration": "openai_images",
-              "action": "edit",
-              "args": {
-                "prompt": "Use the reference picture for the old ship cook: keep his face shape, hair, beard, build, clothes, peg leg and the rounded miniature illustration style exactly as drawn. New scene: the cook stands in front of an almost empty wooden provision shelf in a ship's hold, warm lantern light. Only three things sit on the otherwise bare shelf, clearly visible together: two small scraps of pork, one flat hard ship's biscuit with a few small weevil holes in it, and a single onion. His brows are tilted down and his mouth is a flat, tired line: weary resignation, not a smile. Vertical portrait composition, the same warm palette and soft rounded shapes. No text, no writing."
-              },
-              "references": [
-                "old-ship-cook-master-v1"
-              ]
-            },
-            {
-              "kind": "approval",
-              "id": "keep",
-              "message": "Keep this still for beat 03?",
-              "choices": [
-                "Keep",
-                "Redo"
-              ],
-              "image": "${steps.still.output.asset.url}"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "kind": "workflow",
-      "slug": "storyworld-still-beat-04",
-      "name": "Storyworld still: beat 04 (two-shot trial)",
-      "description": "",
-      "required": false,
-      "category": "General",
-      "source": "core",
-      "requires": [],
-      "parameters": [],
-      "payload": {
-        "name": "Storyworld still: beat 04 (two-shot trial)",
-        "definition": {
-          "trigger": {
-            "type": "manual"
-          },
-          "actions": [
-            {
-              "kind": "approval",
-              "id": "spend",
-              "message": "Redo beat 04 (cook and captain, cabin two-shot) with the unfinished letters on the table and no invented props? It uses OpenAI image credit."
-            },
-            {
-              "kind": "integration",
-              "id": "still",
-              "integration": "openai_images",
-              "action": "edit",
-              "args": {
-                "prompt": "Two reference pictures: the old ship cook (peg leg, apron) and the pirate captain (navy and gold coat, burgundy waistcoat, auburn hair). Keep each character's face, hair, build, clothes and the rounded miniature illustration style exactly as drawn in their reference. New scene: the captain's cabin, warm lantern light, a plain wooden table. The captain sits behind a spread nautical chart, composed and dismissive. A single whole onion lies in the middle of the chart. The cook stands at the table's edge, his hand just withdrawn from the onion, chin slightly lifted. His mouth is a flat straight line and his brows are level: deadpan, not smiling. On the table beside the chart: a few folded letters, an inkwell with a quill, and one open unfinished sheet near the captain's hand with only faint scribbled lines, no readable writing. Both characters clearly visible together, a cabin two-shot. Keep the cabin simple: no sextant, globe, painting or other extra props. Vertical portrait composition, the same warm palette and soft rounded shapes. No text, no letters, no writing."
-              },
-              "references": [
-                "old-ship-cook-master-v1",
-                "pirate-captain-master-v1"
-              ]
-            },
-            {
-              "kind": "approval",
-              "id": "keep",
-              "message": "Keep this still for beat 04? Check both faces against their masters.",
-              "choices": [
-                "Keep",
-                "Redo"
-              ],
-              "image": "${steps.still.output.asset.url}"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "kind": "workflow",
       "slug": "storyworld-audio-cut",
       "name": "Storyworld: cut the audio of a story",
       "description": "",
@@ -1396,8 +1313,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-make-still",
-      "name": "Storyworld: queue a beat for a new still",
+      "slug": "storyworld-make-line",
+      "name": "Storyworld: queue a speech line for a new take",
       "description": "",
       "required": false,
       "category": "General",
@@ -1405,17 +1322,17 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: queue a beat for a new still",
+        "name": "Storyworld: queue a speech line for a new take",
         "definition": {
           "trigger": {
             "type": "manual",
             "inputs": [
               {
-                "name": "beat",
-                "label": "Beat",
+                "name": "line",
+                "label": "Line",
                 "type": "entry",
                 "required": true,
-                "default": "the-last-onion-beat-04"
+                "default": "the-last-onion-line-04-1"
               }
             ]
           },
@@ -1470,8 +1387,8 @@
     },
     {
       "kind": "workflow",
-      "slug": "storyworld-make-line",
-      "name": "Storyworld: queue a speech line for a new take",
+      "slug": "storyworld-make-still",
+      "name": "Storyworld: queue a beat for a new still",
       "description": "",
       "required": false,
       "category": "General",
@@ -1479,17 +1396,17 @@
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Storyworld: queue a speech line for a new take",
+        "name": "Storyworld: queue a beat for a new still",
         "definition": {
           "trigger": {
             "type": "manual",
             "inputs": [
               {
-                "name": "line",
-                "label": "Line",
+                "name": "beat",
+                "label": "Beat",
                 "type": "entry",
                 "required": true,
-                "default": "the-last-onion-line-04-1"
+                "default": "the-last-onion-beat-04"
               }
             ]
           },
@@ -1627,6 +1544,354 @@
     },
     {
       "kind": "workflow",
+      "slug": "storyworld-still-beat-03",
+      "name": "Storyworld still: beat 03 (references trial)",
+      "description": "",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Storyworld still: beat 03 (references trial)",
+        "definition": {
+          "trigger": {
+            "type": "manual"
+          },
+          "actions": [
+            {
+              "kind": "approval",
+              "id": "spend",
+              "message": "Make the still for beat 03 (the cook at the near-empty shelf) with the cook master as the reference? It uses OpenAI image credit."
+            },
+            {
+              "kind": "integration",
+              "id": "still",
+              "integration": "openai_images",
+              "action": "edit",
+              "args": {
+                "prompt": "Use the reference picture for the old ship cook: keep his face shape, hair, beard, build, clothes, peg leg and the rounded miniature illustration style exactly as drawn. New scene: the cook stands in front of an almost empty wooden provision shelf in a ship's hold, warm lantern light. Only three things sit on the otherwise bare shelf, clearly visible together: two small scraps of pork, one flat hard ship's biscuit with a few small weevil holes in it, and a single onion. His brows are tilted down and his mouth is a flat, tired line: weary resignation, not a smile. Vertical portrait composition, the same warm palette and soft rounded shapes. No text, no writing."
+              },
+              "references": [
+                "old-ship-cook-master-v1"
+              ]
+            },
+            {
+              "kind": "approval",
+              "id": "keep",
+              "message": "Keep this still for beat 03?",
+              "choices": [
+                "Keep",
+                "Redo"
+              ],
+              "image": "${steps.still.output.asset.url}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "storyworld-still-beat-04",
+      "name": "Storyworld still: beat 04 (two-shot trial)",
+      "description": "",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Storyworld still: beat 04 (two-shot trial)",
+        "definition": {
+          "trigger": {
+            "type": "manual"
+          },
+          "actions": [
+            {
+              "kind": "approval",
+              "id": "spend",
+              "message": "Redo beat 04 (cook and captain, cabin two-shot) with the unfinished letters on the table and no invented props? It uses OpenAI image credit."
+            },
+            {
+              "kind": "integration",
+              "id": "still",
+              "integration": "openai_images",
+              "action": "edit",
+              "args": {
+                "prompt": "Two reference pictures: the old ship cook (peg leg, apron) and the pirate captain (navy and gold coat, burgundy waistcoat, auburn hair). Keep each character's face, hair, build, clothes and the rounded miniature illustration style exactly as drawn in their reference. New scene: the captain's cabin, warm lantern light, a plain wooden table. The captain sits behind a spread nautical chart, composed and dismissive. A single whole onion lies in the middle of the chart. The cook stands at the table's edge, his hand just withdrawn from the onion, chin slightly lifted. His mouth is a flat straight line and his brows are level: deadpan, not smiling. On the table beside the chart: a few folded letters, an inkwell with a quill, and one open unfinished sheet near the captain's hand with only faint scribbled lines, no readable writing. Both characters clearly visible together, a cabin two-shot. Keep the cabin simple: no sextant, globe, painting or other extra props. Vertical portrait composition, the same warm palette and soft rounded shapes. No text, no letters, no writing."
+              },
+              "references": [
+                "old-ship-cook-master-v1",
+                "pirate-captain-master-v1"
+              ]
+            },
+            {
+              "kind": "approval",
+              "id": "keep",
+              "message": "Keep this still for beat 04? Check both faces against their masters.",
+              "choices": [
+                "Keep",
+                "Redo"
+              ],
+              "image": "${steps.still.output.asset.url}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "storyworld-take-line",
+      "name": "Storyworld: take a speech line",
+      "description": "",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Storyworld: take a speech line",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_updated"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "speech-line"
+            },
+            {
+              "field": "entry.data.status",
+              "op": "eq",
+              "value": "queued"
+            },
+            {
+              "field": "entry.data.delivery_text",
+              "op": "shorter_than",
+              "value": 1
+            }
+          ],
+          "actions": [
+            {
+              "kind": "collect",
+              "id": "voice",
+              "entity": "entry",
+              "query": {
+                "entries": "${entry.data.voice}"
+              },
+              "fields": [
+                "data.elevenlabs_voice_id"
+              ]
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "take_notes": "Waiting for approval to record."
+              }
+            },
+            {
+              "kind": "approval",
+              "id": "spend",
+              "message": "Record ${entry.data.speaker}: \u201c${entry.data.text}\u201d with ElevenLabs? It uses speech credit (${entry.data.text|length} characters)."
+            },
+            {
+              "kind": "integration",
+              "id": "say",
+              "integration": "elevenlabs",
+              "action": "synthesize",
+              "args": {
+                "text": "${entry.data.text}",
+                "voice_id": "${steps.voice.output.rows.0.data.elevenlabs_voice_id}",
+                "stability": "${entry.data.stability}",
+                "similarity_boost": "${entry.data.similarity_boost}",
+                "style": "${entry.data.style}",
+                "speed": "${entry.data.speed}"
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "audio": "${steps.say.output.asset.id}",
+                "duration_seconds": "${steps.say.output.asset.duration_seconds}",
+                "status": "recorded"
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "attach_asset",
+              "asset": "${steps.say.output.asset.id}",
+              "role": "audio"
+            },
+            {
+              "kind": "approval",
+              "id": "keep",
+              "message": "Listen to this take of ${entry.data.speaker}: \u201c${entry.data.text}\u201d (${steps.say.output.asset.duration_seconds} s). Redo records a fresh take and asks again; change the wording or the voice settings on the line first if it should sound different.",
+              "choices": [
+                "Keep",
+                "Redo"
+              ],
+              "image": "${steps.say.output.asset.url}"
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "status": "approved"
+              },
+              "when": {
+                "field": "steps.keep.output.choice",
+                "op": "eq",
+                "value": "Keep"
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "status": "queued"
+              },
+              "when": {
+                "field": "steps.keep.output.choice",
+                "op": "eq",
+                "value": "Redo"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "storyworld-take-line-tagged",
+      "name": "Storyworld: take a line with delivery tags",
+      "description": "",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Storyworld: take a line with delivery tags",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_updated"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "speech-line"
+            },
+            {
+              "field": "entry.data.status",
+              "op": "eq",
+              "value": "queued"
+            },
+            {
+              "field": "entry.data.delivery_text",
+              "op": "longer_than",
+              "value": 0
+            }
+          ],
+          "actions": [
+            {
+              "kind": "collect",
+              "id": "voice",
+              "entity": "entry",
+              "query": {
+                "entries": "${entry.data.voice}"
+              },
+              "fields": [
+                "data.elevenlabs_voice_id"
+              ]
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "take_notes": "Waiting for approval to record."
+              }
+            },
+            {
+              "kind": "approval",
+              "id": "spend",
+              "message": "Record ${entry.data.speaker}: \u201c${entry.data.delivery_text}\u201d with ElevenLabs v3 (tags are read as direction, not spoken)? It uses speech credit (${entry.data.delivery_text|length} characters)."
+            },
+            {
+              "kind": "integration",
+              "id": "say",
+              "integration": "elevenlabs",
+              "action": "synthesize",
+              "args": {
+                "text": "${entry.data.delivery_text}",
+                "voice_id": "${steps.voice.output.rows.0.data.elevenlabs_voice_id}",
+                "stability": "${entry.data.stability}",
+                "similarity_boost": "${entry.data.similarity_boost}",
+                "style": "${entry.data.style}",
+                "speed": "${entry.data.speed}",
+                "model_id": "eleven_v3"
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "audio": "${steps.say.output.asset.id}",
+                "duration_seconds": "${steps.say.output.asset.duration_seconds}",
+                "status": "recorded"
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "attach_asset",
+              "asset": "${steps.say.output.asset.id}",
+              "role": "audio"
+            },
+            {
+              "kind": "approval",
+              "id": "keep",
+              "message": "Listen to this take of ${entry.data.speaker}: \u201c${entry.data.delivery_text}\u201d (${steps.say.output.asset.duration_seconds} s). Redo records a fresh take and asks again; change the delivery text, the direction or the voice settings on the line first if it should sound different.",
+              "choices": [
+                "Keep",
+                "Redo"
+              ],
+              "image": "${steps.say.output.asset.url}"
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "status": "approved"
+              },
+              "when": {
+                "field": "steps.keep.output.choice",
+                "op": "eq",
+                "value": "Keep"
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "status": "queued"
+              },
+              "when": {
+                "field": "steps.keep.output.choice",
+                "op": "eq",
+                "value": "Redo"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
       "slug": "storyworld-take-sound",
       "name": "Storyworld: take a sound effect",
       "description": "",
@@ -1694,126 +1959,6 @@
                 "Redo"
               ],
               "image": "${steps.fx.output.asset.url}"
-            },
-            {
-              "kind": "entry",
-              "op": "set_data",
-              "data": {
-                "status": "approved"
-              },
-              "when": {
-                "field": "steps.keep.output.choice",
-                "op": "eq",
-                "value": "Keep"
-              }
-            },
-            {
-              "kind": "entry",
-              "op": "set_data",
-              "data": {
-                "status": "queued"
-              },
-              "when": {
-                "field": "steps.keep.output.choice",
-                "op": "eq",
-                "value": "Redo"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
-      "kind": "workflow",
-      "slug": "storyworld-take-line",
-      "name": "Storyworld: take a speech line",
-      "description": "",
-      "required": false,
-      "category": "General",
-      "source": "core",
-      "requires": [],
-      "parameters": [],
-      "payload": {
-        "name": "Storyworld: take a speech line",
-        "definition": {
-          "trigger": {
-            "type": "event",
-            "event": "entry_updated"
-          },
-          "conditions": [
-            {
-              "field": "entry.entry_type",
-              "op": "eq",
-              "value": "speech-line"
-            },
-            {
-              "field": "entry.data.status",
-              "op": "eq",
-              "value": "queued"
-            }
-          ],
-          "actions": [
-            {
-              "kind": "collect",
-              "id": "voice",
-              "entity": "entry",
-              "query": {
-                "entries": "${entry.data.voice}"
-              },
-              "fields": [
-                "data.elevenlabs_voice_id"
-              ]
-            },
-            {
-              "kind": "entry",
-              "op": "set_data",
-              "data": {
-                "take_notes": "Waiting for approval to record."
-              }
-            },
-            {
-              "kind": "approval",
-              "id": "spend",
-              "message": "Record ${entry.data.speaker}: \u201c${entry.data.text}\u201d with ElevenLabs? It uses speech credit (${entry.data.text|length} characters)."
-            },
-            {
-              "kind": "integration",
-              "id": "say",
-              "integration": "elevenlabs",
-              "action": "synthesize",
-              "args": {
-                "text": "${entry.data.text}",
-                "voice_id": "${steps.voice.output.rows.0.data.elevenlabs_voice_id}",
-                "stability": "${entry.data.stability}",
-                "similarity_boost": "${entry.data.similarity_boost}",
-                "style": "${entry.data.style}",
-                "speed": "${entry.data.speed}"
-              }
-            },
-            {
-              "kind": "entry",
-              "op": "set_data",
-              "data": {
-                "audio": "${steps.say.output.asset.id}",
-                "duration_seconds": "${steps.say.output.asset.duration_seconds}",
-                "status": "recorded"
-              }
-            },
-            {
-              "kind": "entry",
-              "op": "attach_asset",
-              "asset": "${steps.say.output.asset.id}",
-              "role": "audio"
-            },
-            {
-              "kind": "approval",
-              "id": "keep",
-              "message": "Listen to this take of ${entry.data.speaker}: \u201c${entry.data.text}\u201d (${steps.say.output.asset.duration_seconds} s). Redo records a fresh take and asks again; change the wording or the voice settings on the line first if it should sound different.",
-              "choices": [
-                "Keep",
-                "Redo"
-              ],
-              "image": "${steps.say.output.asset.url}"
             },
             {
               "kind": "entry",
