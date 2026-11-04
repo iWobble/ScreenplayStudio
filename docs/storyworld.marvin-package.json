@@ -3,7 +3,7 @@
   "slug": "storyworld",
   "name": "Storyworld",
   "description": "Narrated illustrated stories: cast, scenes, beats, speech lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "5",
+  "version": "6",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1736,8 +1736,7 @@
                 "audio": "${steps.say.output.asset.id}",
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}",
                 "status": "recorded",
-                "take_notes": "Recorded as written. Listen, then Keep or Redo. Every take stays attached to this line as a take; Audio uses the one set here.",
-                "words": "${steps.say.output.words}"
+                "take_notes": "Recorded as written. Listen, then Keep or Redo. Every take stays attached to this line as a take; Audio uses the one set here."
               }
             },
             {
@@ -1864,8 +1863,7 @@
                 "audio": "${steps.say.output.asset.id}",
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}",
                 "status": "recorded",
-                "take_notes": "Recorded with delivery tags. Listen, then Keep or Redo. Every take stays attached to this line as a take; Audio uses the one set here.",
-                "words": "${steps.say.output.words}"
+                "take_notes": "Recorded with delivery tags. Listen, then Keep or Redo. Every take stays attached to this line as a take; Audio uses the one set here."
               }
             },
             {

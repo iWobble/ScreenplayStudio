@@ -33,9 +33,15 @@ def _extension(mime: str | None, fallback: str) -> str:
 
 
 def _fetch_asset(creds: tuple[str, str], asset_id: str, dest_stem: Path, fallback_ext: str) -> Path:
-    dest = dest_stem.with_suffix("." + _extension(marvin_api.asset(creds, asset_id).get("mimeType"), fallback_ext))
+    return _fetch_asset_with_record(creds, asset_id, dest_stem, fallback_ext)[0]
+
+
+def _fetch_asset_with_record(creds: tuple[str, str], asset_id: str, dest_stem: Path, fallback_ext: str) -> tuple[Path, dict]:
+    """The asset's file, and its record (its metadata holds what the recording knows about itself)."""
+    record = marvin_api.asset(creds, asset_id)
+    dest = dest_stem.with_suffix("." + _extension(record.get("mimeType"), fallback_ext))
     marvin_api.download_asset(creds, asset_id, dest)
-    return dest
+    return dest, record
 
 
 def pull(story: str, out: Path, *, creds: tuple[str, str] | None = None) -> dict:
@@ -74,9 +80,9 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
             if not d.get("audio"):
                 missing.append(line["slug"])
                 continue
-            file = _fetch_asset(creds, str(d["audio"]), out / "audio" / line["slug"], "mp3")
+            file, record = _fetch_asset_with_record(creds, str(d["audio"]), out / "audio" / line["slug"], "mp3")
             entry = {"id": line["slug"], "audio": str(file.relative_to(out)), "text": d.get("caption") or d.get("text") or "", "speaker": d.get("speaker")}
-            if words := spoken_words(d):
+            if words := spoken_words(d, record.get("metadataJson")):
                 entry["words"] = words
             spoken.append(entry)
         effects = _sound_effects(creds, out, data(beat).get("sounds"), sounds, data, missing)
@@ -104,15 +110,16 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing}
 
 
-def spoken_words(d: dict) -> list[dict]:
-    """The take's word timings for captions: [{text, start, end}] in seconds, as the voice service returned them.
+def spoken_words(d: dict, metadata: dict | None) -> list[dict]:
+    """The word timings for captions: [{text, start, end}] in seconds, from the *recording's own* metadata (the voice service's answer
+    is kept on the asset), so a line that keeps several takes gets the timings of the one it uses, whichever that is.
 
     Left out when the caption is not the spoken text (a caption override cannot be aligned to the words), and a v3 delivery tag such as
     "[sighs]" is dropped, since it is direction and not something said or shown.
     """
     if d.get("caption") and d.get("caption") != d.get("text"):
         return []
-    raw = d.get("words")
+    raw = (metadata or {}).get("words")
     words = [w for w in raw if isinstance(w, dict) and w.get("text") is not None] if isinstance(raw, list) else []
     return [w for w in words if not (str(w["text"]).startswith("[") and str(w["text"]).endswith("]"))]
 
