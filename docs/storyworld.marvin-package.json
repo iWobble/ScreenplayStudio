@@ -3,7 +3,7 @@
   "slug": "storyworld",
   "name": "Storyworld",
   "description": "Narrated illustrated stories: cast, scenes, beats, speech lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "3",
+  "version": "4",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -592,6 +592,12 @@
               "helpText": "Which worker took it."
             }
           ]
+        },
+        "capabilities_json": {
+          "publishable": false,
+          "submittable": false,
+          "routable": false,
+          "listed": false
         }
       }
     },
@@ -665,6 +671,12 @@
               "rows": 3
             }
           ]
+        },
+        "capabilities_json": {
+          "publishable": false,
+          "submittable": false,
+          "routable": false,
+          "listed": false
         }
       }
     },
@@ -860,6 +872,12 @@
               "min": 0
             }
           ]
+        },
+        "capabilities_json": {
+          "publishable": false,
+          "submittable": false,
+          "routable": false,
+          "listed": false
         }
       }
     },
