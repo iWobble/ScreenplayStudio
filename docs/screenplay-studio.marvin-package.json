@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "22",
+  "version": "23",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1289,6 +1289,12 @@
               "label": "Script breakdown (web page)",
               "type": "asset",
               "helpText": "Who speaks and appears, where, and which sounds, read from the records. Made by the script job."
+            },
+            {
+              "key": "filmstrip",
+              "label": "Filmstrip (web page)",
+              "type": "asset",
+              "helpText": "The story's sound with each beat's still, as the render will cut it. Open it in its own tab to play it; approve the beats from the approval it raises. Made by the filmstrip job."
             },
             {
               "key": "world",
@@ -2845,6 +2851,135 @@
             "voice"
           ],
           "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-filmstrip",
+      "name": "Screenplay: make the filmstrip of a story",
+      "description": "Make the filmstrip of a story to review before it is rendered: its sound with each beat's still, as the render will cut it.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: make the filmstrip of a story",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "story",
+                "label": "Story",
+                "type": "entry",
+                "required": true,
+                "default": "the-last-onion"
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Filmstrip: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "filmstrip",
+                "args": {
+                  "story": "${entry.slug}"
+                },
+                "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-filmstrip-done",
+      "name": "Screenplay: approve a finished filmstrip",
+      "description": "When a filmstrip is made, ask whether to approve the story's beats for rendering; approving marks every beat of the story approved.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: approve a finished filmstrip",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_updated"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "job"
+            },
+            {
+              "field": "entry.data.kind",
+              "op": "eq",
+              "value": "filmstrip"
+            },
+            {
+              "field": "entry.data.status",
+              "op": "eq",
+              "value": "done"
+            }
+          ],
+          "actions": [
+            {
+              "kind": "approval",
+              "id": "review",
+              "message": "The filmstrip is ready (${entry.data.result.shots} shots, ${entry.data.result.seconds} s). Open it in its own tab, watch it with the sound on, and use next to check each picture. Approve to mark every beat approved for rendering; choose Needs changes to leave them as they are.",
+              "choices": [
+                "Approve for rendering",
+                "Needs changes"
+              ]
+            },
+            {
+              "kind": "collect",
+              "id": "beats",
+              "entity": "entry",
+              "limit": 50,
+              "query": {
+                "entry_type": "beat",
+                "data": {
+                  "story": "${entry.data.args.story}"
+                }
+              },
+              "fields": [
+                "data.status"
+              ]
+            },
+            {
+              "kind": "repeat",
+              "id": "approve",
+              "for_each": "${steps.beats.output.rows}",
+              "as": "beat",
+              "on_item_error": "continue",
+              "steps": [
+                {
+                  "kind": "entry",
+                  "op": "set_data",
+                  "entity_slug": "${beat.slug}",
+                  "data": {
+                    "status": "approved"
+                  },
+                  "when": {
+                    "field": "steps.review.output.choice",
+                    "op": "eq",
+                    "value": "Approve for rendering"
+                  }
+                }
+              ]
+            }
+          ]
         }
       }
     }

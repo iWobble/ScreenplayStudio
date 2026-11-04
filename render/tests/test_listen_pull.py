@@ -225,3 +225,18 @@ def test_pull_writes_a_manifest_of_the_recorded_lines_in_beat_order_and_names_th
 def test_pull_says_so_when_nothing_is_recorded_or_the_story_is_unknown(marvin, tmp_path):
     with pytest.raises(marvin_pull.PullError, match="no story"):
         marvin_pull.pull("nope", tmp_path, creds=(marvin, "tok"))
+
+
+def test_pull_passes_a_beats_camera_move_and_keeps_a_silent_held_beat(marvin, tmp_path):
+    rows = [dict(r) for r in _ROWS]
+    rows.append({"slug": f"{S}-beat-04", "dataJson": {"story": S, "number": "04", "hold_seconds": 4, "move": {"from": {"x": 0.8, "y": 0.38, "zoom": 1.35}, "to": {"x": 0.8, "y": 0.36, "zoom": 1.8}}}})
+    rows.append({"slug": f"{S}-beat-05", "dataJson": {"story": S, "number": "05"}})  # nothing to hear and no time asked for: left out
+    _FakeMarvin.rows = rows
+    try:
+        marvin_pull.pull("the-last-onion", tmp_path, creds=(marvin, "tok"))
+    finally:
+        _FakeMarvin.rows = _ROWS
+    shots = {s["id"]: s for s in json.loads((tmp_path / "manifest.json").read_text())["shots"]}
+    assert "b05" not in shots
+    assert shots["b04"]["hold"] == 4 and shots["b04"]["lines"] == [] and shots["b04"]["move"]["to"]["zoom"] == 1.8
+    assert "move" not in shots["b01"]  # a beat with no move keeps the render's default

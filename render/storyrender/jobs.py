@@ -6,7 +6,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import build, ffmpeg, manifest, marvin_pull, script
+from . import build, ffmpeg, filmstrip, manifest, marvin_pull, script
 
 
 def story_of(job: dict) -> str:
@@ -90,3 +90,40 @@ def make_script(job: dict, ctx: Context) -> dict:
         "result": {**{kind: asset["id"] for kind, asset in assets.items()}, "urls": {kind: asset.get("publicUrl") for kind, asset in assets.items()}, "beats": len(records["beats"])},
         "log": f"{len(records['beats'])} beats, written as {', '.join(SCRIPT_FILES)}. {pages['pdf']} is the one to share.",
     }
+
+
+@job_kind(
+    "filmstrip",
+    description="Make a story's filmstrip to review before rendering: one page that plays the story's sound while it shows each beat's still, moved as the render will move it, with captions and a strip to jump along",
+    inputs={"story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"}},
+    produces=["text/html"],
+    needs=["ffmpeg"],
+)
+def make_filmstrip(job: dict, ctx: Context) -> dict:
+    """The story's recorded lines and stills as a page to watch, kept on the story as `filmstrip`; the old one goes to the Trash."""
+    story, name = story_of(job), job["job"]
+    pulled = marvin_pull.pull(story, ctx.work / "story", creds=ctx.creds)
+    m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)  # stills are needed: a beat with none is named, not skipped
+    made = filmstrip.make(m, ctx.work / "filmstrip")
+    title = m.title or story
+    asset = marvin_api.upload_asset(
+        ctx.creds,
+        made["html"],
+        slug=f"{name}-filmstrip",
+        name=f"{title}: filmstrip",
+        mime="text/html",
+        description=f"The filmstrip of {title}: its sound with each beat's still, as the render will cut it. Open it in its own tab to play it.",
+        metadata={"kind": "filmstrip", "story": story, "seconds": made["seconds"], "shots": made["shots"]},
+    )
+    rows = marvin_pull.marvin_api.entries(ctx.creds)
+    before = next(((e.get("dataJson") or {}).get("filmstrip") for e in rows if e.get("slug") == story), None)
+    marvin_api.update_entry(ctx.creds, story, {"filmstrip": asset["id"]})
+    if before and before != asset["id"]:
+        try:
+            marvin_api.request(ctx.creds, f"/api/platform/assets/{before}", method="DELETE")
+        except marvin_api.MarvinError:
+            pass  # an old copy that cannot be trashed must not fail a filmstrip that was made
+    note = f"{made['shots']} shots, {made['seconds']} s. Open the filmstrip asset in its own tab (Open Raw) to play it."
+    if pulled["not_recorded"]:
+        note += f" Not recorded yet, so left out: {', '.join(pulled['not_recorded'])}."
+    return {"result": {"filmstrip": asset["id"], "url": asset.get("publicUrl"), "seconds": made["seconds"], "shots": made["shots"]}, "log": note}

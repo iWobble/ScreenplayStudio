@@ -1,0 +1,2 @@
+[console_scripts]
+storyrender = storyrender.cli:main

@@ -86,8 +86,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
                 entry["words"] = words
             spoken.append(entry)
         effects = _sound_effects(creds, out, data(beat).get("sounds"), sounds, data, missing)
-        if not spoken and not effects:
-            continue
+        if not spoken and not effects and not data(beat).get("hold_seconds"):
+            continue  # nothing to hear and no time asked for; a held beat (the closing smile) is a silent shot, and stays
         shot: dict = {"id": f"b{number}", "lines": spoken}
         for key, field in (("lead", "lead_seconds"), ("gap", "gap_seconds"), ("tail", "tail_seconds")):
             if data(beat).get(field) is not None:  # empty keeps the renderer's default
@@ -99,6 +99,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
             shot["ambience"] = bed
         if not spoken and data(beat).get("hold_seconds"):
             shot["hold"] = float(data(beat)["hold_seconds"])  # a sound-only beat lasts as long as its beat sheet window (a spoken one, as long as its audio)
+        if isinstance(data(beat).get("move"), dict):
+            shot["move"] = data(beat)["move"]  # where the camera looks: {"from": {x, y, zoom}, "to": {...}}, so one still can serve several beats
         if data(beat).get("still"):
             still = _fetch_asset(creds, str(data(beat)["still"]), out / "stills" / f"b{number}", "png")
             shot["still"] = str(still.relative_to(out))
