@@ -3,7 +3,7 @@
   "slug": "storyworld",
   "name": "Storyworld",
   "description": "Narrated illustrated stories: cast, scenes, beats, speech lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "11",
+  "version": "12",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -2623,6 +2623,164 @@
               }
             }
           ]
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "storyworld-stories",
+      "name": "Storyworld: Stories",
+      "description": "The stories and the world they are set in.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:story",
+        "entry_type:world"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "The stories and the world they are set in.",
+        "icon": "\ud83d\udcd6",
+        "color": "#7C3AED",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 1,
+        "smart_rules": {
+          "entry_types": [
+            "story",
+            "world"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "storyworld-troupe",
+      "name": "Storyworld: Troupe",
+      "description": "Actors, the characters they play in each story, and the castings (who is being considered for a role).",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:actor",
+        "entry_type:cast-member",
+        "entry_type:casting",
+        "entry_type:voice"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "Actors, the characters they play in each story, and the castings (who is being considered for a role).",
+        "icon": "\ud83c\udfad",
+        "color": "#DB2777",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 2,
+        "smart_rules": {
+          "entry_types": [
+            "actor",
+            "cast-member",
+            "casting",
+            "voice"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "storyworld-script",
+      "name": "Storyworld: Script",
+      "description": "Scenes, beats, spoken lines and the takes recorded of them.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:scene",
+        "entry_type:beat",
+        "entry_type:speech-line",
+        "entry_type:take"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "Scenes, beats, spoken lines and the takes recorded of them.",
+        "icon": "\ud83c\udf9e\ufe0f",
+        "color": "#2563EB",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 3,
+        "smart_rules": {
+          "entry_types": [
+            "scene",
+            "beat",
+            "speech-line",
+            "take"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "storyworld-pictures-sound",
+      "name": "Storyworld: Pictures and sound",
+      "description": "Stills, shots and the reusable sounds.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:still",
+        "entry_type:shot",
+        "entry_type:sound"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "Stills, shots and the reusable sounds.",
+        "icon": "\ud83d\uddbc\ufe0f",
+        "color": "#CA8A04",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 4,
+        "smart_rules": {
+          "entry_types": [
+            "still",
+            "shot",
+            "sound"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "storyworld-renders",
+      "name": "Storyworld: Renders",
+      "description": "Render jobs: the finished films.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:render-job"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "Render jobs: the finished films.",
+        "icon": "\ud83c\udfed",
+        "color": "#6B7280",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 5,
+        "smart_rules": {
+          "entry_types": [
+            "render-job"
+          ],
+          "match": "all"
         }
       }
     }
