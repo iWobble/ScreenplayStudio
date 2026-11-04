@@ -3,7 +3,7 @@
   "slug": "storyworld",
   "name": "Storyworld",
   "description": "Narrated illustrated stories: cast, scenes, beats, speech lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "10",
+  "version": "11",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -150,19 +150,118 @@
     },
     {
       "kind": "entry_type",
-      "slug": "cast-member",
-      "name": "Cast Member",
-      "description": "A recurring Storyworld character: who they are and their approved master picture.",
+      "slug": "actor",
+      "name": "Actor",
+      "description": "A person in a world's troupe: the look that stays the same in every role, and a general view picture. Cast them as a character in a story.",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [],
       "parameters": [],
       "payload": {
-        "name": "Cast Member",
+        "name": "Actor",
+        "icon": "\ud83e\uddd1\u200d\ud83c\udfa4",
+        "color": "#0EA5E9",
+        "description": "A person in a world's troupe: the look that stays the same in every role, and a general view picture. Cast them as a character in a story.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "world",
+              "label": "World (world entry slug)",
+              "type": "text",
+              "helpText": "The world this actor belongs to, e.g. storyworld.",
+              "required": true
+            },
+            {
+              "key": "base",
+              "label": "Base",
+              "type": "select",
+              "helpText": "Which general base figure this actor was made from.",
+              "options": [
+                "woman",
+                "man"
+              ]
+            },
+            {
+              "key": "age",
+              "label": "Age",
+              "type": "number",
+              "helpText": "Apparent age in years."
+            },
+            {
+              "key": "build",
+              "label": "Build",
+              "type": "text",
+              "helpText": "Height and body: what is the same in every role."
+            },
+            {
+              "key": "hair",
+              "label": "Hair",
+              "type": "text",
+              "helpText": "Natural hair (a role can change it with a wig or a cap)."
+            },
+            {
+              "key": "skin_tone",
+              "label": "Skin tone",
+              "type": "text"
+            },
+            {
+              "key": "look",
+              "label": "General look",
+              "type": "textarea",
+              "helpText": "What stays the same in every role: face, proportions, manner. Not costume or props.",
+              "rows": 3
+            },
+            {
+              "key": "voice",
+              "label": "Default voice (voice entry slug)",
+              "type": "text",
+              "helpText": "The voice they have unless a character gives another."
+            },
+            {
+              "key": "general_view",
+              "label": "General view",
+              "type": "asset",
+              "helpText": "The actor in plain base clothes: front, side and back.",
+              "role": "general_view"
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "approved"
+              ],
+              "defaultValue": "draft"
+            },
+            {
+              "key": "notes",
+              "label": "Notes",
+              "type": "textarea",
+              "rows": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "cast-member",
+      "name": "Character",
+      "description": "A character in one story: an actor playing a role, in costume, with the approved master picture.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Character",
         "icon": "\ud83e\uddd1\u200d\ud83c\udf73",
         "color": "#D97706",
-        "description": "A recurring Storyworld character: who they are and their approved master picture.",
+        "description": "A character in one story: an actor playing a role, in costume, with the approved master picture.",
         "sort_order": 0,
         "is_rendered": false,
         "schema_json": {
@@ -200,6 +299,38 @@
                 "approved"
               ],
               "defaultValue": "draft"
+            },
+            {
+              "key": "story",
+              "label": "Story (story entry slug)",
+              "type": "text",
+              "helpText": "The story this character is in. A character belongs to one story; the actor may play another character in the next."
+            },
+            {
+              "key": "actor",
+              "label": "Actor (actor entry slug)",
+              "type": "text",
+              "helpText": "Who plays them."
+            },
+            {
+              "key": "costume",
+              "label": "Costume",
+              "type": "textarea",
+              "helpText": "What they wear and how their hair is done in this story.",
+              "rows": 4
+            },
+            {
+              "key": "props",
+              "label": "Props and makeup",
+              "type": "textarea",
+              "helpText": "Things they carry or have added for this story (a peg leg is a prop, not part of the actor).",
+              "rows": 3
+            },
+            {
+              "key": "voice",
+              "label": "Voice override (voice entry slug)",
+              "type": "text",
+              "helpText": "Leave empty to use the actor's voice."
             }
           ]
         }
@@ -209,7 +340,7 @@
       "kind": "entry_type",
       "slug": "casting",
       "name": "Casting",
-      "description": "An acting job: a cast member's role, outfit, era and condition in one story.",
+      "description": "A candidate for a role in a story: an actor considered for a character, how well they fit, and the decision.",
       "required": false,
       "category": "General",
       "source": "core",
@@ -219,7 +350,7 @@
         "name": "Casting",
         "icon": "\ud83c\udfad",
         "color": "#DB2777",
-        "description": "An acting job: a cast member's role, outfit, era and condition in one story.",
+        "description": "A candidate for a role in a story: an actor considered for a character, how well they fit, and the decision.",
         "sort_order": 0,
         "is_rendered": false,
         "schema_json": {
@@ -253,6 +384,44 @@
               "label": "Notes",
               "type": "textarea",
               "rows": 3
+            },
+            {
+              "key": "character",
+              "label": "Character (character entry slug)",
+              "type": "text",
+              "helpText": "The role being cast."
+            },
+            {
+              "key": "actor",
+              "label": "Actor (actor entry slug)",
+              "type": "text",
+              "helpText": "The actor being considered."
+            },
+            {
+              "key": "fit",
+              "label": "Fit, look, feel and voice",
+              "type": "textarea",
+              "helpText": "How well they suit the role.",
+              "rows": 4
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "considering",
+                "auditioned",
+                "chosen",
+                "passed"
+              ],
+              "defaultValue": "considering"
+            },
+            {
+              "key": "screen_test",
+              "label": "Screen test",
+              "type": "asset",
+              "helpText": "The actor dressed as the character.",
+              "role": "screen_test"
             }
           ]
         }
@@ -1075,6 +1244,12 @@
               "label": "Script breakdown (web page)",
               "type": "asset",
               "helpText": "Who speaks and appears, where, and which sounds, read from the records. Made by the script job."
+            },
+            {
+              "key": "world",
+              "label": "World (world entry slug)",
+              "type": "text",
+              "helpText": "The world this story belongs to, e.g. storyworld."
             }
           ]
         }

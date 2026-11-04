@@ -7,8 +7,10 @@ When the story lives in a Marvin workspace (my-studio on your-marvin.example.com
 | Record (entry type) | Holds | Rule |
 |---|---|---|
 | `world` | style rules for every picture | one place; never repeated into prompts by hand |
-| `story` | premise, `script` (markdown), format, status | `status`: script, voices, rough-cut, final, published |
-| `cast-member`, `casting` | who a person is and their approved master; `casting` is that person's role and state in one story | a master must be approved before a still uses it |
+| `story` | premise, `world`, `script` (markdown), format, status | `status`: script, voices, rough-cut, final, published |
+| `actor` | a person in the world's troupe: the look that stays the same in every role (`base` woman or man, build, hair, skin, a general-view picture, a default voice). Belongs to the **world** | not costume or props: a peg leg is a prop of the character, the actor has both legs |
+| `cast-member` (shown as **Character**) | an actor playing a role in **one story**: `story`, `actor`, `role`, `costume`, `props`, a voice override, and the approved master picture | a master must be approved before a still uses it; the same actor can be a different character in the next story |
+| `casting` | the search for a role: a candidate `actor` for a `character`, `fit` (look, feel, voice), a `screen_test` picture, `status` (considering, auditioned, chosen, passed) | the chosen casting sets the character's `actor` |
 | `scene` | place, light, set dressing, continuity, `anchor` picture, ambience (and whether it is muffled) | every beat in the scene inherits it; put recurring props (the letters on the table) here, not in each beat |
 | `beat` | one moment: shot, cast in frame, `expression`, `focus` prop, `references`, `lead_seconds`/`gap_seconds`/`tail_seconds`, `sounds` | status queued, made, approved |
 | `still` | the request and the picture made from a beat | |
