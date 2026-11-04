@@ -7,10 +7,11 @@ caption file needs no path escaping.
 """
 
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import captions, ffmpeg
-from .manifest import MAX_SHORT_SECONDS, Manifest, Move, PlannedShot, Timeline, plan
+from .manifest import MAX_SHORT_SECONDS, Ambience, Manifest, Move, PlannedShot, Timeline, plan
 
 SUPERSAMPLE = 2  # zoompan on a larger picture moves smoothly instead of in whole-pixel steps
 SAMPLE_RATE = 48000
@@ -76,6 +77,78 @@ def _narration(planned: PlannedShot, out: Path) -> None:
     ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), str(out)])
 
 
+MUFFLE_HZ = 700  # heard through a wall: the highs go, the low wash of the sea stays
+BED_FADE = 0.6  # seconds a bed fades in or out where the place changes (neighbouring beds overlap by half of it: a crossfade)
+
+
+@dataclass
+class Bed:
+    """One continuous run of an ambience under consecutive shots, with the level each shot asks for."""
+
+    ambience: Ambience
+    start: float
+    end: float
+    levels: list[tuple[float, float, float]] = field(default_factory=list)  # (from, to, volume) in timeline seconds
+
+
+def beds(timeline: Timeline) -> list[Bed]:
+    """Group consecutive shots that share an ambience (same sound, same muffling) into one bed each. The level can change shot to shot
+    inside a bed (the cabin goes quiet for the letters) without the sound restarting."""
+    runs: list[Bed] = []
+    for planned in timeline.shots:
+        amb = planned.shot.ambience
+        if amb is None:
+            continue
+        key = (amb.audio, amb.muffled)
+        last = runs[-1] if runs else None
+        if last is not None and (last.ambience.audio, last.ambience.muffled) == key and abs(last.end - planned.start) < 1e-6:
+            last.end = planned.start + planned.duration
+            last.levels.append((planned.start, last.end, amb.volume))
+        else:
+            runs.append(Bed(amb, planned.start, planned.start + planned.duration, [(planned.start, planned.start + planned.duration, amb.volume)]))
+    return runs
+
+
+def _level(bed: Bed) -> str:
+    """The bed's volume over time as one ffmpeg expression (a step per shot), in the bed's own clock."""
+    expr = f"{bed.levels[-1][2]:.4f}"
+    for begin, end, volume in reversed(bed.levels[:-1]):
+        expr = f"if(lt(t,{end - bed.start:.4f}),{volume:.4f},{expr})"
+    return expr
+
+
+def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path) -> None:
+    """Lay each bed under the narration: looped to length, muffled if heard from inside, at the level each shot asks for, faded in and
+    out so a change of place is a crossfade. The narration is the base: nothing here makes the cut longer."""
+    inputs, chains, labels = [], [], []
+    for n, bed in enumerate(runs, 1):
+        begin, end = max(0.0, bed.start - BED_FADE / 2), min(total, bed.end + BED_FADE / 2)
+        length = end - begin
+        fade = min(BED_FADE, length / 2)
+        shifted = Bed(bed.ambience, begin, end, [(max(b, begin), e, v) for b, e, v in bed.levels])
+        shifted.levels[0] = (begin, shifted.levels[0][1], shifted.levels[0][2])
+        inputs += ["-stream_loop", "-1", "-i", str(bed.ambience.audio)]
+        muffle = f",lowpass=f={MUFFLE_HZ}" if bed.ambience.muffled else ""
+        chains.append(
+            f"[{n}:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo{muffle},atrim=0:{length:.3f},asetpts=PTS-STARTPTS,"
+            f"volume='{_level(shifted)}':eval=frame,afade=t=in:st=0:d={fade:.3f},afade=t=out:st={length - fade:.3f}:d={fade:.3f},"
+            f"adelay={round(begin * 1000)}:all=1[b{n}]"
+        )
+        labels.append(f"[b{n}]")
+    mix = f"[0:a]{''.join(labels)}amix=inputs={len(labels) + 1}:normalize=0:duration=first[out]"
+    ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(narration), *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), str(out)])
+
+
+def _with_ambience(timeline: Timeline, narration: Path) -> Path:
+    """The narration with its ambience beds under it (the same file when no shot has one)."""
+    runs = beds(timeline)
+    if not runs:
+        return narration
+    mixed = narration.with_name("narration-mixed.wav")
+    _mix_beds(narration, runs, timeline.duration, mixed)
+    return mixed
+
+
 def _join(files: list[Path], out: Path, work: Path, *, kind: str) -> None:
     listing = work / f"{kind}.txt"
     listing.write_text("".join(f"file '{f}'\n" for f in files))
@@ -100,6 +173,9 @@ def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | N
             wavs.append(wav)
         _join(clips, work / "video.mp4", work, kind="video")
         _join(wavs, work / "narration.wav", work, kind="audio")
+        mixed = _with_ambience(timeline, work / "narration.wav")
+        if mixed != work / "narration.wav":
+            mixed.replace(work / "narration.wav")  # the final encode reads narration.wav
         (work / "captions.ass").write_text(captions.ass(timeline, size, manifest.caption))
         _final(manifest, timeline, work, out, size, fps, draft=draft)
     result = ffmpeg.probe(out)
@@ -157,12 +233,17 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
             _narration(planned, wav)
             wavs.append(wav)
         _join(wavs, work / "narration.wav", work, kind="audio")
+        heard = _with_ambience(timeline, work / "narration.wav")
         ffmpeg.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(work / "narration.wav"), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-q:a", "2", str(out)]
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(heard), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-q:a", "2", str(out)]
         )
     return {
         "output": str(out),
         "seconds": round(float(ffmpeg.probe(out)["format"]["duration"]), 3),
+        "ambience": [
+            {"id": b.ambience.ref, "start": round(b.start, 3), "end": round(b.end, 3), "muffled": b.ambience.muffled, "levels": [[round(x, 3), round(y, 3), v] for x, y, v in b.levels]}
+            for b in beds(timeline)
+        ],
         "timeline": [
             {
                 "shot": planned.shot.id,

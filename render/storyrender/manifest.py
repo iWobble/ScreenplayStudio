@@ -60,6 +60,17 @@ class Sfx:
 
 
 @dataclass
+class Ambience:
+    """A bed of sound under a shot (the sea outside, the same sea heard through a hull). Consecutive shots with the same bed
+    share one continuous track, so there is no seam at each shot's edge."""
+
+    audio: Path
+    volume: float = 0.5
+    muffled: bool = False  # heard from inside: low-passed, as through a wall
+    ref: str | None = None
+
+
+@dataclass
 class Shot:
     id: str
     still: Path
@@ -71,6 +82,7 @@ class Shot:
     lead: float = LEAD
     gap: float = GAP
     tail: float = TAIL
+    ambience: Ambience | None = None
 
 
 @dataclass
@@ -164,6 +176,11 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             gap=float(s.get("gap", GAP)),
             tail=float(s.get("tail", TAIL)),
         )
+        if s.get("ambience"):
+            amb = s["ambience"]
+            shot.ambience = Ambience(
+                audio_path(amb.get("audio") or "", f"{where} ambience"), float(amb.get("volume", 0.5)), bool(amb.get("muffled", False)), amb.get("id")
+            )
         for j, ln in enumerate(s.get("lines") or [], 1):
             lw = f"{where} line {j}"
             start, end = 0.0, None

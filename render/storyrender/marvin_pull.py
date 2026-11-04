@@ -60,6 +60,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
         by_beat.setdefault(str(data(line).get("beat")), []).append(line)
 
     sounds = {e["slug"]: e for e in rows if e.get("slug", "").startswith(f"{story}-sound-") and data(e).get("story") == story}
+    scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and "ambience" in data(e)}  # scenes that name an ambience
+    taken: dict[str, Path] = {}  # an ambience's take is downloaded once, however many beats use it
     shots, missing = [], []
     for beat in beats:
         number = str(data(beat).get("number"))
@@ -80,6 +82,9 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
                 shot[key] = float(data(beat)[field])
         if effects:
             shot["sfx"] = effects
+        bed = _ambience(creds, out, data(beat), scenes, sounds, data, taken, missing)
+        if bed:
+            shot["ambience"] = bed
         if not spoken and data(beat).get("hold_seconds"):
             shot["hold"] = float(data(beat)["hold_seconds"])  # a sound-only beat lasts as long as its beat sheet window (a spoken one, as long as its audio)
         if data(beat).get("still"):
@@ -110,3 +115,21 @@ def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) 
         volume = item.get("volume") if item.get("volume") is not None else d.get("volume")
         effects.append({"id": row["slug"], "audio": str(file.relative_to(out)), "at": float(item.get("at") or 0), "volume": float(volume if volume is not None else 0.6)})
     return effects
+
+
+def _ambience(creds, out: Path, beat: dict, scenes: dict, sounds: dict, data, taken: dict, missing: list) -> dict | None:
+    """The bed under a beat: its scene's ambience (a sound's take), at the scene's level unless the beat sets its own, muffled when the
+    scene is heard from inside. A scene with no ambience, or a sound with no take yet, gives none (the sound is named in `not_recorded`)."""
+    scene = scenes.get(str(beat.get("scene")))
+    name = str(data(scene).get("ambience") or "") if scene else ""
+    if not name:
+        return None
+    sound = sounds.get(name)
+    if sound is None or not data(sound).get("audio"):
+        if name not in missing:
+            missing.append(name)
+        return None
+    if name not in taken:
+        taken[name] = _fetch_asset(creds, str(data(sound)["audio"]), out / "audio" / "sounds" / name, "mp3")
+    level = next((v for v in (beat.get("ambience_volume"), data(scene).get("ambience_volume"), data(sound).get("volume")) if v is not None), 0.5)
+    return {"id": name, "audio": str(taken[name].relative_to(out)), "volume": float(level), "muffled": bool(data(scene).get("ambience_muffled"))}

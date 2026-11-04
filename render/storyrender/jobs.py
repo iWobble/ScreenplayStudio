@@ -35,4 +35,4 @@ def audio_cut(job: dict, ctx: Context) -> dict:
     note = f"{pulled['lines']} lines, {result['seconds']} s."
     if pulled["not_recorded"]:
         note += f" Not recorded yet, so left out: {', '.join(pulled['not_recorded'])}."
-    return {"result": {"audio": asset["id"], "url": asset.get("publicUrl"), "seconds": result["seconds"], "timeline": result["timeline"]}, "log": note}
+    return {"result": {"audio": asset["id"], "url": asset.get("publicUrl"), "seconds": result["seconds"], "timeline": result["timeline"], "ambience": result["ambience"]}, "log": note}

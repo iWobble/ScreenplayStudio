@@ -72,6 +72,63 @@ def test_a_lead_in_with_a_sound_effect_puts_the_sound_first_and_the_line_after_i
     assert result["seconds"] == pytest.approx(manifest.plan(m).duration, abs=0.3)
 
 
+def _mean_db(path: Path, start: float, length: float) -> float:
+    """How loud a stretch of a file is (ffmpeg's mean volume, dB)."""
+    out = subprocess.run(["ffmpeg", "-ss", str(start), "-t", str(length), "-i", str(path), "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True).stderr
+    return float(out.split("mean_volume:")[1].split("dB")[0])
+
+
+def _ambient_story(tmp_path, *, inside_muffled: bool) -> Path:
+    """Silence for narration so only the ambience is heard: an outside shot, then two inside shots (the second one quieter still)."""
+    _tone(tmp_path / "sea.mp3", 3.0, 3000)  # a high tone: the muffle must take it down
+    shot = lambda sid, volume, muffled: {  # noqa: E731
+        "id": sid, "lines": [{"id": f"line-{sid}", "duration": 4.0, "text": "silence"}],
+        "ambience": {"id": "harbour", "audio": "sea.mp3", "volume": volume, "muffled": muffled},
+    }  # fmt: skip
+    (tmp_path / "m.json").write_text(json.dumps({"shots": [shot("out", 0.6, False), shot("in1", 0.3, inside_muffled), shot("in2", 0.1, inside_muffled)]}))
+    return tmp_path / "m.json"
+
+
+@needs_ffmpeg
+def test_the_harbour_is_loud_outside_and_muffled_and_low_inside_with_the_cut_no_longer(tmp_path):
+    m = manifest.load(_ambient_story(tmp_path, inside_muffled=True), probe=ffmpeg.duration, need_stills=False)
+    result = build.listen(m, tmp_path / "cut.mp3")
+    plan = manifest.plan(m)
+    out_start, in1_start, in2_start = (s.start for s in plan.shots)
+
+    outside = _mean_db(tmp_path / "cut.mp3", out_start + 1.0, 2.0)
+    inside = _mean_db(tmp_path / "cut.mp3", in1_start + 1.0, 2.0)
+    assert outside - inside > 15  # loud outside; inside is far lower (a lower level, and the highs taken off)
+    assert result["seconds"] == pytest.approx(plan.duration, abs=0.3)  # the beds never make the cut longer
+    assert [(b["id"], b["muffled"]) for b in result["ambience"]] == [("harbour", False), ("harbour", True)]  # the place changed: two beds
+    assert [lv[2] for lv in result["ambience"][1]["levels"]] == [0.3, 0.1]  # one continuous inside bed, a quieter step for the second shot
+    assert _mean_db(tmp_path / "cut.mp3", in2_start + 1.0, 2.0) < inside - 4  # ...and it is quieter there
+
+
+@needs_ffmpeg
+def test_muffling_takes_the_highs_off_the_same_sound_at_the_same_level(tmp_path):
+    clear = build.listen(manifest.load(_ambient_story(tmp_path, inside_muffled=False), probe=ffmpeg.duration, need_stills=False), tmp_path / "clear.mp3")
+    muffled = build.listen(manifest.load(_ambient_story(tmp_path, inside_muffled=True), probe=ffmpeg.duration, need_stills=False), tmp_path / "muffled.mp3")
+    start = manifest.plan(manifest.load(tmp_path / "m.json", probe=ffmpeg.duration, need_stills=False)).shots[1].start + 1.0
+
+    assert _mean_db(tmp_path / "clear.mp3", start, 2.0) - _mean_db(tmp_path / "muffled.mp3", start, 2.0) > 12  # a 3 kHz tone through a 700 Hz low-pass
+    assert len(clear["ambience"]) == 1 and len(muffled["ambience"]) == 2  # unmuffled, one bed runs under the whole thing
+
+
+def test_consecutive_shots_with_the_same_sound_share_one_bed_and_a_change_of_place_starts_another():
+    amb = lambda audio, muffled=False, volume=0.5: manifest.Ambience(Path(audio), volume, muffled, "x")  # noqa: E731
+    shots = [
+        manifest.Shot("a", Path(), lines=[manifest.Line("a", duration=2.0)], ambience=amb("sea.mp3")),
+        manifest.Shot("b", Path(), lines=[manifest.Line("b", duration=2.0)], ambience=amb("sea.mp3", volume=0.2)),  # same bed, a different level
+        manifest.Shot("c", Path(), lines=[manifest.Line("c", duration=2.0)]),  # no ambience: the bed ends
+        manifest.Shot("d", Path(), lines=[manifest.Line("d", duration=2.0)], ambience=amb("sea.mp3")),  # the same sound again, but not adjacent
+    ]
+
+    runs = build.beds(manifest.plan(manifest.Manifest("t", (1080, 1920), 30, shots)))
+
+    assert len(runs) == 2 and len(runs[0].levels) == 2 and [lv[2] for lv in runs[0].levels] == [0.5, 0.2]
+
+
 def test_a_timecode_reads_like_a_player(tmp_path):
     assert build.timecode(41.04) == "0:41.0" and build.timecode(75.5) == "1:15.5"
 
@@ -95,9 +152,11 @@ class _FakeMarvin(BaseHTTPRequestHandler):
             "/api/platform/entries?limit=500": [
                 {"slug": S, "title": "The Last Onion", "dataJson": {}},
                 {"slug": f"{S}-beat-02", "dataJson": {"story": S, "number": "02"}},
-                {"slug": f"{S}-beat-01", "dataJson": {"story": S, "number": "01", "lead_seconds": 2.5, "tail_seconds": 0.5, "sounds": [{"sound": f"{S}-sound-waves", "at": 0, "volume": 0.4}]}},
-                {"slug": f"{S}-beat-03", "dataJson": {"story": S, "number": "03", "hold_seconds": 6, "sounds": [{"sound": f"{S}-sound-waves", "at": 0.3}, {"sound": f"{S}-sound-not-made", "at": 1}]}},
+                {"slug": f"{S}-beat-01", "dataJson": {"story": S, "number": "01", "scene": f"{S}-cabin", "ambience_volume": 0.05, "lead_seconds": 2.5, "tail_seconds": 0.5, "sounds": [{"sound": f"{S}-sound-waves", "at": 0, "volume": 0.4}]}},
+                {"slug": f"{S}-beat-03", "dataJson": {"story": S, "number": "03", "scene": f"{S}-deck", "hold_seconds": 6, "sounds": [{"sound": f"{S}-sound-waves", "at": 0.3}, {"sound": f"{S}-sound-not-made", "at": 1}]}},
                 {"slug": f"{S}-sound-waves", "dataJson": {"story": S, "audio": "asset-1", "volume": 0.7}},
+                {"slug": f"{S}-cabin", "dataJson": {"story": S, "ambience": f"{S}-sound-waves", "ambience_volume": 0.12, "ambience_muffled": True}},
+                {"slug": f"{S}-deck", "dataJson": {"story": S, "ambience": f"{S}-sound-waves"}},
                 {"slug": f"{S}-sound-not-made", "dataJson": {"story": S}},
                 {"slug": f"{S}-line-01-1", "dataJson": {"story": S, "beat": f"{S}-beat-01", "speaker": "narrator", "text": "One.", "audio": "asset-1"}},
                 {"slug": f"{S}-line-02-1", "dataJson": {"story": S, "beat": f"{S}-beat-02", "speaker": "cook", "text": "Two."}},  # not recorded
@@ -140,6 +199,9 @@ def test_pull_writes_a_manifest_of_the_recorded_lines_in_beat_order_and_names_th
     assert (shot["lead"], shot["tail"], "gap" in shot) == (2.5, 0.5, False)  # the beat's own timing; a blank one keeps the default
     assert shot["sfx"][0]["id"] == "the-last-onion-sound-waves" and shot["sfx"][0]["volume"] == 0.4 and (tmp_path / shot["sfx"][0]["audio"]).read_bytes() == _FakeMarvin.audio  # the beat's volume wins
     assert silent["id"] == "b03" and silent["lines"] == [] and silent["hold"] == 6 and silent["sfx"][0]["volume"] == 0.7  # sound only: the sound's own volume
+    assert (shot["ambience"]["volume"], shot["ambience"]["muffled"]) == (0.05, True)  # the beat's own level beats the scene's (the cabin goes quiet), still heard from inside
+    assert (silent["ambience"]["volume"], silent["ambience"]["muffled"]) == (0.7, False)  # an outside scene with no level of its own: the sound's volume, not muffled
+    assert (tmp_path / shot["ambience"]["audio"]).read_bytes() == _FakeMarvin.audio
     assert (tmp_path / shot["lines"][0]["audio"]).read_bytes() == _FakeMarvin.audio
     assert all(agent and "marvin-worker" in agent for agent in _FakeMarvin.seen_agents)  # the default Python agent is refused by Marvin's edge
 
