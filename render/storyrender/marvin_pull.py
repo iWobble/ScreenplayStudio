@@ -75,7 +75,10 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
                 missing.append(line["slug"])
                 continue
             file = _fetch_asset(creds, str(d["audio"]), out / "audio" / line["slug"], "mp3")
-            spoken.append({"id": line["slug"], "audio": str(file.relative_to(out)), "text": d.get("caption") or d.get("text") or "", "speaker": d.get("speaker")})
+            entry = {"id": line["slug"], "audio": str(file.relative_to(out)), "text": d.get("caption") or d.get("text") or "", "speaker": d.get("speaker")}
+            if words := spoken_words(d):
+                entry["words"] = words
+            spoken.append(entry)
         effects = _sound_effects(creds, out, data(beat).get("sounds"), sounds, data, missing)
         if not spoken and not effects:
             continue
@@ -99,6 +102,19 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     (out / "manifest.json").write_text(json.dumps({"title": story_row.get("title") or story, "shots": shots}, indent=2, ensure_ascii=False))
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing}
+
+
+def spoken_words(d: dict) -> list[dict]:
+    """The take's word timings for captions: [{text, start, end}] in seconds, as the voice service returned them.
+
+    Left out when the caption is not the spoken text (a caption override cannot be aligned to the words), and a v3 delivery tag such as
+    "[sighs]" is dropped, since it is direction and not something said or shown.
+    """
+    if d.get("caption") and d.get("caption") != d.get("text"):
+        return []
+    raw = d.get("words")
+    words = [w for w in raw if isinstance(w, dict) and w.get("text") is not None] if isinstance(raw, list) else []
+    return [w for w in words if not (str(w["text"]).startswith("[") and str(w["text"]).endswith("]"))]
 
 
 def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) -> list[dict]:
