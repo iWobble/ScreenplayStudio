@@ -25,7 +25,7 @@ Fill these `actor` fields in Marvin from the sheet and the brief. Leave a field 
 | `title` | the actor's name (the slug is the name in lower case: `nell`) |
 | `world` | the world's slug, e.g. `storyworld` |
 | `base` | the general figure it was made from: one of the **world's bases** (Storyworld has woman, man and child). A world lists its bases in its `bases` field, each with a base sheet |
-| `presence` | `on screen`, or `voice only` for a voice actor (no picture is made; a placeholder stands in) |
+| `presence` | `on screen`, or `voice only` for a voice actor. No picture is made: use the shared featureless placeholder as the `general_view`, the library asset `voice-male` ("Voice - Male") or `voice-female` ("Voice - Female"), matching the voice |
 | `age` | years, only when set |
 | `build`, `hair`, `skin_tone` | one line each. Skin tone describes the artwork, not ethnicity |
 | `look` | the general look: the face and manner that stay the same |
