@@ -45,7 +45,7 @@ class FakeMarvin(BaseHTTPRequestHandler):
             hits = [e for e in FakeMarvin.entries if e["slug"] == wanted]
             return self._json(200, {"entries": hits, "total": len(hits)})
         FakeMarvin.uploads.append((self.headers["Content-Type"], body))
-        self._json(201, {"id": "asset-new"})
+        self._json(201, {"id": "asset-new", "publicUrl": "https://assets.example/cut.mp3"})
 
     def do_PATCH(self):  # noqa: N802
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -87,6 +87,7 @@ def test_audio_cut_stitches_the_recorded_lines_and_writes_audio_timeline_and_sta
 
     data = _data("render-job-1")
     assert data["status"] == "done" and data["kind"] == "audio-cut"  # the rest of the record is kept
+    assert data["result"]["url"] == "https://assets.example/cut.mp3"  # what an approval's player plays
     assert data["result"]["audio"] == "asset-new" and data["result"]["timeline"][0]["lines"][0]["id"] == f"{STORY}-line-01-1"
     assert f"{STORY}-line-01-2" in data["log"]  # the line with no take yet is named, not silently dropped
     (content_type, body), = FakeMarvin.uploads

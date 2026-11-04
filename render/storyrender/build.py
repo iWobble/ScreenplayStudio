@@ -167,6 +167,10 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
             {
                 "shot": planned.shot.id,
                 "start": round(planned.start, 3),
+                "sounds": [
+                    {"id": fx.ref, "start": round(planned.start + fx.at, 3), "end": round(planned.start + fx.at + fx.duration, 3), "volume": fx.volume}
+                    for fx in planned.shot.sfx
+                ],
                 "lines": [
                     {
                         "id": p.line.ref,
@@ -179,7 +183,7 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
                 ],
             }
             for planned in timeline.shots
-            if planned.lines
+            if planned.lines or planned.shot.sfx
         ],
     }
 

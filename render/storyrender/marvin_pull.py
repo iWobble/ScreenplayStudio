@@ -59,6 +59,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
     for line in lines:
         by_beat.setdefault(str(data(line).get("beat")), []).append(line)
 
+    sounds = {e["slug"]: e for e in rows if e.get("slug", "").startswith(f"{story}-sound-") and data(e).get("story") == story}
     shots, missing = [], []
     for beat in beats:
         number = str(data(beat).get("number"))
@@ -70,9 +71,17 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
                 continue
             file = _fetch_asset(creds, str(d["audio"]), out / "audio" / line["slug"], "mp3")
             spoken.append({"id": line["slug"], "audio": str(file.relative_to(out)), "text": d.get("caption") or d.get("text") or "", "speaker": d.get("speaker")})
-        if not spoken:
+        effects = _sound_effects(creds, out, data(beat).get("sounds"), sounds, data, missing)
+        if not spoken and not effects:
             continue
         shot: dict = {"id": f"b{number}", "lines": spoken}
+        for key, field in (("lead", "lead_seconds"), ("gap", "gap_seconds"), ("tail", "tail_seconds")):
+            if data(beat).get(field) is not None:  # empty keeps the renderer's default
+                shot[key] = float(data(beat)[field])
+        if effects:
+            shot["sfx"] = effects
+        if not spoken and data(beat).get("hold_seconds"):
+            shot["hold"] = float(data(beat)["hold_seconds"])  # a sound-only beat lasts as long as its beat sheet window (a spoken one, as long as its audio)
         if data(beat).get("still"):
             still = _fetch_asset(creds, str(data(beat)["still"]), out / "stills" / f"b{number}", "png")
             shot["still"] = str(still.relative_to(out))
@@ -82,3 +91,22 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     (out / "manifest.json").write_text(json.dumps({"title": story_row.get("title") or story, "shots": shots}, indent=2, ensure_ascii=False))
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing}
+
+
+def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) -> list[dict]:
+    """A beat's `sounds` ([{sound, at, volume}]) as manifest `sfx`: each sound's take downloaded. A sound with no take yet is
+    named in `not_recorded`, like a line with none, and left out."""
+    effects = []
+    for item in placed if isinstance(placed, list) else []:
+        row = sounds.get(str(item.get("sound"))) if isinstance(item, dict) else None
+        if row is None:
+            missing.append(str(item.get("sound") if isinstance(item, dict) else item))
+            continue
+        d = data(row)
+        if not d.get("audio"):
+            missing.append(row["slug"])
+            continue
+        file = _fetch_asset(creds, str(d["audio"]), out / "audio" / "sounds" / row["slug"], "mp3")
+        volume = item.get("volume") if item.get("volume") is not None else d.get("volume")
+        effects.append({"id": row["slug"], "audio": str(file.relative_to(out)), "at": float(item.get("at") or 0), "volume": float(volume if volume is not None else 0.6)})
+    return effects

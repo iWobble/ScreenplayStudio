@@ -56,6 +56,7 @@ class Sfx:
     at: float = 0.0
     volume: float = 1.0
     duration: float = 0.0
+    ref: str | None = None  # what the sound is called outside the manifest (its Marvin sound slug), so a timeline can name it
 
 
 @dataclass
@@ -190,7 +191,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             )
         for j, fx in enumerate(s.get("sfx") or [], 1):
             file = audio_path(fx.get("audio") or "", f"{where} sfx {j}")
-            shot.sfx.append(Sfx(file, float(fx.get("at", 0)), float(fx.get("volume", 1)), probe(file)))
+            shot.sfx.append(Sfx(file, float(fx.get("at", 0)), float(fx.get("volume", 1)), probe(file), ref=fx.get("id")))
         shots.append(shot)
 
     music = raw.get("music")

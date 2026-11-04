@@ -47,6 +47,8 @@ def cmd_listen(a) -> int:
     (out.with_suffix(".timeline.json")).write_text(json.dumps(result["timeline"], indent=2, ensure_ascii=False))
     print(f"{out}  ({build.timecode(result['seconds'])})\n")
     for shot in result["timeline"]:
+        for fx in shot.get("sounds", []):
+            print(f"{build.timecode(fx['start'])}  {shot['shot']:<5} {'(sound)':<9} until {build.timecode(fx['end'])}   [{fx['id'] or ''}]")
         for line in shot["lines"]:
             who = (line["speaker"] or "").ljust(9)
             print(f"{build.timecode(line['start'])}  {shot['shot']:<5} {who} {line['text'][:60]}   [{line['id'] or ''}]")
