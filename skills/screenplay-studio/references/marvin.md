@@ -1,0 +1,40 @@
+# Running the pipeline in Marvin
+
+When the story lives in a Marvin workspace (my-studio on your-marvin.example.com), **the records are the source of truth**, not `stories/<slug>/` files. The file route in pipeline.md is the fallback for when no workspace is reachable. Reach the workspace with the CLI: `marvin --workspace my-studio platform ...`. Image and voice generation run through Marvin's integrations (OpenAI Images, ElevenLabs), each behind an approval Jared gives in Marvin. This replaces "Claude writes, Jared generates" for stills and voice.
+
+## Which record holds what
+
+| Record (entry type) | Holds | Rule |
+|---|---|---|
+| `world` | style rules for every picture | one place; never repeated into prompts by hand |
+| `story` | premise, `script` (markdown), format, status | `status`: script, voices, rough-cut, final, published |
+| `cast-member`, `casting` | who a person is and their approved master; `casting` is that person's role and state in one story | a master must be approved before a still uses it |
+| `scene` | place, light, set dressing, continuity, `anchor` picture, ambience (and whether it is muffled) | every beat in the scene inherits it; put recurring props (the letters on the table) here, not in each beat |
+| `beat` | one moment: shot, cast in frame, `expression`, `focus` prop, `references`, `lead_seconds`/`gap_seconds`/`tail_seconds`, `sounds` | status queued, made, approved |
+| `still` | the request and the picture made from a beat | |
+| `speech-line` | what is spoken (`text` is the source; `caption`, `stability`, `similarity_boost`, `style`, `speed`, `take_notes`), its voice, its takes | the script and beat sheet are copies of this |
+| `voice` | an ElevenLabs voice id | free tier cannot use library voices; premade ones work |
+| `sound` | a reusable sound (`kind` effect or ambience, `source`, optional `story`), tagged | **library item**: any story's beat or scene may name it by slug |
+| `job`, `job-kind`, `worker` | heavy work queued for a worker (the audio cut), what runs it, who is alive | see Workers |
+
+There is no entry-to-entry reference field: a child holds its parent's **slug** as text (a list as comma text or JSON). Check the slug before writing it.
+
+## Stage by stage
+
+1. **Brainstorm and script**: create or update the `world` and `story` records, not just `worlds/<slug>.md`.
+2. **Beats**: one `beat` record each, with its `scene`, cast IDs and states, and the previous beat's outcome. Scarce props still never replenish.
+3. **Stills**: **do not hand-write a still prompt.** A prompt written by hand misses the letters, the daylight, the continuity (this happened on beat 04). The still workflows compose it from the world, scene, beat and cast records, and attach the references in order: scene `anchor`, cast masters, beat `references`. To change a picture, change the record (an `expression` that is too soft, a missing prop on the scene) and redo, not the prompt. Judge every picture by eye against the masters and the scene before approving. A master's smile survives a prompt asking for another face, so state a flat expression on the beat and expect to need a better reference.
+4. **Lines and sounds**: set a `speech-line` or `sound` to status `queued`. That runs `storyworld-take-line` or `storyworld-take-sound`: one spend approval, generate, attach the take, then keep or redo. **Redo sets status back to queued** and runs only that item; approved ones are untouched. `storyworld-record-lines` does the next 25 lines under one approval. Listen before approving; an approval plays the take.
+5. **Listen**: the `storyworld-audio-cut` workflow creates a `job`; a worker stitches narration, sounds and the scene ambience (loud outside, low-passed and quiet inside, continuous across beats) into one cut with a timeline. Jared listens, names a line, and the fix goes into that `speech-line` or `beat`, then a new cut.
+6. **Shots, render, publish**: assembly and the YouTube upload stay outside Marvin's records for now (`render/`). **Never publish to YouTube without Jared's say-so; uploads are private only.**
+
+## Workers
+
+Heavy jobs run on a generic worker (`InnerOpen/marvin-worker`): a standing runner that registers the kinds it can do, or a dispatcher that starts one per job. Kinds declare what they take, give and need, and a bad job fails at once with the reason. This repo's `render/` registers `audio-cut`. Settings -> Workers shows who is alive, what each kind takes, the queue, and each job's log and result.
+
+## Rules that cost us time
+
+- One approval covers every paid call after it in a run; a repeat cannot hold its own approval, and repeats take at most 25 items. Word the approval with line and character counts, and check usage on the free ElevenLabs tier (10,000 characters per period).
+- Say "no alphabet characters, signs or captions" in a picture rule, never "no letters": letters are props.
+- After any upload, check the stored `mimeType`; a call can succeed and store the wrong type.
+- Library first: before making a sound, scene or voice, look for one that already exists (tags say what it is, collections group packs).
