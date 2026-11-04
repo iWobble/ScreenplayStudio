@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "17",
+  "version": "18",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -219,6 +219,13 @@
               "label": "Default voice (voice entry slug)",
               "type": "text",
               "helpText": "The voice they have unless a character gives another."
+            },
+            {
+              "key": "voice_sample",
+              "label": "Voice sample",
+              "type": "asset",
+              "role": "voice_sample",
+              "helpText": "A short clip of their voice, to hear who they are: ElevenLabs' own preview, a line made in their voice, or your own recording."
             },
             {
               "key": "general_view",
@@ -2610,17 +2617,16 @@
       "kind": "collection",
       "slug": "screenplay-troupe",
       "name": "Screenplay Studio: Troupe",
-      "description": "The world's actors and their voices: who can be cast. Each actor is a person with a name and a general look; the characters they play are in the Cast.",
+      "description": "The world's actors: who can be cast. Each is a person with a name, a general look and a voice sample to hear; the characters they play are in the Cast.",
       "required": false,
       "category": "General",
       "source": "core",
       "requires": [
-        "entry_type:actor",
-        "entry_type:voice"
+        "entry_type:actor"
       ],
       "parameters": [],
       "payload": {
-        "description": "The world's actors and their voices: who can be cast. Each actor is a person with a name and a general look; the characters they play are in the Cast.",
+        "description": "The world's actors: who can be cast. Each is a person with a name, a general look and a voice sample to hear; the characters they play are in the Cast.",
         "icon": "\ud83e\uddd1\u200d\ud83c\udfa4",
         "color": "#0EA5E9",
         "is_smart": true,
@@ -2629,8 +2635,7 @@
         "sort_order": 3,
         "smart_rules": {
           "entry_types": [
-            "actor",
-            "voice"
+            "actor"
           ],
           "match": "all"
         }
