@@ -29,7 +29,7 @@ def player(title: str, shots: list[dict], audio_src: str) -> str:
         f"<h1>{heading}</h1><p class='hint'>Space plays or pauses; the arrows go to the next or previous shot. This page only plays: approve the beats in Marvin.</p>"
         "<div class='stage'><div class='frame'><img id='pic' alt=''></div><div id='caption' class='caption'></div></div>"
         "<div class='bar'><button id='prev' aria-label='Previous shot'>&#9664;&#9664;</button><button id='play' aria-label='Play or pause'>&#9654;</button>"
-        "<button id='next' aria-label='Next shot'>&#9654;&#9654;</button><span id='where'></span></div>"
+        "<button id='next' aria-label='Next shot'>&#9654;&#9654;</button></div><div id='where' class='where'></div>"
         "<input id='seek' type='range' min='0' max='1000' value='0' aria-label='Position'>"
         "<div id='strip' class='strip'></div>"
         f"<audio id='a' preload='auto' src='{html.escape(audio_src, quote=True)}'></audio>"
@@ -44,9 +44,9 @@ _STYLE = (
     ".frame img{position:absolute;left:0;top:0;width:100%;height:100%;transform-origin:0 0;will-change:transform}"
     ".caption{position:absolute;left:8px;right:8px;bottom:14px;padding:.4rem .6rem;border-radius:6px;background:rgba(0,0,0,.62);font-size:1rem;min-height:1.2rem}"
     ".caption:empty{display:none}.caption b{color:#f0c36b;font-weight:600}"
-    ".bar{display:flex;gap:.6rem;align-items:center;justify-content:center;margin:.8rem 0 .3rem}.bar button{background:#2a2a31;color:#eee;border:1px solid #3d3d46;border-radius:999px;min-width:48px;height:44px;font-size:1rem;cursor:pointer}"
-    ".bar button:hover{background:#34343c}#where{color:#bdbdc7;min-width:9rem;text-align:left}input[type=range]{width:min(100%,380px)}"
-    ".strip{display:flex;gap:6px;overflow-x:auto;padding:.7rem 0;justify-content:flex-start;max-width:100%}.strip img{height:84px;aspect-ratio:9/16;object-fit:cover;border-radius:4px;border:2px solid transparent;cursor:pointer;flex:0 0 auto;opacity:.65}"
+    ".bar{display:flex;gap:.8rem;align-items:center;justify-content:center;margin:.8rem 0 .3rem}.bar button{display:inline-flex;align-items:center;justify-content:center;background:#2a2a31;color:#eee;border:1px solid #3d3d46;border-radius:999px;width:56px;height:44px;padding:0;font-size:1rem;line-height:1;cursor:pointer}"
+    ".bar button#play{width:64px;height:52px;font-size:1.2rem}.bar button:hover{background:#34343c}.where{color:#bdbdc7;text-align:center;margin:.2rem 0 .5rem;font-variant-numeric:tabular-nums}input[type=range]{display:block;width:min(100%,380px);margin:0 auto}"
+    ".strip{display:flex;gap:6px;overflow-x:auto;padding:.7rem 0;max-width:100%}.strip::before,.strip::after{content:'';margin:auto}.strip img{height:84px;aspect-ratio:9/16;object-fit:cover;border-radius:4px;border:2px solid transparent;cursor:pointer;flex:0 0 auto;opacity:.65}"
     ".strip img.on{border-color:#f0c36b;opacity:1}"
 )
 

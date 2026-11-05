@@ -71,3 +71,10 @@ def test_making_a_filmstrip_follows_the_renders_plan_and_moves_and_keeps_a_silen
     assert '"label": "Beat 02"' in page and '"zoom": 1.8' in page and '"text": "One."' in page  # the move and the caption are the render's
     assert page.count("data:image/jpeg;base64,") >= 2 and "data:audio/mpeg;base64," in page and len(page) < 2_000_000
     assert planned.shots[1].duration == pytest.approx(3.0, abs=0.01)  # the silent shot keeps its asked-for time
+
+
+def test_the_controls_sit_on_their_own_row_and_the_position_label_under_them():
+    page = filmstrip.player("T", SHOTS, "a.mp3")
+    bar = page[page.index("<div class='bar'>"):page.index("<input id='seek'")]
+    assert "id='where'" not in bar.split("</div>")[0]  # the label is not inside the button row, so it cannot push the buttons off centre
+    assert "<div id='where' class='where'></div>" in bar
