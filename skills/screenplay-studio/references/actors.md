@@ -1,51 +1,43 @@
-# Actors and characters
+# Actors, characters and casting
 
-Two things, kept apart. An **actor** is a person in the world's troupe: the look that stays the same in every role. A **character** is that actor in one story: a role, a costume and props. The same actor can play a different character in the next story. A peg leg or a false beard is a costume or prop of the character; the actor keeps both legs and a bare face.
-
-## The actor sheet
-
-One image: four full-body views of the actor in plain baseline clothes (front, three-quarter, right-side profile, back), same neutral pose, scale and light, warm cream background, no text or labels. Make it from the base in `assets/adult-bases.jpg` (woman or man) for construction and the approved rendering anchor for style. Small dark oval eyes, tiny mouth, minimal nose; simplified rounded hands and two natural legs unless the actor really differs.
-
-**Name the file for the actor: `Nell.png`, not `image-3.png`.** In Marvin, "Create entry from asset" turns the file name into the actor's name and slug, so the right name has to be on the file before it is uploaded. Say the preferred file name at the top of every prompt handoff.
-
-In Claude Code the default is a prompt handoff (see SKILL.md): `cast/<Name>.prompt.txt`, with the anchors to attach listed at the top. Save the result as `cast/actors/<Name>.png`, inspect it, then upload it.
+Three records, kept apart. An **actor** belongs to the *world's troupe*: the look that stays the same in every role. A **character** (`cast-member`) is that actor in **one story**: a role, a costume and props. A **casting** is the search for who plays a role: the candidate actor, how well they fit, a screen test, and whether they were chosen or passed. The same actor can play a different character in the next story. A peg leg or a false beard is a costume or prop of the character, not part of the actor. The narrator can be a **voice-only** character with no picture.
 
 ## Bases belong to the world
 
-A base is the general figure an actor is made from. It is for **construction**: proportions and silhouette. Add a base only when making an actor from another one would look wrong (a different body, not a different person). Age within a base is the actor's business: an older adult is the same construction with a different look.
-
-Storyworld has three, one sheet each, attached to the world as `base_sheets` (and in `originals/`): **woman** (`adult-base-woman.png`) and **man** (`adult-base-man.png`), cropped from the combined `assets/adult-bases.jpg` (two people in one sheet works, but one sheet per base keeps `base` and its picture one to one and stops an image model mixing the two figures), and **child** (`assets/child-base.jpg`, a neutral child of about 12; hair and clothes make the girl or the boy, since the two share proportions at that age). Prompt for the child sheet: `cast/bases/child-base.prompt.txt`. A first sheet (v1, `assets/child-base.jpg`) exists but is **parked**: it reads as a child by a rounder body and shorter legs, yet its head is about the same share of the height as the adults' (about 29% by a rough measure). Ask for a clearly larger head (about a third of the height) when the first child is made. Eli and Maya were set to young adults (19) and use the adult bases. Another world lists its own, one per body plan (a farm world: hen, cow, pig, dog; not one per animal). Make each base as a front, side and back sheet in the world's style, list it in the world's `bases`, and only then make actors from it.
+A *base* is the general figure an actor is made from: proportions and silhouette. A world lists its bases in its `bases` field, each with a base sheet picture (`base_sheets`). Add a base only when making an actor from another one would look wrong (a different body, not a different person). Age within a base is the actor's business.
 
 ## The actor record
 
-Fill these `actor` fields in Marvin from the sheet and the brief. Leave a field empty rather than guess; an age is a proposal until the author confirms it.
+Fill the `actor` fields from the actor's picture and the brief. Leave a field empty rather than guess; an age is a proposal until the author confirms it.
 
 | Field | What goes in it |
 |---|---|
-| `title` | the actor's name (the slug is the name in lower case: `nell`) |
-| `world` | the world's slug, e.g. `storyworld` |
-| `base` | the general figure it was made from: one of the **world's bases** (Storyworld has woman, man and child). A world lists its bases in its `bases` field, each with a base sheet |
-| `presence` | `on screen`, or `voice only` for a voice actor. No picture is made: use the shared featureless placeholder as the `general_view`, the library asset `voice-male` ("Voice - Male") or `voice-female` ("Voice - Female"), matching the voice |
+| `title` | the actor's name (the slug is the name in lower case) |
+| `world` | the world's slug |
+| `base` | one of the world's bases |
+| `presence` | `on screen`, or `voice only` for a voice actor (no picture; use a shared featureless placeholder as the `general_view`) |
 | `age` | years, only when set |
 | `build`, `hair`, `skin_tone` | one line each. Skin tone describes the artwork, not ethnicity |
 | `look` | the general look: the face and manner that stay the same |
 | `distinguishing_features` | what picks them out in a lineup (a beard, an earring, a hairstyle). Not costume |
-| `baseline_wardrobe` | what they wear in this plain sheet. A role's costume replaces it |
-| `general_view` | the actor sheet picture |
+| `baseline_wardrobe` | what they wear in the plain sheet. A role's costume replaces it |
+| `general_view` | the actor's sheet picture |
+| `age_views` | more pictures of the same person at other ages (see below) |
 | `voice`, `voice_sample` | their default voice (a voice record's slug) and a clip to hear it |
-| `summary`, `description` | one line ("An older adult woman with a sturdy build and a calm, attentive presence.") and one sentence of what the picture shows ("A rounded Storyworld miniature character with warm medium-brown skin, short silver curls, and a simple, softly rendered face."). No age unless confirmed |
 | `status` | `draft` until the sheet is approved |
-| `notes` | anything else that is established, e.g. "Twin of Maya" |
+| `notes` | anything else that is established |
 
-Do not put story role, family relationships or personality on the actor from how they look. Only established facts (the twins) are recorded.
+Do not put story role, family relationships or personality on the actor from how they look. Only established facts are recorded.
 
-## The character sheet
+**Name the picture file for the actor** (`Nell.png`, not `image-3.png`): in Marvin, "Create entry from asset" turns the file name into the actor's name and slug.
 
-A character is made from an actor, not from scratch. Attach the actor's `general_view` (download it from the actor's asset URL, or use the file in `cast/actors/`) as the identity anchor, then dress them for the role: the same four views, same pose and light, with the role's **costume** and **props** from the character record and any state change (age, injury, beard) as the brief says. The actor's face, build and proportions do not change.
+## The character record
 
-File name: the character's id, `pirate-captain.png`. Show it for approval before anything depends on it; the approved picture is the character's `master`. A character with `presence: voice only` (a narrator) has no picture and needs no sheet.
+A character is made from an actor, not from scratch. Fields: `story`, `actor` (the actor's slug), `role`, `speaker` (the one-word name its speech lines use in the beat sheet), `presence`, `age_state` (young, mid, old), `costume`, `props`, `master` (the approved picture). Stills attach the approved master, so an unapproved master blocks them.
 
-Character fields: `story`, `actor` (the actor's slug), `role`, `speaker` (the name its speech lines use), `presence`, `costume`, `props`, `master`.
+## The casting record
+
+`story`, `role`, `character`, `actor` (the candidate), `state` (what the role needs at that point), `fit` (why this actor does or does not fit), `status` (`considering`, `auditioned`, `chosen`, `passed`) and a `screen_test` picture. Search the troupe on the hard fields (presence, base, age range) first, then judge look and voice by eye and ear and write the verdict in `fit`. A role that fits nobody is a gap: make a new actor.
 
 ## Reading what is in Marvin
 
@@ -56,4 +48,3 @@ Character fields: `story`, `actor` (the actor's slug), `role`, `speaker` (the na
 An actor has **Views at different ages** (`age_views`): as many pictures of the same person as you like, at other ages and angles. In the Assets library tag each one **`age-young`**, **`age-mid`** or **`age-old`**, and `face-closeup` or `profile` where it is one. A Character (`cast-member`) has an **Age** (`age_state`: young, mid, old). The **`screenplay-make-master`** workflow reads the Character's actor, collects up to four of the actor's pictures tagged for that age, and makes the master from them, the costume and props, and the world's style: it asks before spending image credit, then Keep or Redo, and Keep approves the master.
 
 Rules that keep one man one man across 18, 30 and 52: put the features that never change (brow shape, nose, jaw, a scar, the hair parting) in `distinguishing_features` and keep them in every version; make the young and old masters early and approve them as a pair, side by side; a still takes the approved master, not the raw views (the plain actor sheet fights the costume), except a tagged `face-closeup` when a shot is a reuse of a face. A story that shows the same person at two ages has two Characters pointing at the same actor.
-
