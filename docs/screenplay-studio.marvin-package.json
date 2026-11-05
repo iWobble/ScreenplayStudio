@@ -3149,6 +3149,49 @@
     },
     {
       "kind": "workflow",
+      "slug": "screenplay-make-script",
+      "name": "Screenplay: make the script files of a story",
+      "description": "Make a story's screenplay from its records as a Fountain file, a PDF in Courier 12 and an HTML page (plus a who-speaks-where breakdown), kept on the story as script_fountain, script_pdf and script_html.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: make the script files of a story",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "story",
+                "label": "Story",
+                "type": "entry",
+                "required": true
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Script: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "script",
+                "args": {
+                  "story": "${entry.slug}"
+                },
+                "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
       "slug": "screenplay-filmstrip-done",
       "name": "Screenplay: approve a finished filmstrip",
       "description": "When a filmstrip is made, ask whether to approve the story's beats for rendering; approving marks every beat of the story approved.",
