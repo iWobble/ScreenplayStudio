@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "26",
+  "version": "27",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -3125,7 +3125,65 @@
               "data": {
                 "kind": "import-voices",
                 "args": {
-                  "search": "${inputs.search}"
+                  "search": "${input.search}"
+                },
+                "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-transcribe",
+      "name": "Screenplay: transcribe a recording",
+      "description": "Turn a recording (an audio or video asset) into text, free, on the transcribe worker: the words, the words with times, in paragraphs, and as JSON. The text is a place to start a new script from.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: transcribe a recording",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "audio",
+                "label": "Recording (the audio or video asset's slug or id)",
+                "type": "text",
+                "required": true
+              },
+              {
+                "name": "hotwords",
+                "label": "Names and unusual words to listen for (optional)",
+                "type": "text",
+                "required": false,
+                "default": "Sarah Bill George Nell Clara Reid Marcus Eli Maya Arthur"
+              },
+              {
+                "name": "language",
+                "label": "Spoken language as a code, e.g. en (optional: empty detects it)",
+                "type": "text",
+                "required": false
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Transcribe: ${input.audio}",
+              "status": "draft",
+              "data": {
+                "kind": "transcribe",
+                "args": {
+                  "audio": "${input.audio}",
+                  "hotwords": "${input.hotwords}",
+                  "language": "${input.language}"
                 },
                 "status": "queued"
               }
