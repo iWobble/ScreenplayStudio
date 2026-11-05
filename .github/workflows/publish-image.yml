@@ -1,8 +1,7 @@
 # Builds the Screenplay Studio worker image and publishes it to this repository's container registry (ghcr.io), when a version tag is pushed:
 #   git tag v34 && git push origin v34
 # The tag must match the package version in docs/screenplay-studio.marvin-package.json (the image goes with the package of the same version).
-# The image is built on the generic Marvin worker (https://github.com/InnerOpen/marvin-worker). While that repository is private, add a
-# repository secret MARVIN_WORKER_TOKEN (a token that can read it); once it is public the secret is not needed.
+# The image is built on the generic Marvin worker (https://github.com/InnerOpen/marvin-worker), which is public, so no extra token is needed.
 name: publish-image
 on:
   push:
