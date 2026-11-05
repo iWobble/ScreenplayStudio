@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "23",
+  "version": "24",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -2936,7 +2936,7 @@
             {
               "kind": "approval",
               "id": "review",
-              "message": "The filmstrip is ready (${entry.data.result.shots} shots, ${entry.data.result.seconds} s). Open it in its own tab, watch it with the sound on, and use next to check each picture. Approve to mark every beat approved for rendering; choose Needs changes to leave them as they are.",
+              "message": "The filmstrip is ready (${entry.data.result.shots} shots, ${entry.data.result.seconds} s). WATCH IT FIRST, with the sound on: ${entry.data.result.url}  (it opens in its own tab; use next to check each picture). Then come back here. Approve for rendering marks every beat approved; Needs changes leaves them as they are.",
               "choices": [
                 "Approve for rendering",
                 "Needs changes"
