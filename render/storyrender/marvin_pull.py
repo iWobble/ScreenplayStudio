@@ -118,7 +118,10 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
     if not shots:
         raise PullError(f"“{story}” has no recorded lines yet: record some with the screenplay-record-lines workflow")
     out.mkdir(parents=True, exist_ok=True)
-    (out / "manifest.json").write_text(json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {})}, indent=2, ensure_ascii=False))
+    music = music_of(creds, out, data(story_row), data)
+    (out / "manifest.json").write_text(
+        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"music": music} if music else {})}, indent=2, ensure_ascii=False)
+    )
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing}
 
 
@@ -136,6 +139,25 @@ def spoken_words(d: dict, metadata: dict | None) -> list[dict]:
     return [w for w in words if not (str(w["text"]).startswith("[") and str(w["text"]).endswith("]"))]
 
 
+def fades_of(d: dict) -> dict:
+    """A sound record's `fade_in` / `fade_out` (seconds), as manifest keys, only for the ones that are set."""
+    return {k: float(d[k]) for k in ("fade_in", "fade_out") if d.get(k) not in (None, "", 0)}
+
+
+def music_of(creds, out: Path, story_data: dict, data) -> dict | None:
+    """The story's music bed: the sound its `music` field names (a record of kind music), played under the whole film at that sound's volume
+    (0.12 if it has none), faded out at the end (and in, if the sound says so). None when the story names none, or its take is not made."""
+    name = str(story_data.get("music") or "").strip()
+    if not name:
+        return None
+    row = next(iter(marvin_api.query(creds, {"entries": name}, limit=1)), None)
+    if row is None or not data(row).get("audio"):
+        return None
+    file = _fetch_asset(creds, str(data(row)["audio"]), out / "audio" / "sounds" / name, "mp3")
+    volume = data(row).get("volume")
+    return {"audio": str(file.relative_to(out)), "volume": float(volume if volume not in (None, "") else 0.12), "id": name, **fades_of(data(row))}
+
+
 def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) -> list[dict]:
     """A beat's `sounds` ([{sound, at, volume}]) as manifest `sfx`: each sound's take downloaded. A sound with no take yet is
     named in `not_recorded`, like a line with none, and left out."""
@@ -151,7 +173,7 @@ def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) 
             continue
         file = _fetch_asset(creds, str(d["audio"]), out / "audio" / "sounds" / row["slug"], "mp3")
         volume = item.get("volume") if item.get("volume") is not None else d.get("volume")
-        effects.append({"id": row["slug"], "audio": str(file.relative_to(out)), "at": float(item.get("at") or 0), "volume": float(volume if volume is not None else 0.6)})
+        effects.append({"id": row["slug"], "audio": str(file.relative_to(out)), "at": float(item.get("at") or 0), "volume": float(volume if volume is not None else 0.6), **fades_of(d)})
     return effects
 
 
@@ -170,4 +192,4 @@ def _ambience(creds, out: Path, beat: dict, scenes: dict, sounds: dict, data, ta
     if name not in taken:
         taken[name] = _fetch_asset(creds, str(data(sound)["audio"]), out / "audio" / "sounds" / name, "mp3")
     level = next((v for v in (beat.get("ambience_volume"), data(scene).get("ambience_volume"), data(sound).get("volume")) if v is not None), 0.5)
-    return {"id": name, "audio": str(taken[name].relative_to(out)), "volume": float(level), "muffled": bool(data(scene).get("ambience_muffled"))}
+    return {"id": name, "audio": str(taken[name].relative_to(out)), "volume": float(level), "muffled": bool(data(scene).get("ambience_muffled")), **fades_of(data(sound))}

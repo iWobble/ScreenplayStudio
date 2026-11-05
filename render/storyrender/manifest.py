@@ -57,6 +57,8 @@ class Sfx:
     volume: float = 1.0
     duration: float = 0.0
     ref: str | None = None  # what the sound is called outside the manifest (its Marvin sound slug), so a timeline can name it
+    fade_in: float = 0.0  # seconds to rise from silence at the start / fall to silence at the end, so a sound does not click on or off
+    fade_out: float = 0.0
 
 
 @dataclass
@@ -68,6 +70,8 @@ class Ambience:
     volume: float = 0.5
     muffled: bool = False  # heard from inside: low-passed, as through a wall
     ref: str | None = None
+    fade_in: float = 0.0  # 0: the renderer's own crossfade (BED_FADE)
+    fade_out: float = 0.0
 
 
 @dataclass
@@ -190,7 +194,8 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         if s.get("ambience"):
             amb = s["ambience"]
             shot.ambience = Ambience(
-                audio_path(amb.get("audio") or "", f"{where} ambience"), float(amb.get("volume", 0.5)), bool(amb.get("muffled", False)), amb.get("id")
+                audio_path(amb.get("audio") or "", f"{where} ambience"), float(amb.get("volume", 0.5)), bool(amb.get("muffled", False)), amb.get("id"),
+                fade_in=float(amb.get("fade_in") or 0), fade_out=float(amb.get("fade_out") or 0),
             )
         for j, ln in enumerate(s.get("lines") or [], 1):
             lw = f"{where} line {j}"
@@ -219,7 +224,9 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             )
         for j, fx in enumerate(s.get("sfx") or [], 1):
             file = audio_path(fx.get("audio") or "", f"{where} sfx {j}")
-            shot.sfx.append(Sfx(file, float(fx.get("at", 0)), float(fx.get("volume", 1)), probe(file), ref=fx.get("id")))
+            shot.sfx.append(
+                Sfx(file, float(fx.get("at", 0)), float(fx.get("volume", 1)), probe(file), ref=fx.get("id"), fade_in=float(fx.get("fade_in") or 0), fade_out=float(fx.get("fade_out") or 0))
+            )
         shots.append(shot)
 
     music = raw.get("music")

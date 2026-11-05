@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "35",
+  "version": "36",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1039,10 +1039,11 @@
               "type": "select",
               "options": [
                 "effect",
-                "ambience"
+                "ambience",
+                "music"
               ],
               "defaultValue": "effect",
-              "helpText": "effect: a moment (a spoon on a bowl). ambience: a bed that runs under a scene (waves and gulls)."
+              "helpText": "How the mix treats it. effect: placed at a moment in a beat. ambience: a bed that loops under a scene. music: a bed under the whole story, faded out at the end. Finer types (the place, the material, the action, the era) are tags."
             },
             {
               "key": "source",
@@ -1079,6 +1080,38 @@
               "max": 1,
               "defaultValue": 0.6,
               "helpText": "Level under the narration; a beat can override it."
+            },
+            {
+              "key": "prompt_influence",
+              "label": "Prompt influence",
+              "type": "number",
+              "min": 0,
+              "max": 1,
+              "helpText": "0 to 1 (ElevenLabs default 0.3). Higher follows the description more literally, with less variety between takes. Sound effects and ambience only."
+            },
+            {
+              "key": "model",
+              "label": "Model",
+              "type": "select",
+              "options": [
+                "eleven_text_to_sound_v2",
+                "eleven_text_to_sound_v3"
+              ],
+              "helpText": "The ElevenLabs sound model. Leave empty for its default. Sound effects and ambience only."
+            },
+            {
+              "key": "fade_in",
+              "label": "Fade in (seconds)",
+              "type": "number",
+              "min": 0,
+              "helpText": "Rise from silence over this long, so the sound does not click on. Empty: none for an effect, the renderer's short crossfade for an ambience, none for music."
+            },
+            {
+              "key": "fade_out",
+              "label": "Fade out (seconds)",
+              "type": "number",
+              "min": 0,
+              "helpText": "Fall to silence over this long at the end. Empty: none for an effect, the crossfade for an ambience, 2 seconds for music."
             },
             {
               "key": "audio",
@@ -1365,6 +1398,12 @@
               "key": "script",
               "label": "Script",
               "type": "markdown"
+            },
+            {
+              "key": "music",
+              "label": "Music",
+              "type": "text",
+              "helpText": "Slug of a sound of kind music: a bed played under the whole story at that sound's volume, faded out at the end."
             },
             {
               "key": "sheet_log",
@@ -2506,6 +2545,11 @@
               "field": "entry.data.status",
               "op": "eq",
               "value": "queued"
+            },
+            {
+              "field": "entry.data.kind",
+              "op": "neq",
+              "value": "music"
             }
           ],
           "actions": [
@@ -2522,7 +2566,9 @@
               "args": {
                 "text": "${entry.data.prompt}",
                 "duration_seconds": "${entry.data.duration_seconds}",
-                "loop": "${entry.data.loop}"
+                "loop": "${entry.data.loop}",
+                "prompt_influence": "${entry.data.prompt_influence}",
+                "model_id": "${entry.data.model}"
               }
             },
             {
@@ -3550,6 +3596,108 @@
                   "quality": "${input.quality}"
                 },
                 "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-take-music",
+      "name": "Screenplay: make a music bed",
+      "description": "When a sound of kind music is queued, compose the track with ElevenLabs (paid, and needs a plan that includes music) after a spend approval, keep it on the sound, then Keep or Redo. The story names it in its music field.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: make a music bed",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_updated"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "sound"
+            },
+            {
+              "field": "entry.data.status",
+              "op": "eq",
+              "value": "queued"
+            },
+            {
+              "field": "entry.data.kind",
+              "op": "eq",
+              "value": "music"
+            }
+          ],
+          "actions": [
+            {
+              "kind": "approval",
+              "id": "spend",
+              "message": "Compose the music \u201c${entry.title}\u201d (${entry.data.prompt}) with ElevenLabs? It uses music credit and needs a plan that includes music."
+            },
+            {
+              "kind": "integration",
+              "id": "music",
+              "integration": "elevenlabs",
+              "action": "music",
+              "args": {
+                "prompt": "${entry.data.prompt}",
+                "force_instrumental": true
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "audio": "${steps.music.output.asset.id}",
+                "status": "recorded"
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "attach_asset",
+              "asset": "${steps.music.output.asset.id}",
+              "role": "audio"
+            },
+            {
+              "kind": "approval",
+              "id": "keep",
+              "message": "Listen to \u201c${entry.title}\u201d. Redo makes a fresh take and asks again; change the description on the sound first if it should sound different.",
+              "choices": [
+                "Keep",
+                "Redo"
+              ],
+              "image": "${steps.music.output.asset.url}"
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "status": "approved"
+              },
+              "when": {
+                "field": "steps.keep.output.choice",
+                "op": "eq",
+                "value": "Keep"
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "status": "queued"
+              },
+              "when": {
+                "field": "steps.keep.output.choice",
+                "op": "eq",
+                "value": "Redo"
               }
             }
           ]

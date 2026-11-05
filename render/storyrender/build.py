@@ -56,18 +56,31 @@ def _cut(line) -> str:
     return f"atrim=start={line.start:.4f}{end},asetpts=PTS-STARTPTS,"
 
 
+def fades(length: float, fade_in: float = 0.0, fade_out: float = 0.0) -> str:
+    """ffmpeg filters (with a trailing comma, or nothing) that fade a sound in over `fade_in` seconds and out over `fade_out`, each held to at most
+    half the sound so the two never overlap. A sound with no fades gets none."""
+    half = max(length, 0.0) / 2
+    parts = []
+    if fade_in > 0:
+        parts.append(f"afade=t=in:st=0:d={min(fade_in, half):.3f}")
+    if fade_out > 0:
+        d = min(fade_out, half)
+        parts.append(f"afade=t=out:st={max(length, 0.0) - d:.3f}:d={d:.3f}")
+    return ",".join(parts) + "," if parts else ""
+
+
 def _narration(planned: PlannedShot, out: Path) -> None:
     """One wav, exactly the shot's length: its lines and sound effects delayed into place."""
     inputs: list[str] = []
     chains: list[str] = []
     labels: list[str] = []
-    pieces = [(p.line.audio, p.start - planned.start, 1.0, _cut(p.line)) for p in planned.lines if p.line.audio] + [
-        (fx.audio, fx.at, fx.volume, "") for fx in planned.shot.sfx
+    pieces = [(p.line.audio, p.start - planned.start, 1.0, _cut(p.line), "") for p in planned.lines if p.line.audio] + [
+        (fx.audio, fx.at, fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out)) for fx in planned.shot.sfx
     ]
-    for n, (file, at, volume, cut) in enumerate(pieces):
+    for n, (file, at, volume, cut, fade) in enumerate(pieces):
         inputs += ["-i", str(file)]
         chains.append(
-            f"[{n}:a]{cut}aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,adelay={round(max(at, 0) * 1000)}:all=1,volume={volume}[a{n}]"
+            f"[{n}:a]{cut}aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,{fade}adelay={round(max(at, 0) * 1000)}:all=1,volume={volume}[a{n}]"
         )
         labels.append(f"[a{n}]")
     if not pieces:
@@ -124,14 +137,15 @@ def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path) -> None
     for n, bed in enumerate(runs, 1):
         begin, end = max(0.0, bed.start - BED_FADE / 2), min(total, bed.end + BED_FADE / 2)
         length = end - begin
-        fade = min(BED_FADE, length / 2)
+        fade_in = min(bed.ambience.fade_in or BED_FADE, length / 2)  # the sound's own fades, else the crossfade
+        fade_out = min(bed.ambience.fade_out or BED_FADE, length / 2)
         shifted = Bed(bed.ambience, begin, end, [(max(b, begin), e, v) for b, e, v in bed.levels])
         shifted.levels[0] = (begin, shifted.levels[0][1], shifted.levels[0][2])
         inputs += ["-stream_loop", "-1", "-i", str(bed.ambience.audio)]
         muffle = f",lowpass=f={MUFFLE_HZ}" if bed.ambience.muffled else ""
         chains.append(
             f"[{n}:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo{muffle},atrim=0:{length:.3f},asetpts=PTS-STARTPTS,"
-            f"volume='{_level(shifted)}':eval=frame,afade=t=in:st=0:d={fade:.3f},afade=t=out:st={length - fade:.3f}:d={fade:.3f},"
+            f"volume='{_level(shifted)}':eval=frame,afade=t=in:st=0:d={fade_in:.3f},afade=t=out:st={length - fade_out:.3f}:d={fade_out:.3f},"
             f"adelay={round(begin * 1000)}:all=1[b{n}]"
         )
         labels.append(f"[b{n}]")
@@ -196,9 +210,12 @@ def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, 
     chain: list[str] = []
     if manifest.music:
         cmd += ["-stream_loop", "-1", "-i", manifest.music["audio"]]
-        fade_at = max(0.0, timeline.duration - 2.0)
+        fade_out = float(manifest.music.get("fade_out") or 2.0)  # a bed fades out at the end, by default over the last 2 s
+        fade_in = float(manifest.music.get("fade_in") or 0)
+        fade_at = max(0.0, timeline.duration - fade_out)
+        rise = f"afade=t=in:st=0:d={min(fade_in, timeline.duration / 2):.3f}," if fade_in > 0 else ""
         chain.append(
-            f"[2:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,volume={manifest.music['volume']},afade=t=out:st={fade_at:.3f}:d=2,atrim=0:{timeline.duration:.3f}[bed]"
+            f"[2:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,volume={manifest.music['volume']},{rise}afade=t=out:st={fade_at:.3f}:d={fade_out:g},atrim=0:{timeline.duration:.3f}[bed]"
         )
         chain.append("[1:a][bed]amix=inputs=2:normalize=0:duration=first[mix]")
         audio = "[mix]"
