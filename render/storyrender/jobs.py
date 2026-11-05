@@ -2,13 +2,14 @@
 module in WORKER_JOB_MODULES, so importing it registers them. Each is `(job, ctx) -> fields for the job's record`."""
 
 import json
+from datetime import datetime, timezone
 import urllib.request
 from pathlib import Path
 
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import build, chapters, ffmpeg, filmstrip, manifest, marvin_pull, script, voices
+from . import beat_export, beat_import, build, chapters, ffmpeg, filmstrip, manifest, marvin_pull, script, voices
 
 
 def story_of(job: dict) -> str:
@@ -182,3 +183,190 @@ def import_voices(job: dict, ctx: Context) -> dict:
         made.append(v.get("name") or slug)
     note = f"{len(made)} new voice(s): {', '.join(made)}." if made else "No new voices: everything on the key is already in Marvin."
     return {"result": {"listed": len(listed), "created": made, "already": len(listed) - len(made)}, "log": f"{len(listed)} voices on the key. {note}"}
+
+
+def _story_records(creds, story: str) -> tuple[list[dict], list[dict], list[dict]]:
+    """The story's chapters, beats and spoken lines as Marvin holds them now."""
+    ask = lambda kind: marvin_api.query(creds, {"entry_type": kind, "data": {"story": story}}, limit=1000)  # noqa: E731
+    return ask("chapter"), ask("beat"), ask("speech-line")
+
+
+def _yes(value) -> bool:
+    return str(value or "").strip().lower() in ("1", "true", "yes", "y")
+
+
+@job_kind(
+    "import-beats",
+    description="Read a story's beats and spoken lines out of text and make them as records (a `## Scene 3 - Title` heading above a table makes that chapter, and its beats are put in it): numbered lines (`**01** — Narrator: …`, what a story's script field holds) or a beat-sheet table (Beat | Time | Audio | Single still). Makes what is missing and leaves what is there alone; `dry_run` only says what it would make",
+    inputs={
+        "story": {"type": "string", "description": "the story entry's slug, e.g. devils-due-one-small-boat"},
+        "sheet": {"type": "asset", "required": False, "accepts": ["text/*"], "description": "a beat sheet or numbered script as a text asset (slug or id); empty reads the story's own script field"},
+        "dry_run": {"type": "string", "required": False, "description": "yes: say what would be made or changed, write nothing"},
+        "mode": {"type": "string", "required": False, "description": "add (default): make what is missing, change nothing that exists. refresh: also bring existing beats and lines nothing has been made from (no still, no recording) in line with the sheet"},
+    },
+    produces=[],
+)
+def import_beats(job: dict, ctx: Context) -> dict:
+    """The beats and lines of a story, made as `beat` and `speech-line` records from a numbered script or a beat sheet."""
+    story, args = story_of(job), job.get("args") or {}
+    rows_of_story = marvin_api.query(ctx.creds, {"entries": story}, limit=1)
+    if not rows_of_story:
+        raise JobError(f"no story “{story}” in this workspace")
+    story_row = rows_of_story[0]
+    story_data = dict(story_row.get("dataJson") or {})
+    sheet, loaded = str(args.get("sheet") or "").strip(), False
+    if sheet:
+        if str(story_data.get("script") or "").strip():
+            raise JobError(f"{story} already has a script, and the script is the one place to edit it: change it there, or empty it first to load {sheet}")
+        file = ctx.work / "sheet.txt"
+        marvin_api.download_asset(ctx.creds, sheet, file)
+        text, where, loaded = file.read_text(encoding="utf-8", errors="replace"), f"the asset {sheet}", True
+        story_data["script"] = text  # the file becomes the story's script (written below), so the story is where it is edited from now on
+    else:
+        text, where = str(story_data.get("script") or ""), f"{story}'s script field"
+    if not text.strip():
+        raise JobError(f"nothing to read: {where} is empty (give `sheet`, or put the numbered lines in the story's script field)")
+    kind, rows = beat_import.parse_any(text)
+    if not rows:
+        raise JobError(
+            f"found no beats in {where}. Write one per line as `**01** — Narrator: words` (more speakers: `Cook: words` after it), or as a beat-sheet table `| 01 | 0–8s | Narrator: words | picture |`"
+        )
+    ctx.note(f"read {len(rows)} beats from {where} ({'a beat-sheet table' if kind == 'table' else 'numbered lines'})")
+    have = {e["slug"]: e for kind_ in ("beat", "speech-line") for e in marvin_api.query(ctx.creds, {"entry_type": kind_, "data": {"story": story}}, limit=1000)}
+    chapters_have = {e["slug"]: e for e in marvin_api.query(ctx.creds, {"entry_type": "chapter", "data": {"story": story}}, limit=1000)}
+    refresh = str(args.get("mode") or "").strip().lower() == "refresh"
+    plan = beat_import.import_plan(story, rows, have, refresh=refresh, chapters=chapters_have)
+    dry = _yes(args.get("dry_run"))
+    if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"]):
+        types = {t["slug"]: t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types"))}
+        for needed in ("beat", "speech-line") + (("chapter",) if plan["chapters"] else ()):
+            if needed not in types:
+                raise JobError(f"this workspace has no “{needed}” entry type: install the Screenplay Studio package first")
+        done_count = 0
+        for type_slug, (slug, title, data) in [("chapter", c) for c in plan["chapters"]] + [("beat", b) for b in plan["beats"]] + [("speech-line", ln) for ln in plan["lines"]]:
+            body = json.dumps({"entryTypeId": types[type_slug], "title": title, "slug": slug, "status": "draft", "dataJson": data}).encode()
+            marvin_api.request(ctx.creds, "/api/platform/entries", method="POST", data=body, content_type="application/json")
+            done_count += 1
+            if done_count % 10 == 0:
+                ctx.note(f"{done_count} records written")
+        for slug, record_id, title, data in plan["updates"]:  # a PATCH replaces dataJson and renames by title unless the slug is named: send both whole
+            body = json.dumps({"title": title, "slug": slug, "dataJson": data}).encode()
+            marvin_api.request(ctx.creds, f"/api/platform/entries/{record_id}", method="PATCH", data=body, content_type="application/json")
+        for slug, record_id in plan["trash"]:  # DELETE moves an entry to the Trash, where it can be restored
+            marvin_api.request(ctx.creds, f"/api/platform/entries/{record_id}", method="DELETE")
+    verb, uverb = ("would make", "would update") if dry else ("made", "updated")
+    note = f"{verb} {len(plan['beats'])} beats and {len(plan['lines'])} spoken lines"
+    if plan["chapters"] or plan["have"]["chapters"]:
+        note += f" and {len(plan['chapters'])} chapters ({plan['have']['chapters']} already there)"
+    if refresh:
+        note += f"; {uverb} {len(plan['updates'])} that nothing had been made from; {plan['same']} already matched"
+    note += f". {plan['have']['beats']} beats and {plan['have']['lines']} lines were already there" + (" (the rest left alone)." if not refresh else ".")
+    if plan["kept"]:
+        note += f" Kept as they are, because a still or recording was made from them ({len(plan['kept'])}): " + "; ".join(f"{s} ({why})" for s, why in plan["kept"][:6]) + ("…" if len(plan["kept"]) > 6 else ".")
+    short = lambda slug: slug.replace(f"{story}-", "", 1).replace("-", " ")  # noqa: E731  "beat 07", "line 07 1", "chapter 03"
+    if plan["trash"]:
+        note += f" {'Would move' if dry else 'Moved'} to the Trash, no longer in the script and nothing made from them ({len(plan['trash'])}): " + ", ".join(short(s) for s, _ in plan["trash"][:10]) + ("…" if len(plan["trash"]) > 10 else ".")
+    if plan["orphans_kept"]:
+        note += f" Gone from the script but kept, because something was made from them ({len(plan['orphans_kept'])}): " + "; ".join(f"{short(s)} ({why})" for s, why in plan["orphans_kept"][:8]) + ("…" if len(plan["orphans_kept"]) > 8 else ".")
+    if plan["gone"] and not refresh:
+        note += f" In Marvin but not in the script, not touched in Add mode ({len(plan['gone'])}): " + ", ".join(short(s) for s in plan["gone"][:8]) + ("…" if len(plan["gone"]) > 8 else ".")
+    if plan["sounds"]:
+        note += f" {len(plan['sounds'])} sound cues were not imported (sounds are placed from the library): " + "; ".join(plan["sounds"][:5]) + ("…" if len(plan["sounds"]) > 5 else "")
+    if plan["problems"]:
+        note += " " + "; ".join(plan["problems"]) + "."
+    result = {
+        "format": kind,
+        "mode": "refresh" if refresh else "add",
+        "dry_run": dry,
+        "beats_made": len(plan["beats"]),
+        "lines_made": len(plan["lines"]),
+        "chapters_made": [c[0] for c in plan["chapters"]],
+        "updated": [u[0] for u in plan["updates"]],
+        "already_matched": plan["same"],
+        "kept_because_worked_on": [{"slug": s, "why": why} for s, why in plan["kept"]],
+        "not_in_the_sheet": plan["gone"],
+        "trashed": [s for s, _ in plan["trash"]],
+        "kept_though_gone": [{"slug": s, "why": why} for s, why in plan["orphans_kept"]],
+        "script_loaded_from_sheet": loaded,
+        "beats_existing": plan["have"]["beats"],
+        "lines_existing": plan["have"]["lines"],
+        "sound_cues_not_imported": plan["sounds"],
+        "problems": plan["problems"],
+    }
+    changed = plan["beats"] or plan["lines"] or plan["chapters"] or plan["updates"] or plan["trash"]
+    base_changed = False
+    if not dry:  # when the script and the records now say the same, remember it: that is what a later sync compares against
+        _chapters, now_beats, now_lines = _story_records(ctx.creds, story)
+        if beat_export.signature_of_records(story, now_beats, now_lines) == beat_export.signature_of_rows(rows):
+            digest = beat_export.digest(beat_export.signature_of_rows(rows))
+            if story_data.get("sheet_base") != digest:
+                story_data["sheet_base"], base_changed = digest, True
+    if not dry and (changed or loaded or base_changed):
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        bits = [f"+{len(plan['beats'])} beats, +{len(plan['lines'])} lines" + (f", +{len(plan['chapters'])} chapters" if plan["chapters"] else "")]
+        if plan["updates"]:
+            bits.append(f"{len(plan['updates'])} updated")
+        if plan["trash"]:
+            bits.append("trashed: " + ", ".join(short(s) for s, _ in plan["trash"][:12]) + ("…" if len(plan["trash"]) > 12 else ""))
+        if plan["orphans_kept"]:
+            bits.append("kept though gone from the script (something was made from them): " + ", ".join(short(s) for s, _ in plan["orphans_kept"][:8]))
+        if plan["kept"]:
+            bits.append("differ from the script but kept (a picture or recording was made): " + ", ".join(short(s) for s, _ in plan["kept"][:8]))
+        if changed or loaded:
+            entry = f"{stamp} · {'refresh' if refresh else 'add'}{' · loaded from ' + sheet if loaded else ''} · " + " · ".join(bits)
+            story_data["sheet_log"] = (str(story_data.get("sheet_log") or "").rstrip() + "\n" + entry).strip()
+        body = json.dumps({"title": story_row.get("title"), "slug": story_row.get("slug"), "dataJson": story_data}).encode()
+        marvin_api.request(ctx.creds, f"/api/platform/entries/{story_row['id']}", method="PATCH", data=body, content_type="application/json")
+    return {"result": result, "log": note}
+
+
+@job_kind(
+    "sync-sheet",
+    description="Rewrite a story's script (its beat-sheet table) from its beats, after a beat was edited by hand. Safe: it writes only when the beats changed and the script did not since the two last agreed; if the script changed it says to update the beats from it, and if both changed it stops and names the beats",
+    inputs={
+        "story": {"type": "string", "description": "the story entry's slug"},
+        "dry_run": {"type": "string", "required": False, "description": "yes: say what it would do, write nothing"},
+    },
+    produces=[],
+)
+def sync_sheet(job: dict, ctx: Context) -> dict:
+    """The story's script, rewritten from its records when only the records have changed since the script and they last agreed."""
+    story, args = story_of(job), job.get("args") or {}
+    found = marvin_api.query(ctx.creds, {"entries": story}, limit=1)
+    if not found:
+        raise JobError(f"no story “{story}” in this workspace")
+    story_row = found[0]
+    story_data = dict(story_row.get("dataJson") or {})
+    script, base = str(story_data.get("script") or ""), story_data.get("sheet_base")
+    chapters, beat_records, line_records = _story_records(ctx.creds, story)
+    if not beat_records:
+        raise JobError(f"{story} has no beats yet: update the beats from its script first (the import-beats job)")
+    s_records = beat_export.signature_of_records(story, beat_records, line_records)
+    kind, rows = beat_import.parse_any(script) if script.strip() else ("", [])
+    s_script = beat_export.signature_of_rows(rows)
+    differ = beat_export.differing_beats(s_script, s_records) if rows else []  # an empty script has no edits to name
+    if rows and s_script == s_records:
+        return {"result": {"decision": "in sync"}, "log": "The script and the beats already say the same thing; nothing to rewrite."}
+    script_edited = bool(rows) and (base is None or beat_export.digest(s_script) != base)
+    beats_edited = base is None or beat_export.digest(s_records) != base
+    names = ", ".join(differ[:12]) + ("…" if len(differ) > 12 else "")
+    if rows and base is None:
+        raise JobError("the script and the beats have never been brought into agreement, so there is no way to tell which is newer. Update the beats from the script first (that records the agreement), or empty the script to write it from the beats")
+    if rows and script_edited and beats_edited:
+        raise JobError(f"both changed since they last agreed, so nothing was written: the script was edited and so were the beats (they differ at: {names}). Decide which to keep: copy what you want from the script, then update the beats from it, or undo the beat edits")
+    if rows and script_edited:
+        raise JobError(f"the script was edited since the beats last agreed with it and the beats were not, so there is nothing to write back: update the beats from the script (differing: {names})")
+    text = beat_export.render_sheet(story, chapters, beat_records, line_records, beat_export.preamble_of(script))
+    again = beat_export.signature_of_rows(beat_import.parse_any(text)[1])
+    if again != s_records:
+        lost = ", ".join(beat_export.differing_beats(again, s_records)[:10])
+        raise JobError(f"the sheet cannot be written back without losing something (beats {lost}), so the script was left as it is")
+    ctx.note(f"{len(beat_records)} beats written back as {len(text.splitlines())} lines" + (f"; edited by hand: {names}" if names else ""))
+    if not _yes(args.get("dry_run")):
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        entry = f"{stamp} · rewrote the script from the beats" + (f" · beats edited by hand: {names}" if names else " · written from the beats (the script was empty)")
+        story_data.update({"script": text, "sheet_base": beat_export.digest(s_records), "sheet_log": (str(story_data.get("sheet_log") or "").rstrip() + "\n" + entry).strip()})
+        body = json.dumps({"title": story_row.get("title"), "slug": story_row.get("slug"), "dataJson": story_data}).encode()
+        marvin_api.request(ctx.creds, f"/api/platform/entries/{story_row['id']}", method="PATCH", data=body, content_type="application/json")
+    verb = "would rewrite" if _yes(args.get("dry_run")) else "rewrote"
+    return {"result": {"decision": verb, "beats": len(beat_records), "beats_edited": differ}, "log": f"{verb} the script from {len(beat_records)} beats" + (f"; edited by hand: {names}." if names else ".")}

@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "28",
+  "version": "32",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -118,6 +118,13 @@
               "min": 0,
               "max": 1,
               "helpText": "Overrides the scene's level for this beat only, e.g. 0.04 when the cabin goes quiet for the letters. Empty: the scene's."
+            },
+            {
+              "key": "audio_notes",
+              "label": "Notes and sound cues",
+              "type": "textarea",
+              "rows": 2,
+              "helpText": "What the sheet's Audio cell says that is not speech: a direction (\"Hold on the smile\"), a note that narration is wanted, and the Sound: cues. Kept so the story's script can be written back from the beats without losing them."
             },
             {
               "key": "picture",
@@ -1344,6 +1351,19 @@
               "key": "script",
               "label": "Script",
               "type": "markdown"
+            },
+            {
+              "key": "sheet_log",
+              "label": "Sheet log",
+              "type": "textarea",
+              "rows": 6,
+              "helpText": "One dated line each time the beats were updated from this script: what was added, changed, moved to the Trash, and kept because a picture or recording was made. Written by the import-beats job; do not edit."
+            },
+            {
+              "key": "sheet_base",
+              "label": "Sheet agreement",
+              "type": "text",
+              "helpText": "A fingerprint of the last time the script and the beats said the same thing. Written by the import-beats and sync-sheet jobs; do not edit."
             },
             {
               "key": "target_seconds",
@@ -3321,6 +3341,135 @@
                 "field": "steps.keep.output.choice",
                 "op": "eq",
                 "value": "Keep"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-import-beats",
+      "name": "Screenplay: import a story's beats",
+      "description": "Update a story's beats, spoken lines and chapters from its script (numbered lines or a beat-sheet table, with ## Scene headings for chapters). The script is the one place to edit. Refresh adds what is new, updates what nothing has been made from, moves what is gone to the Trash (a picture or recording keeps it, flagged), and logs each run on the story. Add only makes what is missing. Preview says what it would do and writes nothing.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: import a story's beats",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "story",
+                "label": "Story",
+                "type": "entry",
+                "required": true
+              },
+              {
+                "name": "sheet",
+                "label": "Load a beat sheet file into an empty script (optional: the text asset's slug or id). The story's script is where it is edited from then on.",
+                "type": "text",
+                "required": false
+              },
+              {
+                "name": "mode",
+                "label": "Refresh (the script is the source: add, update what nothing has been made from, move what is gone to the Trash) or Add (only make what is missing)",
+                "type": "choice",
+                "options": [
+                  "refresh",
+                  "add"
+                ],
+                "default": "refresh",
+                "required": false
+              },
+              {
+                "name": "preview",
+                "label": "Preview only (says what it would make, makes nothing)",
+                "type": "choice",
+                "options": [
+                  "no",
+                  "yes"
+                ],
+                "default": "no",
+                "required": false
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Import beats: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "import-beats",
+                "args": {
+                  "story": "${entry.slug}",
+                  "sheet": "${input.sheet}",
+                  "dry_run": "${input.preview}",
+                  "mode": "${input.mode}"
+                },
+                "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-sync-sheet",
+      "name": "Screenplay: rewrite a story's script from its beats",
+      "description": "After editing a beat by hand, write the story's script (its beat-sheet table) back from the beats. Safe: it writes only when the beats changed and the script did not since the two last agreed; if the script changed it tells you to update the beats from it, and if both changed it stops and names the beats. Preview says what it would do.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: rewrite a story's script from its beats",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "story",
+                "label": "Story",
+                "type": "entry",
+                "required": true
+              },
+              {
+                "name": "preview",
+                "label": "Preview only (says what it would do, writes nothing)",
+                "type": "choice",
+                "options": [
+                  "no",
+                  "yes"
+                ],
+                "default": "no",
+                "required": false
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Rewrite the script from the beats: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "sync-sheet",
+                "args": {
+                  "story": "${entry.slug}",
+                  "dry_run": "${input.preview}"
+                },
+                "status": "queued"
               }
             }
           ]
