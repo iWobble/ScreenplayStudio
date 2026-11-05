@@ -1,6 +1,7 @@
 # Builds the Screenplay Studio worker image and publishes it to this repository's container registry (ghcr.io), when a version tag is pushed:
 #   git tag v34 && git push origin v34
-# The tag must match the package version in docs/screenplay-studio.marvin-package.json (the image goes with the package of the same version).
+# The tag must match the package version in docs/screenplay-studio.marvin-package.json (the image goes with the package of the same version): v35,
+# or v35.1, v35.2... to publish the image again without a new package.
 # The image is built on the generic Marvin worker (https://github.com/InnerOpen/marvin-worker), which is public, so no extra token is needed.
 name: publish-image
 on:
@@ -23,7 +24,8 @@ jobs:
       - name: The tag matches the package version
         run: |
           package="v$(python3 -c "import json;print(json.load(open('ScreenplayStudio/docs/screenplay-studio.marvin-package.json'))['version'])")"
-          test "$package" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} but the package is ${package}"; exit 1; }
+          # v35 for package v35; v35.1, v35.2... re-publish the image of the same package (a fix to the image or the worker, no package change)
+          echo "${GITHUB_REF_NAME}" | grep -Eq "^${package}(\\.[0-9]+)?$" || { echo "tag ${GITHUB_REF_NAME} does not match the package ${package}"; exit 1; }
       - uses: docker/login-action@v3
         with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
       - name: Build and push
@@ -31,7 +33,7 @@ jobs:
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           image="ghcr.io/${owner}/screenplay-studio-worker"
           docker build -f MarvinWorker/docker/Dockerfile -t marvin-worker-base MarvinWorker
-          docker build -f ScreenplayStudio/docker/Dockerfile --build-arg STUDIO_VERSION="${GITHUB_REF_NAME}" \
+          docker build -f ScreenplayStudio/docker/Dockerfile --build-arg STUDIO_VERSION="${GITHUB_REF_NAME}" --build-arg STUDIO_REVISION="${GITHUB_SHA::7}" \
             --label org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}" \
             -t "${image}:${GITHUB_REF_NAME}" -t "${image}:latest" ScreenplayStudio
           docker push "${image}:${GITHUB_REF_NAME}"

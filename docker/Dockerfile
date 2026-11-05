@@ -19,10 +19,13 @@ COPY render/storyrender ./storyrender
 COPY transcribe/storytranscribe ./storytranscribe
 
 ARG STUDIO_VERSION=dev
+ARG STUDIO_REVISION=unknown
 LABEL org.opencontainers.image.title="screenplay-studio-worker" org.opencontainers.image.version="${STUDIO_VERSION}"
 USER 1001
 
-# The base reads MARVIN_API_URL, MARVIN_USER_TOKEN (and WORKER_NAME, WORKER_KINDS, WORKER_POLL_SECONDS) from the environment.
+# The base reads MARVIN_API_URL, MARVIN_USER_TOKEN (and WORKER_NAME, WORKER_KINDS, WORKER_POLL_SECONDS) from the environment. WORKER_IMAGE, WORKER_VERSION and
+# WORKER_REVISION say which image this is: a container cannot see its own image name, so it is baked in, and the heartbeat reports it to Marvin's Workers page.
 ENV WORKER_JOB_MODULES=storyrender.jobs,storytranscribe.jobs \
     HF_HOME=/models WHISPER_MODEL=small \
-    STUDIO_OUT_DIR=/out STUDIO_VERSION=${STUDIO_VERSION}
+    STUDIO_OUT_DIR=/out STUDIO_VERSION=${STUDIO_VERSION} \
+    WORKER_IMAGE=screenplay-studio-worker WORKER_VERSION=${STUDIO_VERSION} WORKER_REVISION=${STUDIO_REVISION}

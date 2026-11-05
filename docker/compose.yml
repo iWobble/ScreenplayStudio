@@ -32,6 +32,23 @@ services:
     volumes:
       - transcribe-models:/models   # the model is downloaded once
 
+  # OFF by default. A standing worker that takes jobs by POST instead of polling Marvin: POST /jobs with "Authorization: Bearer $WORKER_TOKEN" and
+  # {"kind": "...", "job": "<an existing job record's slug>", "args": {...}}, and GET /health. Bound to this machine only (127.0.0.1); put a reverse
+  # proxy or tunnel in front of it if something else must reach it (Marvin's `request` step reaches public hosts only). Needs WORKER_TOKEN in the env file.
+  #   docker compose -f docker/compose.yml --profile endpoint up -d endpoint
+  endpoint:
+    <<: *worker
+    profiles: ["endpoint"]
+    container_name: desktop-endpoint
+    command: python -m marvin_worker                  # no subcommand: serve
+    user: "${STUDIO_UID:-1000}:${STUDIO_GID:-1000}"
+    environment:
+      WORKER_NAME: desktop-endpoint
+    ports:
+      - "127.0.0.1:${STUDIO_ENDPOINT_PORT:-8080}:8080"
+    volumes:
+      - ${STUDIO_OUT:-${HOME}/screenplay-studio-out}:/out
+
 volumes:
   transcribe-models:
     external: true
