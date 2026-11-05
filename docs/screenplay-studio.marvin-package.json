@@ -1208,6 +1208,13 @@
               "type": "text"
             },
             {
+              "key": "model",
+              "label": "Model",
+              "type": "text",
+              "placeholder": "eleven_v3",
+              "helpText": "ElevenLabs speech model for this line. Empty: the connection's default (usually eleven_multilingual_v2). eleven_v3 is the most expressive; eleven_flash_v2_5, eleven_turbo_v2_5, eleven_v4_turbo and eleven_v3_conversational cost half as much per character. The workspace's ElevenLabs connection lists every model (action List models). A line with delivery tags (the tagged workflow) always uses eleven_v3."
+            },
+            {
               "key": "caption",
               "label": "On-screen caption (if different)",
               "type": "textarea",
@@ -2292,7 +2299,7 @@
             {
               "kind": "approval",
               "id": "spend",
-              "message": "Record ${entry.data.speaker}: \u201c${entry.data.text}\u201d with ElevenLabs? It uses speech credit (${entry.data.text|length} characters)."
+              "message": "Record ${entry.data.speaker}: \u201c${entry.data.text}\u201d with ElevenLabs (model: ${entry.data.model|default:\"the connection's default\"})? It uses speech credit (${entry.data.text|length} characters)."
             },
             {
               "kind": "integration",
@@ -2305,7 +2312,8 @@
                 "stability": "${entry.data.stability}",
                 "similarity_boost": "${entry.data.similarity_boost}",
                 "style": "${entry.data.style}",
-                "speed": "${entry.data.speed}"
+                "speed": "${entry.data.speed}",
+                "model_id": "${entry.data.model}"
               }
             },
             {
