@@ -134,7 +134,7 @@ def make_filmstrip(job: dict, ctx: Context) -> dict:
 @job_kind(
     "import-voices",
     description="Bring the voices on the workspace's ElevenLabs key into Marvin as voice records, with a preview clip to hear and the labels (gender, age, accent, style) as tags. Voices already imported are left alone",
-    inputs={"search": {"type": "string", "description": "optional: only voices whose name or labels match this"}},
+    inputs={"search": {"type": "string", "required": False, "description": "only voices whose name or labels match this (leave blank for all)"}},
     produces=["audio/mpeg"],
 )
 def import_voices(job: dict, ctx: Context) -> dict:

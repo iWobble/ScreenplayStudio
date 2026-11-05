@@ -164,3 +164,11 @@ def test_making_the_script_again_trashes_the_copies_it_replaces(marvin):
     serve.run_job({"kind": "script", "job": "render-job-3", "args": {"story": STORY}}, marvin)
 
     assert sorted(FakeMarvin.trashed) == ["old-html", "old-pdf"]  # the fountain's id did not change, so it is not trashed
+
+
+def test_import_voices_needs_no_arguments():
+    from marvin_worker import jobs as worker_jobs
+
+    (contract,) = worker_jobs.describe_kinds(["import-voices"])
+    assert contract["inputs"]["search"]["required"] is False
+    worker_jobs.check_args("import-voices", {})  # raises if an argument were needed
