@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "36",
+  "version": "37",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1208,6 +1208,13 @@
               "type": "text"
             },
             {
+              "key": "engine",
+              "label": "ElevenLabs connection",
+              "type": "text",
+              "placeholder": "elevenlabs",
+              "helpText": "The connection that records this line (its slug in Settings -> Integrations). Empty: elevenlabs. Each connection carries its own model, so a second connection set to eleven_v3 (expressive) or eleven_flash_v2_5 (half the cost, for drafts) lets a line pick by name. A line's own Model, if set, still wins over the connection's."
+            },
+            {
               "key": "model",
               "label": "Model",
               "type": "text",
@@ -2299,13 +2306,12 @@
             {
               "kind": "approval",
               "id": "spend",
-              "message": "Record ${entry.data.speaker}: \u201c${entry.data.text}\u201d with ElevenLabs (model: ${entry.data.model|default:\"the connection's default\"})? It uses speech credit (${entry.data.text|length} characters)."
+              "message": "Record ${entry.data.speaker}: \u201c${entry.data.text}\u201d with ElevenLabs (connection: ${entry.data.engine|default:\"elevenlabs\"}, model: ${entry.data.model|default:\"that connection's default\"})? It uses speech credit (${entry.data.text|length} characters)."
             },
             {
               "kind": "integration",
               "id": "say",
-              "integration": "elevenlabs",
-              "action": "synthesize",
+              "integration": "${entry.data.engine|default:\"elevenlabs\"}",
               "args": {
                 "text": "${entry.data.text}",
                 "voice_id": "${steps.voice.output.rows.0.data.elevenlabs_voice_id}",
@@ -2314,7 +2320,8 @@
                 "style": "${entry.data.style}",
                 "speed": "${entry.data.speed}",
                 "model_id": "${entry.data.model}"
-              }
+              },
+              "capability": "speech.synthesize"
             },
             {
               "kind": "entry",
