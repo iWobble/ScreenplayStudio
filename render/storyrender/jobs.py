@@ -2,6 +2,8 @@
 module in WORKER_JOB_MODULES, so importing it registers them. Each is `(job, ctx) -> fields for the job's record`."""
 
 import json
+import os
+import shutil
 from datetime import datetime, timezone
 import urllib.request
 from pathlib import Path
@@ -370,3 +372,77 @@ def sync_sheet(job: dict, ctx: Context) -> dict:
         marvin_api.request(ctx.creds, f"/api/platform/entries/{story_row['id']}", method="PATCH", data=body, content_type="application/json")
     verb = "would rewrite" if _yes(args.get("dry_run")) else "rewrote"
     return {"result": {"decision": verb, "beats": len(beat_records), "beats_edited": differ}, "log": f"{verb} the script from {len(beat_records)} beats" + (f"; edited by hand: {names}." if names else ".")}
+
+
+PREVIEW_SIZE = "720:1280"
+
+
+@job_kind(
+    "render",
+    description="Make a story's video from its approved stills and recorded lines (1080x1920, captions burned in) and keep it on the story as `video`. By default a smaller 720x1280 copy goes to Marvin (its upload limit is 100 MB) and the full-quality file is kept in the worker's output folder; `approve_beats` first marks every beat of the story approved, which is what approving the filmstrip means",
+    inputs={
+        "story": {"type": "string", "description": "the story entry's slug"},
+        "quality": {"type": "string", "required": False, "description": "preview (default): upload a 720x1280 copy. full: upload the 1080x1920 file (Marvin refuses an upload over its asset limit, 100 MB by default)"},
+        "approve_beats": {"type": "string", "required": False, "description": "yes: mark every beat of the story approved before rendering"},
+    },
+    produces=["video/mp4"],
+    needs=["ffmpeg"],
+)
+def render_video(job: dict, ctx: Context) -> dict:
+    """The story as a vertical narrated video, kept as the story's `video`; the previous one goes to the Trash."""
+    story, name, args = story_of(job), job["job"], job.get("args") or {}
+    if _yes(args.get("approve_beats")):
+        marked = 0
+        for beat in marvin_api.query(ctx.creds, {"entry_type": "beat", "data": {"story": story}}, limit=1000):
+            if (beat.get("dataJson") or {}).get("status") != "approved":
+                marvin_api.update_entry(ctx.creds, beat["slug"], {"status": "approved"})
+                marked += 1
+        ctx.note(f"marked {marked} beats approved")
+    pulled = marvin_pull.pull(story, ctx.work / "story", creds=ctx.creds)
+    ctx.note(f"pulled {pulled['shots']} shots, {pulled['lines']} recorded lines")
+    m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)
+    full = ctx.work / f"{name}.mp4"
+    made = build.render(m, full)
+    size_mb = full.stat().st_size / 1e6
+    ctx.note(f"rendered {made['measured_seconds']} s, {made['shots']} shots, {size_mb:.0f} MB")
+    kept = ""
+    out_dir = os.environ.get("STUDIO_OUT_DIR", "").strip()
+    if out_dir:
+        try:  # a copy that cannot be kept (a folder the worker may not write to) must not fail a video that was made
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            keep = Path(out_dir) / f"{story}-{name}.mp4"
+            shutil.copyfile(full, keep)
+            kept = str(keep)
+            ctx.note(f"kept the full-quality file at {kept}")
+        except OSError as e:
+            ctx.note(f"could not keep the full-quality file in {out_dir} ({e.strerror or e}); the video goes to Marvin without it. Make that folder writable by the worker's user")
+    quality = str(args.get("quality") or "preview").strip().lower()
+    upload = full
+    if quality != "full":
+        upload = ctx.work / f"{name}-preview.mp4"
+        ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(full), "-vf", f"scale={PREVIEW_SIZE}", "-c:v", "libx264", "-crf", "28", "-preset", "medium", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(upload)])
+        ctx.note(f"made the 720x1280 copy for Marvin: {upload.stat().st_size / 1e6:.0f} MB")
+    title = m.title or story
+    try:
+        asset = marvin_api.upload_asset(
+            ctx.creds,
+            upload,
+            slug=f"{name}-video",
+            name=f"{title}: video" + ("" if quality == "full" else " (preview quality)"),
+            mime="video/mp4",
+            description=f"The video of {title}, rendered from its approved stills and recorded lines.",
+            metadata={"kind": "video", "story": story, "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" else "preview"},
+        )
+    except marvin_api.MarvinError as e:
+        raise JobError(f"the video was made but Marvin would not take the upload ({e}). " + (f"The full-quality file is at {kept}. " if kept else "") + "Use quality preview, or raise Marvin's asset size limit") from e
+    before = next((((e.get("dataJson") or {}).get("video")) for e in marvin_api.query(ctx.creds, {"entries": story}, limit=1)), None)
+    marvin_api.update_entry(ctx.creds, story, {"video": asset["id"]})
+    if before and before != asset["id"]:
+        try:
+            marvin_api.request(ctx.creds, f"/api/platform/assets/{before}", method="DELETE")
+        except marvin_api.MarvinError:
+            pass  # an old copy that cannot be trashed must not fail a video that was made
+    note = f"{made['measured_seconds']} s, {made['shots']} shots." + (f" Full-quality file: {kept}." if kept else "")
+    if pulled["not_recorded"]:
+        note += f" Not recorded yet, so left out: {', '.join(pulled['not_recorded'])}."
+    return {"result": {"video": asset["id"], "url": asset.get("publicUrl"), "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" else "preview", "kept": kept}, "log": note}

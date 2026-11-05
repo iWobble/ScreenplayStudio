@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "32",
+  "version": "33",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1427,6 +1427,12 @@
               "label": "Filmstrip (web page)",
               "type": "asset",
               "helpText": "The story's sound with each beat's still, as the render will cut it. Open it in its own tab to play it; approve the beats from the approval it raises. Made by the filmstrip job."
+            },
+            {
+              "key": "video",
+              "label": "Video",
+              "type": "asset",
+              "helpText": "The story's rendered video (vertical, narrated, captions burned in). Made by the render job after the filmstrip is approved. By default this is a smaller 720x1280 copy; the full-quality file is kept in the worker's output folder."
             },
             {
               "key": "world",
@@ -3083,48 +3089,32 @@
             {
               "kind": "approval",
               "id": "review",
-              "message": "The filmstrip is ready (${entry.data.result.shots} shots, ${entry.data.result.seconds} s). WATCH IT FIRST, with the sound on: ${entry.data.result.url}  (it opens in its own tab; use next to check each picture). Then come back here. Approve for rendering marks every beat approved; Needs changes leaves them as they are.",
+              "message": "The filmstrip is ready (${entry.data.result.shots} shots, ${entry.data.result.seconds} s). WATCH IT FIRST, with the sound on: ${entry.data.result.url}  (it opens in its own tab; use next to check each picture). Then come back here. Approve for rendering marks every beat approved and starts the render; Needs changes leaves everything as it is.",
               "choices": [
                 "Approve for rendering",
                 "Needs changes"
               ]
             },
             {
-              "kind": "collect",
-              "id": "beats",
-              "entity": "entry",
-              "limit": 50,
-              "query": {
-                "entry_type": "beat",
-                "data": {
-                  "story": "${entry.data.args.story}"
-                }
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Render: ${entry.data.args.story}",
+              "status": "draft",
+              "data": {
+                "kind": "render",
+                "args": {
+                  "story": "${entry.data.args.story}",
+                  "quality": "preview",
+                  "approve_beats": "yes"
+                },
+                "status": "queued"
               },
-              "fields": [
-                "data.status"
-              ]
-            },
-            {
-              "kind": "repeat",
-              "id": "approve",
-              "for_each": "${steps.beats.output.rows}",
-              "as": "beat",
-              "on_item_error": "continue",
-              "steps": [
-                {
-                  "kind": "entry",
-                  "op": "set_data",
-                  "entity_slug": "${beat.slug}",
-                  "data": {
-                    "status": "approved"
-                  },
-                  "when": {
-                    "field": "steps.review.output.choice",
-                    "op": "eq",
-                    "value": "Approve for rendering"
-                  }
-                }
-              ]
+              "when": {
+                "field": "steps.review.output.choice",
+                "op": "eq",
+                "value": "Approve for rendering"
+              }
             }
           ]
         }
@@ -3468,6 +3458,61 @@
                 "args": {
                   "story": "${entry.slug}",
                   "dry_run": "${input.preview}"
+                },
+                "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-render",
+      "name": "Screenplay: render a story's video",
+      "description": "Render a story's video from its stills and recorded lines, and keep it on the story as its video. Normally this is started by approving the filmstrip; run it by hand to render again. Quality preview uploads a 720x1280 copy (Marvin's upload limit is 100 MB); full uploads the 1080x1920 file.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: render a story's video",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "story",
+                "label": "Story",
+                "type": "entry",
+                "required": true
+              },
+              {
+                "name": "quality",
+                "label": "Quality of the copy kept in Marvin",
+                "type": "choice",
+                "options": [
+                  "preview",
+                  "full"
+                ],
+                "default": "preview",
+                "required": false
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Render: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "render",
+                "args": {
+                  "story": "${entry.slug}",
+                  "quality": "${input.quality}"
                 },
                 "status": "queued"
               }

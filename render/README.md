@@ -60,3 +60,5 @@ Without a container platform it is plain Python: `pip install -e ../../MarvinWor
 `WORKER_JOB_MODULES=storyrender.jobs python -m marvin_worker`. `listen` and `pull` also work by hand
 (`python3 -m storyrender pull the-last-onion --out build/onion`, then `python3 -m storyrender listen build/onion/manifest.json`):
 they print each line's time next to its slug.
+
+> **Container:** the worker image is built from `docker/` (one image for every job kind); see docker/README.md. The per-package Dockerfile that used to be here is gone.

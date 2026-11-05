@@ -20,3 +20,5 @@ the words in paragraphs, and JSON. `WHISPER_MODEL` picks the model (default `sma
 On 10 CPU cores `small` is about 4x real time (50 minutes of speech in about 13).
 
 Tests: `uv run --with pytest --with-editable . --with-editable ../../MarvinWorker python -m pytest`.
+
+> **Container:** the worker image is built from `docker/` (one image for every job kind); see docker/README.md. The per-package Dockerfile that used to be here is gone.

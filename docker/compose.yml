@@ -1,0 +1,38 @@
+# Two containers from the one image: the light jobs, and the CPU-heavy transcribing (own container, so a long transcription never holds up
+# a filmstrip). Both only reach OUT to Marvin and poll for `job` records; nothing listens.
+#
+#   cp docker/worker.env.example ~/.config/screenplay-studio/worker.env   # then fill it in; keep it out of the repository
+#   export STUDIO_ENV_FILE=~/.config/screenplay-studio/worker.env
+#   docker compose -f docker/compose.yml up -d
+name: screenplay-studio
+
+x-worker: &worker
+  image: screenplay-studio-worker:${STUDIO_VERSION:-latest}
+  restart: unless-stopped
+  env_file: ${STUDIO_ENV_FILE:?set STUDIO_ENV_FILE to the worker.env that holds MARVIN_API_URL and MARVIN_USER_TOKEN}
+  command: python -m marvin_worker work
+
+services:
+  runner:
+    <<: *worker
+    container_name: desktop-runner
+    user: "${STUDIO_UID:-1000}:${STUDIO_GID:-1000}"   # the folder below is yours, so the worker writes to it as you: export STUDIO_UID=$(id -u) STUDIO_GID=$(id -g)
+    environment:
+      WORKER_NAME: desktop-runner
+      WORKER_KINDS: audio-cut,script,filmstrip,import-voices,import-beats,sync-sheet,render
+    volumes:
+      - ${STUDIO_OUT:-${HOME}/screenplay-studio-out}:/out   # full-quality renders land here
+
+  transcriber:
+    <<: *worker
+    container_name: desktop-transcriber
+    environment:
+      WORKER_NAME: desktop-transcriber
+      WORKER_KINDS: transcribe
+    volumes:
+      - transcribe-models:/models   # the model is downloaded once
+
+volumes:
+  transcribe-models:
+    external: true
+    name: transcribe-models
