@@ -180,7 +180,7 @@ def test_it_declares_its_inputs_and_a_story_that_is_not_there_is_refused(marvin)
 def _example():
     import pathlib
 
-    doc = pathlib.Path(__file__).resolve().parents[2] / "skills" / "storyworld-stories" / "references" / "beat-sheet-format.md"
+    doc = pathlib.Path(__file__).resolve().parents[2] / "skills" / "screenplay-studio" / "references" / "beat-sheet-format.md"
     text = doc.read_text()
     return text.split("<!-- example:start -->")[1].split("<!-- example:end -->")[0]
 

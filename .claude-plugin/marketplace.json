@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "screenplay-studio",
+  "description": "Screenplay Studio as a Claude Code plugin.",
+  "owner": { "name": "Jared Mashburn" },
+  "plugins": [
+    {
+      "name": "screenplay-studio",
+      "source": "./",
+      "description": "Screenplay Studio: the beat-sheet format, importing and syncing beats, casting across ages, and the workers, for narrated illustrated videos made in Marvin."
+    }
+  ]
+}

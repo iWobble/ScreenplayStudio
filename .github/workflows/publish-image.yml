@@ -1,0 +1,39 @@
+# Builds the Screenplay Studio worker image and publishes it to this repository's container registry (ghcr.io), when a version tag is pushed:
+#   git tag v34 && git push origin v34
+# The tag must match the package version in docs/screenplay-studio.marvin-package.json (the image goes with the package of the same version).
+# The image is built on the generic Marvin worker (https://github.com/InnerOpen/marvin-worker). While that repository is private, add a
+# repository secret MARVIN_WORKER_TOKEN (a token that can read it); once it is public the secret is not needed.
+name: publish-image
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: ScreenplayStudio }
+      - uses: actions/checkout@v4
+        with:
+          repository: InnerOpen/marvin-worker
+          path: MarvinWorker
+          token: ${{ secrets.MARVIN_WORKER_TOKEN || github.token }}
+      - name: The tag matches the package version
+        run: |
+          package="v$(python3 -c "import json;print(json.load(open('ScreenplayStudio/docs/screenplay-studio.marvin-package.json'))['version'])")"
+          test "$package" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} but the package is ${package}"; exit 1; }
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: Build and push
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner}/screenplay-studio-worker"
+          docker build -f MarvinWorker/docker/Dockerfile -t marvin-worker-base MarvinWorker
+          docker build -f ScreenplayStudio/docker/Dockerfile --build-arg STUDIO_VERSION="${GITHUB_REF_NAME}" \
+            --label org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}" \
+            -t "${image}:${GITHUB_REF_NAME}" -t "${image}:latest" ScreenplayStudio
+          docker push "${image}:${GITHUB_REF_NAME}"
+          docker push "${image}:latest"

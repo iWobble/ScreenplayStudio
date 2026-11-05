@@ -18,7 +18,7 @@ Storyworld has three, one sheet each, attached to the world as `base_sheets` (an
 
 ## The actor record
 
-Fill these `actor` fields in Marvin from the sheet and the brief. Leave a field empty rather than guess; an age is a proposal until Jared confirms it.
+Fill these `actor` fields in Marvin from the sheet and the brief. Leave a field empty rather than guess; an age is a proposal until the author confirms it.
 
 | Field | What goes in it |
 |---|---|

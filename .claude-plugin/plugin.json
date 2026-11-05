@@ -1,0 +1,7 @@
+{
+  "name": "screenplay-studio",
+  "version": "0.1.0",
+  "description": "Screenplay Studio: take a story from idea and screenplay to beat sheet, Marvin records, narrated filmstrip and video. Skills for the beat-sheet format, importing and syncing beats, casting actors across ages, and running the workers.",
+  "author": { "name": "Jared Mashburn" },
+  "license": "MIT"
+}

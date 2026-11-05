@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "33",
+  "version": "34",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -2601,10 +2601,21 @@
           "actions": [
             {
               "kind": "collect",
+              "id": "story",
+              "entity": "entry",
+              "query": {
+                "entries": "${entry.data.story}"
+              },
+              "fields": [
+                "data.world"
+              ]
+            },
+            {
+              "kind": "collect",
               "id": "world",
               "entity": "entry",
               "query": {
-                "entries": "storyworld"
+                "entries": "${steps.story.output.rows.0.data.world}"
               },
               "fields": [
                 "data.rules"
@@ -2636,7 +2647,7 @@
               "integration": "openai_images",
               "action": "edit",
               "args": {
-                "prompt": "Reference pictures, in this order: ${entry.data.cast}. Keep each character's face, hair, build, clothes and the rounded miniature illustration style exactly as in their reference. If a further reference picture shows the place, match its room, layout, light and furnishings, not its people.\n\nSCENE: ${steps.scene.output.rows.0.data.place}\nLight: ${steps.scene.output.rows.0.data.look}\nAlways on the set: ${steps.scene.output.rows.0.data.set_dressing}\n\nTHIS MOMENT: ${entry.data.picture}\nWhat they are doing and how they look: ${entry.data.expression}\nThe one prop the frame is about: ${entry.data.focus}\n\nSTYLE RULES: ${steps.world.output.rows.0.data.rules}\n\nVertical portrait composition, the same warm palette and soft rounded shapes. No readable text or writing anywhere: no alphabet characters, signs or captions (the folded letters on the table are blank paper)."
+                "prompt": "Reference pictures, in this order: ${entry.data.cast}. Keep each character's face, hair, build, clothes and the illustration style exactly as in their reference. If a further reference picture shows the place, match its room, layout, light and furnishings, not its people.\n\nSCENE: ${steps.scene.output.rows.0.data.place}\nLight: ${steps.scene.output.rows.0.data.look}\nAlways on the set: ${steps.scene.output.rows.0.data.set_dressing}\n\nTHIS MOMENT: ${entry.data.picture}\nWhat they are doing and how they look: ${entry.data.expression}\nThe one prop the frame is about: ${entry.data.focus}\n\nSTYLE RULES: ${steps.world.output.rows.0.data.rules}\n\nVertical portrait composition, in the same palette and style as the references. No readable text or writing anywhere: no alphabet characters, signs or captions."
               },
               "references": "${entry.data.references},${steps.scene.output.rows.0.data.anchor}"
             },
@@ -3187,10 +3198,10 @@
               },
               {
                 "name": "hotwords",
-                "label": "Names and unusual words to listen for (optional)",
+                "label": "Names and unusual words to listen for, e.g. the characters' names (optional)",
                 "type": "text",
                 "required": false,
-                "default": "Sarah Bill George Nell Clara Reid Marcus Eli Maya Arthur"
+                "default": ""
               },
               {
                 "name": "language",
@@ -3300,7 +3311,7 @@
               "action": "edit",
               "references": "${steps.views.output.rows.0.id},${steps.views.output.rows.1.id},${steps.views.output.rows.2.id},${steps.views.output.rows.3.id}",
               "args": {
-                "prompt": "Reference pictures: the same person at this age. Keep their face, head shape, eyes, brows, nose, jaw, hair colour and build exactly as in the references, at the age asked for below, in the rounded miniature illustration style.\n\nWHO: ${entry.data.role} (${entry.data.age_state}), played by ${steps.actor.output.rows.0.title}\nBuild: ${steps.actor.output.rows.0.data.build}\nHair: ${steps.actor.output.rows.0.data.hair}\nSkin: ${steps.actor.output.rows.0.data.skin_tone}\nLook: ${steps.actor.output.rows.0.data.look}\nAlways keep: ${steps.actor.output.rows.0.data.distinguishing_features}\n\nCOSTUME: ${entry.data.costume}\nPROPS: ${entry.data.props}\n\nSTYLE RULES: ${steps.world.output.rows.0.data.rules}\n\nOne full-body three-quarter portrait, standing, plain neutral background, even light, nothing else in the frame. No readable text or writing anywhere."
+                "prompt": "Reference pictures: the same person at this age. Keep their face, head shape, eyes, brows, nose, jaw, hair colour and build exactly as in the references, at the age asked for below, in the world's illustration style (the style rules below).\n\nWHO: ${entry.data.role} (${entry.data.age_state}), played by ${steps.actor.output.rows.0.title}\nBuild: ${steps.actor.output.rows.0.data.build}\nHair: ${steps.actor.output.rows.0.data.hair}\nSkin: ${steps.actor.output.rows.0.data.skin_tone}\nLook: ${steps.actor.output.rows.0.data.look}\nAlways keep: ${steps.actor.output.rows.0.data.distinguishing_features}\n\nCOSTUME: ${entry.data.costume}\nPROPS: ${entry.data.props}\n\nSTYLE RULES: ${steps.world.output.rows.0.data.rules}\n\nOne full-body three-quarter portrait, standing, plain neutral background, even light, nothing else in the frame. No readable text or writing anywhere."
               }
             },
             {
