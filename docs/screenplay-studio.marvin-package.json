@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "24",
+  "version": "25",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -2978,6 +2978,49 @@
                   }
                 }
               ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-import-voices",
+      "name": "Screenplay: import the ElevenLabs voices",
+      "description": "Bring any new voices on the workspace's ElevenLabs key into the Voice library, each with a preview clip and its labels as tags. Voices already imported are left alone; run it again after adding voices on ElevenLabs.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: import the ElevenLabs voices",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "search",
+                "label": "Only voices matching (optional)",
+                "type": "text",
+                "required": false
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Import ElevenLabs voices",
+              "status": "draft",
+              "data": {
+                "kind": "import-voices",
+                "args": {
+                  "search": "${inputs.search}"
+                },
+                "status": "queued"
+              }
             }
           ]
         }

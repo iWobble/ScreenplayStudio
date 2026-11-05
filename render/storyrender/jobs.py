@@ -1,12 +1,14 @@
 """The media kinds of job: what the Storyworld worker image adds to the generic base (`marvin-worker-base`). The image names this
 module in WORKER_JOB_MODULES, so importing it registers them. Each is `(job, ctx) -> fields for the job's record`."""
 
+import json
+import urllib.request
 from pathlib import Path
 
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import build, ffmpeg, filmstrip, manifest, marvin_pull, script
+from . import build, ffmpeg, filmstrip, manifest, marvin_pull, script, voices
 
 
 def story_of(job: dict) -> str:
@@ -127,3 +129,45 @@ def make_filmstrip(job: dict, ctx: Context) -> dict:
     if pulled["not_recorded"]:
         note += f" Not recorded yet, so left out: {', '.join(pulled['not_recorded'])}."
     return {"result": {"filmstrip": asset["id"], "url": asset.get("publicUrl"), "seconds": made["seconds"], "shots": made["shots"]}, "log": note}
+
+
+@job_kind(
+    "import-voices",
+    description="Bring the voices on the workspace's ElevenLabs key into Marvin as voice records, with a preview clip to hear and the labels (gender, age, accent, style) as tags. Voices already imported are left alone",
+    inputs={"search": {"type": "string", "description": "optional: only voices whose name or labels match this"}},
+    produces=["audio/mpeg"],
+)
+def import_voices(job: dict, ctx: Context) -> dict:
+    """New ElevenLabs voices → `voice` records (create only, matched by ElevenLabs voice id, so running it again adds just the new ones)."""
+    args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
+    term = voices.search_term(args.get("search"))
+    asked = {"limit": 100, **({"search": term} if term else {})}
+    out = ctx.marvin("platform", "integrations", "run", "elevenlabs", "list_voices", "--data", json.dumps(asked))
+    listed = ((out or {}).get("result") or out or {}).get("voices") or []
+    rows = marvin_api.entries(ctx.creds)
+    known = {str((e.get("dataJson") or {}).get("elevenlabs_voice_id")) for e in rows if (e.get("dataJson") or {}).get("elevenlabs_voice_id")}
+    taken = {e.get("slug") for e in rows}
+    type_id = next((t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types")) if t.get("slug") == "voice"), None)
+    if type_id is None:
+        raise JobError("this workspace has no “voice” entry type: install the Screenplay Studio package first")
+    tag_ids: dict[str, str] = {}
+    made: list[str] = []
+    for v in voices.new_voices(listed, known):
+        slug = voices.slug_for(v.get("name") or "", taken)
+        taken.add(slug)
+        data = {"elevenlabs_voice_id": v["voice_id"], "category": v.get("category") or "", "language": (v.get("labels") or {}).get("language") or ""}
+        if v.get("preview_url"):  # ElevenLabs' own sample clip of the voice; the file keeps its .mp3 name so Marvin types it as audio
+            clip = ctx.work / f"{v['voice_id']}.mp3"
+            req = urllib.request.Request(v["preview_url"], headers={"User-Agent": marvin_api.USER_AGENT})
+            clip.write_bytes(urllib.request.urlopen(req, timeout=60).read())  # noqa: S310 — an https address ElevenLabs gave us
+            asset = marvin_api.upload_asset(ctx.creds, clip, slug=f"{slug}-clip", name=f"{voices.short_name(v.get('name') or '')} (voice preview)", mime="audio/mpeg", description=f"ElevenLabs' preview clip of the voice {v.get('name')}.")
+            data["preview"] = asset["id"]
+        body = {"entryTypeId": type_id, "title": v.get("name") or slug, "slug": slug, "status": "draft", "summary": voices.summary_for(v.get("labels")), "dataJson": {k: x for k, x in data.items() if x}}
+        entry = json.loads(marvin_api.request(ctx.creds, "/api/platform/entries", method="POST", data=json.dumps(body).encode(), content_type="application/json"))
+        for name in voices.tags_for(v.get("labels")):
+            if name not in tag_ids:
+                tag_ids[name] = str((ctx.marvin("platform", "tags", "create", "--name", name) or {}).get("id"))
+            ctx.marvin("platform", "tags", "attach", tag_ids[name], "--entry", entry["id"])
+        made.append(v.get("name") or slug)
+    note = f"{len(made)} new voice(s): {', '.join(made)}." if made else "No new voices: everything on the key is already in Marvin."
+    return {"result": {"listed": len(listed), "created": made, "already": len(listed) - len(made)}, "log": f"{len(listed)} voices on the key. {note}"}
