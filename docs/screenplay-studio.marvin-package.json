@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "25",
+  "version": "26",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -43,6 +43,12 @@
               "label": "Scene (scene entry slug)",
               "type": "text",
               "helpText": "Slug of the scene this beat happens in: it brings the place, light and set dressing."
+            },
+            {
+              "key": "chapter",
+              "label": "Chapter (chapter entry slug)",
+              "type": "text",
+              "helpText": "Slug of the chapter this beat is in, for a story cut into chapters. Leave empty for a short with none."
             },
             {
               "key": "cast",
@@ -824,6 +830,93 @@
     },
     {
       "kind": "entry_type",
+      "slug": "chapter",
+      "name": "Chapter",
+      "description": "One chapter of a long story: a title and the run of beats that belong to it. Each beat names its chapter. On the finished video a chapter is a marker on the timeline (and a line in the YouTube description); in the filmstrip a heading.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Chapter",
+        "icon": "\ud83d\udcd1",
+        "description": "One chapter of a long story: a title and the run of beats that belong to it. Each beat names its chapter. On the finished video a chapter is a marker on the timeline (and a line in the YouTube description); in the filmstrip a heading.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "story",
+              "label": "Story (story entry slug)",
+              "type": "text",
+              "required": true,
+              "helpText": "Slug of the story this chapter belongs to. There is no entry-to-entry relation field, so children hold the parent's slug."
+            },
+            {
+              "key": "number",
+              "label": "Number",
+              "type": "text",
+              "required": true,
+              "helpText": "Zero-padded chapter number, 01, 02, ... Chapters play in this order."
+            },
+            {
+              "key": "summary",
+              "label": "Summary",
+              "type": "textarea",
+              "helpText": "What happens in this chapter, in a line or two (it can become the chapter's line in the video description)."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "series",
+      "name": "Series",
+      "description": "A set of stories (episodes) that share a world, a cast and a premise. Each episode is a story that names its series and its number.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Series",
+        "icon": "\ud83d\udcda",
+        "description": "A set of stories (episodes) that share a world, a cast and a premise. Each episode is a story that names its series and its number.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "world",
+              "label": "World (world entry slug)",
+              "type": "text",
+              "helpText": "The world every episode is set in, e.g. storyworld. An episode's own world, if it names one, wins."
+            },
+            {
+              "key": "premise",
+              "label": "Premise",
+              "type": "textarea",
+              "helpText": "What the series is: the recurring situation, tone and promise to the viewer."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "planning",
+                "running",
+                "finished"
+              ],
+              "defaultValue": "planning"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
       "slug": "shot",
       "name": "Shot",
       "description": "A rendered shot: a still with its focal path and hold.",
@@ -1301,6 +1394,19 @@
               "label": "World (world entry slug)",
               "type": "text",
               "helpText": "The world this story belongs to, e.g. storyworld."
+            },
+            {
+              "key": "series",
+              "label": "Series (series entry slug)",
+              "type": "text",
+              "helpText": "Slug of the series this story is an episode of. Leave empty for a standalone story."
+            },
+            {
+              "key": "episode",
+              "label": "Episode number",
+              "type": "number",
+              "min": 1,
+              "helpText": "Which episode of the series this is."
             }
           ]
         }
@@ -2631,7 +2737,7 @@
       ],
       "parameters": [],
       "payload": {
-        "description": "Every story.",
+        "description": "Every story, and the series they are episodes of.",
         "icon": "\ud83d\udcd6",
         "color": "#7C3AED",
         "is_smart": true,
@@ -2640,7 +2746,8 @@
         "sort_order": 1,
         "smart_rules": {
           "entry_types": [
-            "story"
+            "story",
+            "series"
           ],
           "match": "all"
         }
@@ -2752,7 +2859,7 @@
       ],
       "parameters": [],
       "payload": {
-        "description": "Scenes, beats, spoken lines and the takes recorded of them.",
+        "description": "Chapters, scenes, beats, spoken lines and the takes recorded of them.",
         "icon": "\ud83c\udf9e\ufe0f",
         "color": "#2563EB",
         "is_smart": true,
@@ -2761,6 +2868,7 @@
         "sort_order": 5,
         "smart_rules": {
           "entry_types": [
+            "chapter",
             "scene",
             "beat",
             "speech-line",

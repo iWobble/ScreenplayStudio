@@ -100,6 +100,25 @@ def test_audio_cut_stitches_the_recorded_lines_and_writes_audio_timeline_and_sta
 
 
 @needs_ffmpeg
+def test_audio_cut_of_a_story_in_chapters_lists_where_each_starts_and_says_what_youtube_would_refuse(marvin):
+    chapter = lambda n, title: {"id": f"c{n}", "slug": f"{STORY}-chapter-0{n}", "title": title, "dataJson": {"story": STORY, "number": f"0{n}"}}  # noqa: E731
+    FakeMarvin.entries += [
+        chapter(1, "The Voyage"),
+        chapter(2, "The Island"),
+        {"id": "e5", "slug": f"{STORY}-beat-02", "dataJson": {"story": STORY, "number": "02", "chapter": f"{STORY}-chapter-02"}},
+        {"id": "e6", "slug": f"{STORY}-line-02-1", "dataJson": {"story": STORY, "beat": f"{STORY}-beat-02", "speaker": "narrator", "text": "Two.", "audio": "take-1"}},
+    ]
+    _data(f"{STORY}-beat-01")["chapter"] = f"{STORY}-chapter-01"
+
+    serve.run_job({"kind": "audio-cut", "job": "render-job-1", "args": {"story": STORY}}, marvin)
+
+    data = _data("render-job-1")
+    lines = data["result"]["chapters"].splitlines()
+    assert lines[0] == "0:00 The Voyage" and lines[1].endswith("The Island") and len(lines) == 2
+    assert "YouTube needs at least 3 chapters" in data["log"]
+
+
+@needs_ffmpeg
 def test_audio_cut_of_a_story_that_isnt_there_says_why_on_the_record(marvin):
     serve.run_job({"kind": "audio-cut", "job": "render-job-1", "args": {"story": "no-such-story"}}, marvin)
 

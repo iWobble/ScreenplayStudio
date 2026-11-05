@@ -73,6 +73,24 @@ def test_making_a_filmstrip_follows_the_renders_plan_and_moves_and_keeps_a_silen
     assert planned.shots[1].duration == pytest.approx(3.0, abs=0.01)  # the silent shot keeps its asked-for time
 
 
+@needs_ffmpeg
+def test_a_shot_in_a_chapter_is_labelled_with_the_chapters_title(tmp_path):
+    _tone(tmp_path / "a.mp3", 1.0)
+    _still(tmp_path / "one.png", "red")
+    _still(tmp_path / "two.png", "blue")
+    shots = [
+        {"id": "b01", "still": "one.png", "chapter": "s-chapter-1", "lines": [{"id": "l1", "audio": "a.mp3", "text": "One.", "speaker": "narrator"}]},
+        {"id": "b02", "still": "two.png", "hold": 2, "lines": []},
+    ]
+    (tmp_path / "m.json").write_text(json.dumps({"title": "Onion", "shots": shots, "chapters": [{"id": "s-chapter-1", "title": "The Voyage"}]}))
+    m = manifest.load(tmp_path / "m.json", probe=ffmpeg.duration)
+
+    page = filmstrip.make(m, tmp_path / "out")["html"].read_text()
+
+    assert '"label": "The Voyage \\u00b7 Beat 01"' in page or '"label": "The Voyage · Beat 01"' in page
+    assert '"label": "Beat 02"' in page
+
+
 def test_the_controls_sit_on_their_own_row_and_the_position_label_under_them():
     page = filmstrip.player("T", SHOTS, "a.mp3")
     bar = page[page.index("<div class='bar'>"):page.index("<input id='seek'")]

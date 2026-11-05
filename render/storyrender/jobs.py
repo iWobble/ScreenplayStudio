@@ -8,7 +8,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import build, ffmpeg, filmstrip, manifest, marvin_pull, script, voices
+from . import build, chapters, ffmpeg, filmstrip, manifest, marvin_pull, script, voices
 
 
 def story_of(job: dict) -> str:
@@ -45,7 +45,12 @@ def audio_cut(job: dict, ctx: Context) -> dict:
     note = f"{pulled['lines']} lines, {result['seconds']} s."
     if pulled["not_recorded"]:
         note += f" Not recorded yet, so left out: {', '.join(pulled['not_recorded'])}."
-    return {"result": {"audio": asset["id"], "url": asset.get("publicUrl"), "seconds": result["seconds"], "timeline": result["timeline"], "ambience": result["ambience"]}, "log": note}
+    done = {"audio": asset["id"], "url": asset.get("publicUrl"), "seconds": result["seconds"], "timeline": result["timeline"], "ambience": result["ambience"]}
+    listing, problems = chapters.youtube(chapters.markers(m))
+    if listing:  # a story cut into chapters: the lines for the video description, and what would stop YouTube using them
+        done["chapters"] = listing
+        note += f" {len(listing.splitlines())} chapter markers." + "".join(f" {p}" for p in problems)
+    return {"result": done, "log": note}
 
 
 SCRIPT_FILES = {"fountain": "text/plain", "pdf": "application/pdf", "html": "text/html", "breakdown": "text/html"}

@@ -44,6 +44,13 @@ def _fetch_asset_with_record(creds: tuple[str, str], asset_id: str, dest_stem: P
     return dest, record
 
 
+def chapter_rows(rows: list[dict], story: str, data) -> list[dict]:
+    """The story's chapters, in order: `{"id": slug, "title"}` for each `chapter` entry that names this story (chapter 2 before chapter 10)."""
+    own = [e for e in rows if data(e).get("story") == story and e.get("slug", "").startswith(f"{story}-chapter-")]
+    own.sort(key=lambda e: (float(data(e).get("number")) if str(data(e).get("number") or "").replace(".", "", 1).isdigit() else float("inf"), e["slug"]))
+    return [{"id": e["slug"], "title": e.get("title") or e["slug"]} for e in own]
+
+
 def pull(story: str, out: Path, *, creds: tuple[str, str] | None = None) -> dict:
     """Write `out/manifest.json` for the story's recorded lines. Returns what was found: the shots, and the lines still to record."""
     creds = creds or credentials()
@@ -65,6 +72,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
     for line in lines:
         by_beat.setdefault(str(data(line).get("beat")), []).append(line)
 
+    chapters = chapter_rows(rows, story, data)
     scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and "ambience" in data(e)}  # scenes that name an ambience
     # Sounds belong to the library, not to a story: each is found by the slug a beat or scene names, whichever story made it.
     wanted = {str(item.get("sound")) for b in beats for item in (data(b).get("sounds") if isinstance(data(b).get("sounds"), list) else []) if isinstance(item, dict)}
@@ -99,6 +107,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
             shot["ambience"] = bed
         if not spoken and data(beat).get("hold_seconds"):
             shot["hold"] = float(data(beat)["hold_seconds"])  # a sound-only beat lasts as long as its beat sheet window (a spoken one, as long as its audio)
+        if data(beat).get("chapter"):
+            shot["chapter"] = str(data(beat)["chapter"])  # the chapter's slug, as the chapter list below names it
         if isinstance(data(beat).get("move"), dict):
             shot["move"] = data(beat)["move"]  # where the camera looks: {"from": {x, y, zoom}, "to": {...}}, so one still can serve several beats
         if data(beat).get("still"):
@@ -108,7 +118,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
     if not shots:
         raise PullError(f"“{story}” has no recorded lines yet: record some with the screenplay-record-lines workflow")
     out.mkdir(parents=True, exist_ok=True)
-    (out / "manifest.json").write_text(json.dumps({"title": story_row.get("title") or story, "shots": shots}, indent=2, ensure_ascii=False))
+    (out / "manifest.json").write_text(json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {})}, indent=2, ensure_ascii=False))
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing}
 
 

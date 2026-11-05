@@ -94,12 +94,14 @@ def make(m: manifest.Manifest, work: Path, *, audio_url: str | None = None) -> d
     else:
         audio_src = audio_url
     shots = []
+    titles = {c.id: c.title for c in m.chapters}
     for n, planned in enumerate(timeline.shots):
         s = planned.shot
+        beat = f"Beat {s.id[1:]}" if s.id.startswith("b") else s.id
         shots.append(
             {
                 "id": s.id,
-                "label": f"Beat {s.id[1:]}" if s.id.startswith("b") else s.id,
+                "label": f"{titles.get(s.chapter, s.chapter)} · {beat}" if s.chapter else beat,
                 "start": round(planned.start, 3),
                 "duration": round(planned.duration, 3),
                 "image": _small(s.still, work, n),

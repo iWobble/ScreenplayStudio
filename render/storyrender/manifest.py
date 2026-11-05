@@ -83,6 +83,14 @@ class Shot:
     gap: float = GAP
     tail: float = TAIL
     ambience: Ambience | None = None
+    chapter: str | None = None
+    """The id of the chapter this shot belongs to (a story is cut into chapters; see `chapters.py`)."""
+
+
+@dataclass
+class Chapter:
+    id: str
+    title: str
 
 
 @dataclass
@@ -95,6 +103,8 @@ class Manifest:
     caption: dict = field(default_factory=dict)
     loudnorm: bool = True
     end_hold: float = 0.0
+    chapters: list[Chapter] = field(default_factory=list)
+    """The story's chapters in order; a shot names one by id. Empty for a story that is not cut into chapters."""
 
 
 @dataclass
@@ -175,6 +185,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             lead=float(s.get("lead", LEAD)),
             gap=float(s.get("gap", GAP)),
             tail=float(s.get("tail", TAIL)),
+            chapter=str(s["chapter"]) if s.get("chapter") else None,
         )
         if s.get("ambience"):
             amb = s["ambience"]
@@ -226,6 +237,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         caption=dict(raw.get("caption") or {}),
         loudnorm=bool(raw.get("loudnorm", True)),
         end_hold=float(raw.get("end_hold") or 0),
+        chapters=[Chapter(str(c["id"]), str(c.get("title") or c["id"])) for c in raw.get("chapters") or [] if isinstance(c, dict) and c.get("id")],
     )
 
 
