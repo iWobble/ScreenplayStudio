@@ -50,3 +50,10 @@ Character fields: `story`, `actor` (the actor's slug), `role`, `speaker` (the na
 ## Reading what is in Marvin
 
 `marvin platform entries get <slug>` returns an actor's or character's fields and its attached pictures with their URLs. Download the picture to attach it as a reference; do not describe it from memory.
+
+## One actor, many ages (views tagged by age)
+
+An actor has **Views at different ages** (`age_views`): as many pictures of the same person as you like, at other ages and angles. In the Assets library tag each one **`age-young`**, **`age-mid`** or **`age-old`**, and `face-closeup` or `profile` where it is one. A Character (`cast-member`) has an **Age** (`age_state`: young, mid, old). The **`screenplay-make-master`** workflow reads the Character's actor, collects up to four of the actor's pictures tagged for that age, and makes the master from them, the costume and props, and the world's style: it asks before spending image credit, then Keep or Redo, and Keep approves the master.
+
+Rules that keep one man one man across 18, 30 and 52: put the features that never change (brow shape, nose, jaw, a scar, the hair parting) in `distinguishing_features` and keep them in every version; make the young and old masters early and approve them as a pair, side by side; a still takes the approved master, not the raw views (the plain actor sheet fights the costume), except a tagged `face-closeup` when a shot is a reuse of a face. A story that shows the same person at two ages has two Characters pointing at the same actor.
+

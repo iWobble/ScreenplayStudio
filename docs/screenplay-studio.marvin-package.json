@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "27",
+  "version": "28",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -255,6 +255,13 @@
               "role": "general_view"
             },
             {
+              "key": "age_views",
+              "label": "Views at different ages",
+              "type": "asset-list",
+              "role": "age_view",
+              "helpText": "The same person at other ages (and angles), as many as you like. Tag each picture in the Assets library: age-young, age-mid or age-old, plus face-closeup or profile if it is one. Making a Character's master starts from the views tagged for its age."
+            },
+            {
               "key": "voice_sample",
               "label": "Voice sample",
               "type": "asset",
@@ -362,6 +369,18 @@
               ],
               "defaultValue": "on screen",
               "helpText": "Voice only for someone heard and never seen, like a narrator: no picture is needed."
+            },
+            {
+              "key": "age_state",
+              "label": "Age",
+              "type": "select",
+              "options": [
+                "young",
+                "mid",
+                "old"
+              ],
+              "defaultValue": "mid",
+              "helpText": "Which age of the actor this Character is. Its master starts from the actor's views tagged age-young, age-mid or age-old to match."
             },
             {
               "key": "costume",
@@ -3186,6 +3205,122 @@
                   "language": "${input.language}"
                 },
                 "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-make-master",
+      "name": "Screenplay: make a Character's master",
+      "description": "Make the approved master picture of a Character from its actor's views at that age (tagged age-young, age-mid or age-old), its costume and props, in the world's style. Asks before spending image credit, then Keep or Redo.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: make a Character's master",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "character",
+                "label": "Character",
+                "type": "entry",
+                "required": true
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "collect",
+              "id": "actor",
+              "entity": "entry",
+              "query": {
+                "entries": "${entry.data.actor}"
+              },
+              "fields": [
+                "data.age",
+                "data.base",
+                "data.build",
+                "data.hair",
+                "data.skin_tone",
+                "data.look",
+                "data.distinguishing_features",
+                "data.baseline_wardrobe",
+                "data.world"
+              ]
+            },
+            {
+              "kind": "collect",
+              "id": "views",
+              "entity": "asset",
+              "query": {
+                "entry": "${entry.data.actor}",
+                "tags": [
+                  "age-${entry.data.age_state}"
+                ]
+              },
+              "limit": 4
+            },
+            {
+              "kind": "collect",
+              "id": "world",
+              "entity": "entry",
+              "query": {
+                "entries": "${steps.actor.output.rows.0.data.world}"
+              },
+              "fields": [
+                "data.rules"
+              ]
+            },
+            {
+              "kind": "approval",
+              "id": "spend",
+              "message": "Make the ${entry.data.age_state} master for ${entry.title}? It starts from the actor's pictures tagged age-${entry.data.age_state} and uses OpenAI image credit."
+            },
+            {
+              "kind": "integration",
+              "id": "master",
+              "integration": "openai_images",
+              "action": "edit",
+              "references": "${steps.views.output.rows.0.id},${steps.views.output.rows.1.id},${steps.views.output.rows.2.id},${steps.views.output.rows.3.id}",
+              "args": {
+                "prompt": "Reference pictures: the same person at this age. Keep their face, head shape, eyes, brows, nose, jaw, hair colour and build exactly as in the references, at the age asked for below, in the rounded miniature illustration style.\n\nWHO: ${entry.data.role} (${entry.data.age_state}), played by ${steps.actor.output.rows.0.title}\nBuild: ${steps.actor.output.rows.0.data.build}\nHair: ${steps.actor.output.rows.0.data.hair}\nSkin: ${steps.actor.output.rows.0.data.skin_tone}\nLook: ${steps.actor.output.rows.0.data.look}\nAlways keep: ${steps.actor.output.rows.0.data.distinguishing_features}\n\nCOSTUME: ${entry.data.costume}\nPROPS: ${entry.data.props}\n\nSTYLE RULES: ${steps.world.output.rows.0.data.rules}\n\nOne full-body three-quarter portrait, standing, plain neutral background, even light, nothing else in the frame. No readable text or writing anywhere."
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "master": "${steps.master.output.asset.id}",
+                "status": "draft"
+              }
+            },
+            {
+              "kind": "approval",
+              "id": "keep",
+              "message": "Keep this master for ${entry.title}? Check the face against the actor's pictures and the age against the story. Redo makes a fresh one; change the costume or the actor's tagged views first if it should look different.",
+              "choices": [
+                "Keep",
+                "Redo"
+              ],
+              "image": "${steps.master.output.asset.url}"
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "status": "approved"
+              },
+              "when": {
+                "field": "steps.keep.output.choice",
+                "op": "eq",
+                "value": "Keep"
               }
             }
           ]
