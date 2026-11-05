@@ -6,8 +6,8 @@ When the story lives in a Marvin workspace (for example a workspace called `my-s
 
 | Record (entry type) | Holds | Rule |
 |---|---|---|
-| `world` | style rules for every picture | one place; never repeated into prompts by hand |
-| `story` | premise, `world`, `script` (markdown), format, status, and for an episode its `series` and `episode` number | `status`: script, voices, rough-cut, final, published |
+| `world` | what never changes between its stories: the style `rules` for every picture, and its `bases` (the general figures actors are made from) | one place; never repeated into prompts by hand. Where and when a story is set, and its mood pictures, are **not** here: they change from story to story and live on the story |
+| `story` | premise, `setting` (where and when: era, places, kind of people), `world`, `script` (markdown), `references` (mood and location pictures for this story), format, status, and for an episode its `series` and `episode` number | `status`: script, voices, rough-cut, final, published |
 | `series` | a set of stories (episodes) that share a `world`, a cast and a `premise`; `status` planning, running, finished | an episode is a `story` that names its series (slug) and episode number; the cast (actors) is the world's, each episode makes its own characters |
 | `chapter` | one chapter of a long story: `story`, `number` (zero-padded, in play order), a title, a `summary` | each `beat` names its `chapter` (slug). Slug `<story>-chapter-<nn>`. A story that is not cut into chapters has none |
 | `actor` | a person in the world's troupe: the look that stays the same in every role (`base` woman or man, build, hair, skin, `distinguishing_features`, `baseline_wardrobe`, a `general_view` picture, a default voice and a `voice_sample` to hear). Name the picture file for the actor (`Nell.png`): "Create entry from asset" takes the name and slug from it. Belongs to the **world** | not costume or props: a peg leg is a prop of the character, the actor has both legs |
