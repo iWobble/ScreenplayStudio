@@ -29,8 +29,10 @@ def audio_cut(job: dict, ctx: Context) -> dict:
     """The recorded lines of a story stitched into one mp3, with a timeline naming each line (see `listen`)."""
     story, name = story_of(job), job["job"]
     pulled = marvin_pull.pull(story, ctx.work / "story", creds=ctx.creds)
+    ctx.note(f"pulled {pulled['lines']} recorded lines in {pulled['shots']} shots")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration, need_stills=False)
     result = build.listen(m, ctx.work / f"{name}.mp3")
+    ctx.note(f"mixed the audio: {result['seconds']} s")
     asset = marvin_api.upload_asset(
         ctx.creds,
         Path(result["output"]),
@@ -64,6 +66,7 @@ def make_script(job: dict, ctx: Context) -> dict:
     except LookupError as e:
         raise JobError(str(e)) from e
     title = records["story"].get("title") or story
+    ctx.note(f"read {len(records['beats'])} beats")
     made = script.render(script.fountain(records), ctx.work / "script", story)
     made["breakdown"] = ctx.work / "script" / f"{story}-breakdown.html"
     made["breakdown"].write_text(script.breakdown_html(script.breakdown(records)), encoding="utf-8")
@@ -105,8 +108,10 @@ def make_filmstrip(job: dict, ctx: Context) -> dict:
     """The story's recorded lines and stills as a page to watch, kept on the story as `filmstrip`; the old one goes to the Trash."""
     story, name = story_of(job), job["job"]
     pulled = marvin_pull.pull(story, ctx.work / "story", creds=ctx.creds)
+    ctx.note(f"pulled {pulled['shots']} shots, {pulled['lines']} recorded lines")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)  # stills are needed: a beat with none is named, not skipped
     made = filmstrip.make(m, ctx.work / "filmstrip")
+    ctx.note(f"mixed the sound and built the page: {made['seconds']} s, {made['shots']} shots")
     title = m.title or story
     asset = marvin_api.upload_asset(
         ctx.creds,
@@ -144,6 +149,7 @@ def import_voices(job: dict, ctx: Context) -> dict:
     asked = {"limit": 100, **({"search": term} if term else {})}
     out = ctx.marvin("platform", "integrations", "run", "elevenlabs", "list_voices", "--data", json.dumps(asked))
     listed = ((out or {}).get("result") or out or {}).get("voices") or []
+    ctx.note(f"{len(listed)} voices on the key")
     rows = marvin_api.entries(ctx.creds)
     known = {str((e.get("dataJson") or {}).get("elevenlabs_voice_id")) for e in rows if (e.get("dataJson") or {}).get("elevenlabs_voice_id")}
     taken = {e.get("slug") for e in rows}
