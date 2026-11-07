@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "39",
+  "version": "40",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1446,6 +1446,21 @@
                 "short-9x16"
               ],
               "defaultValue": "short-9x16"
+            },
+            {
+              "key": "language",
+              "label": "Language",
+              "type": "text",
+              "helpText": "The spoken language as a code, e.g. en. Empty is English. Used as the transcription language and the voice's language."
+            },
+            {
+              "key": "scene_break_seconds",
+              "label": "Scene break (seconds)",
+              "type": "number",
+              "min": 0,
+              "max": 5,
+              "defaultValue": 1,
+              "helpText": "Silence between scenes in the audio cut."
             },
             {
               "key": "status",
@@ -3851,6 +3866,102 @@
             }
           ]
         }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "pronunciation",
+      "name": "Pronunciation",
+      "description": "A word that needs care: how the narrator should say it, and whether to listen for it when transcribing. One list serves both ways: a name or an odd word (bowsprit, weevils, ochre) is spoken the way you write it here and is a hotword when a recording is transcribed. Leave Story empty for a word every story shares.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Pronunciation",
+        "icon": "🗣️",
+        "color": "#0D9488",
+        "description": "A word that needs care: how the narrator should say it, and whether to listen for it when transcribing. One list serves both ways: a name or an odd word (bowsprit, weevils, ochre) is spoken the way you write it here and is a hotword when a recording is transcribed. Leave Story empty for a word every story shares.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "word",
+              "label": "Word as written",
+              "type": "text",
+              "required": true,
+              "helpText": "The word or name exactly as it appears in the script, e.g. bowsprit."
+            },
+            {
+              "key": "say_as",
+              "label": "Say it as",
+              "type": "text",
+              "helpText": "How to respell it so a voice says it right, e.g. bow-sprit. Empty means no change when speaking."
+            },
+            {
+              "key": "listen_for",
+              "label": "Listen for it",
+              "type": "select",
+              "options": [
+                "yes",
+                "no"
+              ],
+              "defaultValue": "yes",
+              "helpText": "Yes adds the word to the hotwords of a transcription, so it is spelled right when heard."
+            },
+            {
+              "key": "story",
+              "label": "Story (story entry slug)",
+              "type": "text",
+              "helpText": "Only this story. Empty applies to every story."
+            },
+            {
+              "key": "speaker",
+              "label": "Speaker",
+              "type": "text",
+              "helpText": "Only lines by this speaker (narrator, cook). Empty applies to every voice."
+            },
+            {
+              "key": "note",
+              "label": "Note",
+              "type": "textarea",
+              "rows": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_fields",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "slug": "story-narration-fields",
+      "name": "Story: language and scene break",
+      "description": "Adds the story language and the scene-break length to a workspace whose Story type was made before they existed.",
+      "payload": {
+        "entry_type": "story",
+        "fields": [
+          {
+            "key": "language",
+            "label": "Language",
+            "type": "text",
+            "helpText": "The spoken language as a code, e.g. en. Empty is English. Used as the transcription language and the voice's language."
+          },
+          {
+            "key": "scene_break_seconds",
+            "label": "Scene break (seconds)",
+            "type": "number",
+            "min": 0,
+            "max": 5,
+            "defaultValue": 1,
+            "helpText": "Silence between scenes in the audio cut."
+          }
+        ]
       }
     },
     {
