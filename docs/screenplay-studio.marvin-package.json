@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "40",
+  "version": "41",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4035,6 +4035,229 @@
             }
           ]
         }
+      }
+    },
+    {
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "kind": "wizard",
+      "slug": "narrate-a-story",
+      "name": "Narrate a story",
+      "description": "From a world to a story with its script and cast: the setup steps before the pictures and the voices.",
+      "payload": {
+        "title": "Narrate a story",
+        "description": "Pick or make a world, then a story, bring in the script, and list who is in it.",
+        "steps": [
+          {
+            "id": "world",
+            "kind": "choose",
+            "title": "World",
+            "help": "The world this story belongs to. Pick one or make a new one.",
+            "as": "world",
+            "entry_type": "world",
+            "create": {
+              "fields": [
+                "premise"
+              ]
+            }
+          },
+          {
+            "id": "series",
+            "kind": "choose",
+            "title": "Series (optional)",
+            "help": "A series the story is an episode of. Skip it for a standalone story.",
+            "as": "series",
+            "entry_type": "series",
+            "optional": true,
+            "scope": {
+              "world": "${world}"
+            },
+            "create": {
+              "fields": [
+                "premise"
+              ],
+              "data": {
+                "world": "${world}"
+              }
+            }
+          },
+          {
+            "id": "story",
+            "kind": "choose",
+            "title": "Story",
+            "help": "The story itself. A new one starts inside the world and series you chose.",
+            "as": "story",
+            "entry_type": "story",
+            "scope": {
+              "world": "${world}",
+              "series": "${series}"
+            },
+            "create": {
+              "fields": [
+                "premise",
+                "setting"
+              ],
+              "data": {
+                "world": "${world}",
+                "series": "${series}",
+                "status": "draft"
+              }
+            }
+          },
+          {
+            "id": "how",
+            "kind": "option",
+            "title": "Start from",
+            "help": "What you already have. You can come back and upload later.",
+            "as": "input",
+            "options": [
+              {
+                "value": "script",
+                "label": "A script (Fountain, plain text or Markdown)"
+              },
+              {
+                "value": "beats",
+                "label": "A beat sheet"
+              },
+              {
+                "value": "none",
+                "label": "Nothing yet: I will write it in Marvin"
+              }
+            ]
+          },
+          {
+            "id": "upload-script",
+            "kind": "upload",
+            "title": "Upload the script",
+            "help": "Its text becomes the story's script. Marvin keeps your file's words as they are.",
+            "entry": "story",
+            "mode": "text",
+            "field": "script",
+            "accept": [
+              ".fountain",
+              ".txt",
+              ".md"
+            ],
+            "when": {
+              "ctx": "input",
+              "op": "eq",
+              "value": "script"
+            }
+          },
+          {
+            "id": "upload-beats",
+            "kind": "upload",
+            "title": "Upload the beat sheet",
+            "help": "Its text goes into the story's script field, ready for the import-beats step to cut into beats.",
+            "entry": "story",
+            "mode": "text",
+            "field": "script",
+            "accept": [
+              ".txt",
+              ".md",
+              ".csv"
+            ],
+            "when": {
+              "ctx": "input",
+              "op": "eq",
+              "value": "beats"
+            }
+          },
+          {
+            "id": "details",
+            "kind": "form",
+            "title": "Story details",
+            "help": "The language and the silence between scenes are used when the audio is made.",
+            "entry": "story",
+            "fields": [
+              "premise",
+              "setting",
+              "language",
+              "scene_break_seconds",
+              "target_seconds"
+            ]
+          },
+          {
+            "id": "cast",
+            "kind": "list",
+            "title": "Characters",
+            "help": "Who is in the story. Give each a short id (old-ship-cook), the role, and the name its lines carry. Casting an actor and the pictures come after.",
+            "entry_type": "cast-member",
+            "parent_field": "story",
+            "parent": "story",
+            "columns": [
+              "cast_id",
+              "role",
+              "speaker",
+              "actor",
+              "age_state",
+              "presence"
+            ]
+          },
+          {
+            "id": "words",
+            "kind": "list",
+            "title": "Words that need care",
+            "help": "Names and unusual words: how a voice should say them, and whether to listen for them when transcribing.",
+            "entry_type": "pronunciation",
+            "parent_field": "story",
+            "parent": "story",
+            "columns": [
+              "word",
+              "say_as",
+              "listen_for"
+            ]
+          },
+          {
+            "id": "ready",
+            "kind": "review",
+            "title": "Ready for the next stage?",
+            "checks": [
+              {
+                "label": "The story has a script",
+                "query": {
+                  "entry_type": "story",
+                  "entries": [
+                    "${story}"
+                  ],
+                  "where": [
+                    {
+                      "field": "script",
+                      "op": "exists"
+                    }
+                  ]
+                },
+                "op": "gte",
+                "value": 1
+              },
+              {
+                "label": "Beats are cut from the script",
+                "query": {
+                  "entry_type": "beat",
+                  "fields": {
+                    "story": "${story}"
+                  }
+                },
+                "op": "gte",
+                "value": 1
+              },
+              {
+                "label": "There are characters",
+                "query": {
+                  "entry_type": "cast-member",
+                  "fields": {
+                    "story": "${story}"
+                  }
+                },
+                "op": "gte",
+                "value": 1
+              }
+            ]
+          }
+        ]
       }
     }
   ]
