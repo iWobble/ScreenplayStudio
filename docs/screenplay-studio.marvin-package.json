@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "43",
+  "version": "44",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4110,16 +4110,16 @@
             "id": "how",
             "kind": "option",
             "title": "Start from",
-            "help": "What you already have. You can come back and upload later.",
+            "help": "What you have decides what the wizard can make. Beats are made from a beat sheet in Marvin's format; a screenplay is kept as the script, and a beat sheet is made from it separately.",
             "as": "input",
             "options": [
               {
-                "value": "script",
-                "label": "A script (Fountain, plain text or Markdown)"
+                "value": "beats",
+                "label": "A beat sheet (numbered lines, one beat each). Makes the beats."
               },
               {
-                "value": "beats",
-                "label": "A beat sheet"
+                "value": "script",
+                "label": "A screenplay (Fountain or plain text). Kept as the script; it does not make beats by itself."
               },
               {
                 "value": "none",
@@ -4131,7 +4131,7 @@
             "id": "upload-script",
             "kind": "upload",
             "title": "Upload the script",
-            "help": "Its text becomes the story's script. Marvin keeps your file's words as they are.",
+            "help": "Kept as the story's script, as written. Marvin cannot cut a screenplay into beats by itself: ask Claude to turn it into a beat sheet (the storyworld-stories skill does), then come back and upload that as a beat sheet.",
             "entry": "story",
             "mode": "text",
             "field": "script",
@@ -4150,7 +4150,7 @@
             "id": "upload-beats",
             "kind": "upload",
             "title": "Upload the beat sheet",
-            "help": "Its text goes into the story's script field, ready for the import-beats step to cut into beats.",
+            "help": "One beat per line, numbered, with who says it: **01** — Narrator: The captain ordered a feast.  A table with a column per field works too. Its text goes into the story's script, and the next step cuts it into beats.",
             "entry": "story",
             "mode": "text",
             "field": "script",
@@ -4169,17 +4169,17 @@
             "id": "cut",
             "kind": "run",
             "title": "Cut the beats",
-            "help": "Reads the story's script and makes its beats. It runs on a worker, so give it a minute: the review at the end shows when they are there. Running it again refreshes them.",
+            "help": "Reads the story's script as a beat sheet and makes its beats. It runs on a worker, so give it a minute: the review at the end shows when they are there. It only adds what is missing and removes nothing, so it is safe to run again after you add beats.",
             "workflow": "screenplay-import-beats",
             "inputs": {
               "story": "${story}",
-              "mode": "refresh"
+              "mode": "add"
             },
             "button": "Cut the beats from the script",
             "when": {
               "ctx": "input",
-              "op": "neq",
-              "value": "none"
+              "op": "eq",
+              "value": "beats"
             }
           },
           {
@@ -4250,7 +4250,7 @@
                 "value": 1
               },
               {
-                "label": "Beats have been made from the script",
+                "label": "Beats have been made from the beat sheet",
                 "query": {
                   "entry_type": "beat",
                   "fields": {
