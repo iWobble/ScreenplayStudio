@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "44",
+  "version": "45",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1412,6 +1412,18 @@
               "key": "script",
               "label": "Script",
               "type": "markdown"
+            },
+            {
+              "key": "screenplay",
+              "label": "Screenplay",
+              "type": "markdown",
+              "helpText": "The screenplay as it was written (Fountain or plain text). Marvin keeps it as it is: a beat sheet is made from it, and that becomes the script."
+            },
+            {
+              "key": "beat_sheet",
+              "label": "Beat sheet (draft)",
+              "type": "markdown",
+              "helpText": "A beat sheet the AI made from the screenplay, waiting for you to read it. Approving it copies it into Script."
             },
             {
               "key": "music",
@@ -3941,8 +3953,8 @@
       "requires": [],
       "parameters": [],
       "slug": "story-narration-fields",
-      "name": "Story: language and scene break",
-      "description": "Adds the story language and the scene-break length to a workspace whose Story type was made before they existed.",
+      "name": "Story: language, scene break, screenplay and beat sheet",
+      "description": "Adds the story language, the scene-break length, the screenplay and the draft beat sheet to a workspace whose Story type was made before they existed.",
       "payload": {
         "entry_type": "story",
         "fields": [
@@ -3960,6 +3972,18 @@
             "max": 5,
             "defaultValue": 1,
             "helpText": "Silence between scenes in the audio cut."
+          },
+          {
+            "key": "screenplay",
+            "label": "Screenplay",
+            "type": "markdown",
+            "helpText": "The screenplay as it was written (Fountain or plain text). Marvin keeps it as it is: a beat sheet is made from it, and that becomes the script."
+          },
+          {
+            "key": "beat_sheet",
+            "label": "Beat sheet (draft)",
+            "type": "markdown",
+            "helpText": "A beat sheet the AI made from the screenplay, waiting for you to read it. Approving it copies it into Script."
           }
         ]
       }
@@ -4031,6 +4055,92 @@
               "op": "set_metadata",
               "metadata": {
                 "transcript": "${steps.make.output.entry_id}"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-cut-screenplay",
+      "name": "Screenplay: cut a screenplay into a beat sheet",
+      "description": "An AI agent cuts the story's screenplay into a beat sheet in Marvin's format. You read it and approve it before it becomes the story's script; the screenplay is never changed.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: cut a screenplay into a beat sheet",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "story",
+                "label": "Story",
+                "type": "entry",
+                "required": true
+              },
+              {
+                "name": "notes",
+                "label": "Anything the beat sheet should do (optional), e.g. aim for about 40 beats",
+                "type": "textarea",
+                "required": false,
+                "default": ""
+              },
+              {
+                "name": "agent",
+                "label": "The agent that does the cutting (its slug)",
+                "type": "text",
+                "required": false,
+                "default": "marvin"
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "approval",
+              "id": "spend",
+              "message": "Cut “${entry.title}”'s screenplay (${entry.data.screenplay|length} characters) into a beat sheet with AI? It uses AI credit. Nothing is replaced until you approve the result."
+            },
+            {
+              "kind": "agent",
+              "id": "cut",
+              "agent": "${input.agent|default:\"marvin\"}",
+              "playbooks": [
+                "screenplay-studio"
+              ],
+              "message": "Cut the screenplay below into a beat sheet for the story “${entry.title}”, in the table format described in the screenplay-studio Playbook's beat-sheet-format reference (the handles listed first, then one table per scene with the columns Beat, Time, Audio and Single still / composition). Follow its rules exactly: number the beats 01, 02, ... with no gaps, never invent spoken words, label speakers with one capitalised word and a colon, and give each beat one picture. ${input.notes}\\n\\nYour final answer must be the beat sheet and nothing else: no introduction, no closing remarks, no code fence around it. If the screenplay below is empty, answer with the single line: NO SCREENPLAY.\\n\\n--- SCREENPLAY ---\\n${entry.data.screenplay}",
+              "max_steps": 8
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "beat_sheet": "${steps.cut.output.answer}"
+              }
+            },
+            {
+              "kind": "approval",
+              "id": "use",
+              "message": "The beat sheet for “${entry.title}” is ready (${steps.cut.output.answer|length} characters). Use it as the story's script? The screenplay stays in its own field.\\n\\n${steps.cut.output.answer|truncate:1500}",
+              "choices": [
+                "Use as the script",
+                "Keep it as a draft"
+              ]
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "data": {
+                "script": "${steps.cut.output.answer}"
+              },
+              "when": {
+                "field": "steps.use.output.choice",
+                "op": "eq",
+                "value": "Use as the script"
               }
             }
           ]
@@ -4110,16 +4220,16 @@
             "id": "how",
             "kind": "option",
             "title": "Start from",
-            "help": "What you have decides what the wizard can make. Beats are made from a beat sheet in Marvin's format; a screenplay is kept as the script, and a beat sheet is made from it separately.",
+            "help": "Beats are made from a beat sheet in Marvin's format. A screenplay can be cut into one by AI, which you read and approve before it is used.",
             "as": "input",
             "options": [
               {
-                "value": "beats",
-                "label": "A beat sheet (numbered lines, one beat each). Makes the beats."
+                "value": "script",
+                "label": "A screenplay (Fountain or plain text). AI cuts it into a beat sheet for you to approve."
               },
               {
-                "value": "script",
-                "label": "A screenplay (Fountain or plain text). Kept as the script; it does not make beats by itself."
+                "value": "beats",
+                "label": "A beat sheet (numbered lines or a table, one beat each)"
               },
               {
                 "value": "none",
@@ -4131,15 +4241,31 @@
             "id": "upload-script",
             "kind": "upload",
             "title": "Upload the script",
-            "help": "Kept as the story's script, as written. Marvin cannot cut a screenplay into beats by itself: ask Claude to turn it into a beat sheet (the storyworld-stories skill does), then come back and upload that as a beat sheet.",
+            "help": "Kept as the story's screenplay, exactly as written. The next step has AI cut it into a beat sheet.",
             "entry": "story",
             "mode": "text",
-            "field": "script",
+            "field": "screenplay",
             "accept": [
               ".fountain",
               ".txt",
               ".md"
             ],
+            "when": {
+              "ctx": "input",
+              "op": "eq",
+              "value": "script"
+            }
+          },
+          {
+            "id": "make-sheet",
+            "kind": "run",
+            "title": "Cut the screenplay into a beat sheet",
+            "help": "An AI agent reads the screenplay and writes a beat sheet. When it is done, a card in Approvals shows it: read it, and approve it to make it the story's script. Then come back and go on to the next step. It uses AI credit and takes a minute or two.",
+            "workflow": "screenplay-cut-screenplay",
+            "inputs": {
+              "story": "${story}"
+            },
+            "button": "Cut it with AI",
             "when": {
               "ctx": "input",
               "op": "eq",
@@ -4169,7 +4295,7 @@
             "id": "cut",
             "kind": "run",
             "title": "Cut the beats",
-            "help": "Reads the story's script as a beat sheet and makes its beats. It runs on a worker, so give it a minute: the review at the end shows when they are there. It only adds what is missing and removes nothing, so it is safe to run again after you add beats.",
+            "help": "Reads the story's script as a beat sheet and makes its beats. It runs on a worker, so give it a minute: the review at the end shows when they are there. It only adds what is missing and removes nothing, so it is safe to run again.",
             "workflow": "screenplay-import-beats",
             "inputs": {
               "story": "${story}",
@@ -4178,8 +4304,8 @@
             "button": "Cut the beats from the script",
             "when": {
               "ctx": "input",
-              "op": "eq",
-              "value": "beats"
+              "op": "neq",
+              "value": "none"
             }
           },
           {
