@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "42",
+  "version": "43",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4166,6 +4166,23 @@
             }
           },
           {
+            "id": "cut",
+            "kind": "run",
+            "title": "Cut the beats",
+            "help": "Reads the story's script and makes its beats. It runs on a worker, so give it a minute: the review at the end shows when they are there. Running it again refreshes them.",
+            "workflow": "screenplay-import-beats",
+            "inputs": {
+              "story": "${story}",
+              "mode": "refresh"
+            },
+            "button": "Cut the beats from the script",
+            "when": {
+              "ctx": "input",
+              "op": "neq",
+              "value": "none"
+            }
+          },
+          {
             "id": "details",
             "kind": "form",
             "title": "Story details",
@@ -4233,7 +4250,7 @@
                 "value": 1
               },
               {
-                "label": "Beats are cut from the script",
+                "label": "Beats have been made from the script",
                 "query": {
                   "entry_type": "beat",
                   "fields": {
