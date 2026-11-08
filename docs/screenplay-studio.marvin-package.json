@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "47",
+  "version": "48",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4130,7 +4130,7 @@
                 "op": "contains",
                 "value": "| Beat | Time | Audio | Single still / composition |"
               },
-              "message": "The beat sheet for “${entry.title}” is ready (${steps.cut.output.answer|length} characters; it is saved in the story's Beat sheet (draft) field). Use it as the story's script? The screenplay stays in its own field.\n\n${steps.cut.output.answer|truncate:1500}",
+              "message": "The beat sheet for “${entry.title}” is ready: about ${steps.cut.output.answer|split:\"\\n| \"|length} rows in ${steps.cut.output.answer|split:\"## \"|length} scene(s), ${steps.cut.output.answer|length} characters. It is saved on the story as Beat sheet (draft): open the story to read it all before deciding. Use it as the story's script? The screenplay stays in its own field.\n\nHow it starts:\n${steps.cut.output.answer|truncate:500}",
               "choices": [
                 "Use as the script",
                 "Keep it as a draft"
@@ -4156,7 +4156,7 @@
                 "op": "exists",
                 "value": false
               },
-              "message": "The AI's answer for “${entry.title}” is not a beat sheet (no table header), so nothing was used; it is saved in the story's Beat sheet (draft) field to look at. Approve to close this. Run the workflow again, perhaps with a note in “Anything the beat sheet should do”, or with a stronger model on the agent.\n\n${steps.cut.output.answer|truncate:600}"
+              "message": "The AI's answer for “${entry.title}” is not a beat sheet (no table header), so nothing was used; it is saved in the story's Beat sheet (draft) field to look at. Approve to close this. Run the workflow again, perhaps with a note in “Anything the beat sheet should do”, or with a stronger model on the agent.\n\n${steps.cut.output.answer|truncate:300}"
             }
           ]
         }
