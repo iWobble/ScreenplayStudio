@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "50",
+  "version": "51",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4455,7 +4455,8 @@
         ],
         "open": {
           "entry": "story",
-          "label": "Open the story"
+          "label": "Open the story",
+          "view": "story-timeline"
         },
         "next": [
           {
@@ -4472,6 +4473,77 @@
           {
             "text": "Make the stills with “Screenplay: take a still for a beat”, cut the audio, then render the video. Approvals for all of these show under Automation → Approvals.",
             "href": "/automation/approvals"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "view",
+      "slug": "story-timeline",
+      "name": "Timeline",
+      "description": "A story as time: its beats as a filmstrip, each as wide as it will last in the render, with the lines and sounds under them. Plays the takes there are.",
+      "payload": {
+        "kind": "timeline",
+        "title": "Timeline",
+        "entry_type": "story",
+        "spine": {
+          "entry_type": "beat",
+          "of": "story",
+          "order": "number",
+          "group": {
+            "entry_type": "chapter",
+            "field": "chapter",
+            "order": "number"
+          },
+          "picture": "still",
+          "text": "picture",
+          "status": "status",
+          "seconds": {
+            "hold": "hold_seconds",
+            "lead": "lead_seconds",
+            "gap": "gap_seconds",
+            "tail": "tail_seconds",
+            "defaults": {
+              "hold": 4,
+              "lead": 0.3,
+              "gap": 0.25,
+              "tail": 0.35
+            }
+          }
+        },
+        "lanes": [
+          {
+            "id": "lines",
+            "title": "Lines",
+            "entry_type": "speech-line",
+            "of": "story",
+            "in": "beat",
+            "text": "text",
+            "who": "speaker",
+            "audio": "audio",
+            "seconds": "duration_seconds",
+            "estimate_from": "text",
+            "status": "status"
+          },
+          {
+            "id": "sounds",
+            "title": "Sounds",
+            "entry_type": "sound",
+            "of": "story",
+            "placed": {
+              "field": "sounds",
+              "ref": "sound",
+              "at": "at"
+            },
+            "audio": "audio",
+            "seconds": "duration_seconds",
+            "status": "status"
+          }
+        ],
+        "actions": [
+          {
+            "label": "Guided setup",
+            "wizard": "narrate-a-story"
           }
         ]
       }
