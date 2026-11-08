@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "49",
+  "version": "50",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4232,6 +4232,20 @@
             }
           },
           {
+            "id": "details",
+            "kind": "form",
+            "title": "Story details",
+            "help": "The language and the silence between scenes are used when the audio is made. Set these now: once the AI is cutting the script, leave the story alone until you have answered its card.",
+            "entry": "story",
+            "fields": [
+              "premise",
+              "setting",
+              "language",
+              "scene_break_seconds",
+              "target_seconds"
+            ]
+          },
+          {
             "id": "how",
             "kind": "option",
             "title": "Start from",
@@ -4332,20 +4346,6 @@
             }
           },
           {
-            "id": "details",
-            "kind": "form",
-            "title": "Story details",
-            "help": "The language and the silence between scenes are used when the audio is made.",
-            "entry": "story",
-            "fields": [
-              "premise",
-              "setting",
-              "language",
-              "scene_break_seconds",
-              "target_seconds"
-            ]
-          },
-          {
             "id": "cast",
             "kind": "list",
             "title": "Characters",
@@ -4421,6 +4421,23 @@
                 "value": 1
               }
             ]
+          }
+        ],
+        "next": [
+          {
+            "text": "Open the story and read its beats: each is one picture to make. Fix a beat's words or picture on the beat itself."
+          },
+          {
+            "text": "Cast the actors: give each character an actor from the troupe (the Characters step), then run “Screenplay: make a Character's master” for each to get its approved picture.",
+            "href": "/automation/workflows"
+          },
+          {
+            "text": "Give every speaker a voice (Voice entries; import them with “Screenplay: import the ElevenLabs voices”), then record the lines with “Screenplay: record the next lines of a story”.",
+            "href": "/automation/workflows"
+          },
+          {
+            "text": "Make the stills with “Screenplay: take a still for a beat”, cut the audio, then render the video. Approvals for all of these show under Automation → Approvals.",
+            "href": "/automation/approvals"
           }
         ]
       }
