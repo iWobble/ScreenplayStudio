@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "45",
+  "version": "46",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4065,7 +4065,7 @@
       "kind": "workflow",
       "slug": "screenplay-cut-screenplay",
       "name": "Screenplay: cut a screenplay into a beat sheet",
-      "description": "An AI agent cuts the story's screenplay into a beat sheet in Marvin's format. You read it and approve it before it becomes the story's script; the screenplay is never changed.",
+      "description": "An AI agent cuts the story's screenplay into a beat sheet in Marvin's table format (the rules travel in the prompt). You read it and approve it before it becomes the story's script; an answer that is not a table is never offered. The screenplay is never changed.",
       "required": false,
       "category": "General",
       "source": "core",
@@ -4112,8 +4112,8 @@
               "playbooks": [
                 "screenplay-studio"
               ],
-              "message": "Cut the screenplay below into a beat sheet for the story “${entry.title}”, in the table format described in the screenplay-studio Playbook's beat-sheet-format reference (the handles listed first, then one table per scene with the columns Beat, Time, Audio and Single still / composition). Follow its rules exactly: number the beats 01, 02, ... with no gaps, never invent spoken words, label speakers with one capitalised word and a colon, and give each beat one picture. ${input.notes}\\n\\nYour final answer must be the beat sheet and nothing else: no introduction, no closing remarks, no code fence around it. If the screenplay below is empty, answer with the single line: NO SCREENPLAY.\\n\\n--- SCREENPLAY ---\\n${entry.data.screenplay}",
-              "max_steps": 8
+              "message": "You are the storyboard artist for a narrated, illustrated video. Cut the screenplay at the end of this message into BEATS for the story “${entry.title}”: one picture each, with the words and sounds that go with it. ${input.notes}\n\nAnswer with the beat sheet and NOTHING else: no introduction, no closing line, no code fence. It has two parts.\n\nPART 1, the speakers: one line per speaker, `Handle: who it is`. A handle is ONE capitalised word, letters only (Narrator, Cook, Captain; not Old Man, not OLDCOOK). Use Narrator for narration and scene description that is spoken. Only people who speak get a handle.\n\nPART 2, the beats: a `## Scene N - Title` heading for each scene, each followed by its own Markdown table with this header row and separator, exactly:\n| Beat | Time | Audio | Single still / composition |\n|---|---|---|---|\nOne row per beat. Rules:\n- Beat: 01, 02, 03 ... numbered continuously across the whole film, no gaps, each number once.\n- Time: start–end in seconds, like 0–8s, 8–12s, running on from 0s across the whole film. A spoken beat lasts about 4–8 seconds (10–20 words, 2.5 words a second). Always write one; never leave it blank.\n- Audio: everything heard, in order, each voice as `Handle: words.` using only the handles from Part 1, each speaker's words ending in . ? or ! before the next label. Several voices in one cell are fine. A sound cue is `Sound: description`. A beat with no words is `No speech.` (add what is held: `No speech. Hold on the smile.`). NEVER invent words: if nobody speaks in the screenplay at that moment, the beat is `No speech.`; indirect speech stays in the picture cell as action.\n- Single still / composition: the one picture as a director would brief it: shot size and angle, who is in frame (by handle; background people by role, `a sailor`), what they are doing, the one prop the frame is about. Not the standing setting every time.\n- Start a new beat when the picture changes: a new place, a different person speaking in an exchange, a new action, a reveal, a prop that matters. One idea per picture. Keep the story's order and its words; do not cut or add story.\n- Never put a | or a line break inside a cell. Every row has all four cells.\n\nExample of the shape (not this story):\nNarrator: the storyteller\nCook: the ship's old cook\nCaptain: the ship's captain\n\n## Scene 1 - The Feast\n\n| Beat | Time | Audio | Single still / composition |\n|---|---|---|---|\n| 01 | 0–8s | Narrator: The captain ordered a feast. At dawn, they would attack a merchant ship twice their size. | Low-angle medium: Captain on the raised deck, rigging overhead; nobody else in frame. |\n| 02 | 8–12s | Cook: Your feast. Captain: Make do. | Two-shot across the table, Cook left, Captain right, the onion between them. |\n| 03 | 12–16s | No speech. Sound: wind, creaking timber | Close on Cook's hand setting a knife down on the table. |\n\nIf the screenplay below is empty, answer with the single line: NO SCREENPLAY.\n\n--- SCREENPLAY ---\n${entry.data.screenplay}",
+              "max_steps": 6
             },
             {
               "kind": "entry",
@@ -4125,7 +4125,12 @@
             {
               "kind": "approval",
               "id": "use",
-              "message": "The beat sheet for “${entry.title}” is ready (${steps.cut.output.answer|length} characters). Use it as the story's script? The screenplay stays in its own field.\\n\\n${steps.cut.output.answer|truncate:1500}",
+              "when": {
+                "field": "steps.cut.output.answer",
+                "op": "contains",
+                "value": "| Beat | Time | Audio | Single still / composition |"
+              },
+              "message": "The beat sheet for “${entry.title}” is ready (${steps.cut.output.answer|length} characters; it is saved in the story's Beat sheet (draft) field). Use it as the story's script? The screenplay stays in its own field.\n\n${steps.cut.output.answer|truncate:1500}",
               "choices": [
                 "Use as the script",
                 "Keep it as a draft"
@@ -4142,6 +4147,19 @@
                 "op": "eq",
                 "value": "Use as the script"
               }
+            },
+            {
+              "kind": "approval",
+              "id": "bad",
+              "when": {
+                "field": "steps.use.output.choice",
+                "op": "exists",
+                "value": false
+              },
+              "message": "The AI's answer for “${entry.title}” is not a beat sheet (no table header), so nothing was used; it is saved in the story's Beat sheet (draft) field to look at. Run this again, perhaps with a note in “Anything the beat sheet should do”, or with a stronger model on the agent.\n\n${steps.cut.output.answer|truncate:600}",
+              "choices": [
+                "OK"
+              ]
             }
           ]
         }
