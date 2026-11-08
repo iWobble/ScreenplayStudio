@@ -4103,7 +4103,7 @@
             {
               "kind": "approval",
               "id": "spend",
-              "message": "Cut “${entry.title}”'s screenplay (${entry.data.screenplay|length} characters) into a beat sheet with AI? It uses AI credit. Nothing is replaced until you approve the result."
+              "message": "Cut “${entry.title}”'s screenplay (${entry.data.screenplay|length} characters) into a beat sheet with AI? The whole screenplay is sent and a beat sheet longer than it comes back: about a token per 4 characters each way, so a short test is a cent and a 20,000-character script is a few cents to a dime per run. It counts against this workspace's monthly AI budget. Nothing is replaced until you approve the result; for a long script run it once and fix the sheet by hand rather than cutting again."
             },
             {
               "kind": "agent",
