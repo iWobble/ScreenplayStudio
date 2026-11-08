@@ -4190,6 +4190,32 @@
             }
           },
           {
+            "id": "troupe",
+            "kind": "gallery",
+            "title": "Troupe",
+            "help": "The actors of this world: the people who play the characters. Add one with a few words, or upload a picture of someone and fill in the rest later. Click an actor to open their sheet (age views, voice).",
+            "entry_type": "actor",
+            "parent": "world",
+            "parent_field": "world",
+            "picture": "general_view",
+            "subtitle": "build",
+            "badges": [
+              "status",
+              "presence"
+            ],
+            "add": {
+              "fields": [
+                "age",
+                "build",
+                "look"
+              ]
+            },
+            "upload": {
+              "field": "general_view"
+            },
+            "empty": "No actors in this world yet. Add one or upload a picture."
+          },
+          {
             "id": "series",
             "kind": "choose",
             "title": "Series (optional)",
@@ -4349,7 +4375,7 @@
             "id": "cast",
             "kind": "list",
             "title": "Characters",
-            "help": "Who is in the story. Give each a short id (old-ship-cook), the role, and the name its lines carry. Casting an actor and the pictures come after.",
+            "help": "Who is in the story. Give each a short id (old-ship-cook), the role, the name its lines carry, and the actor from the troupe who plays them. The pictures come after.",
             "entry_type": "cast-member",
             "parent_field": "story",
             "parent": "story",
@@ -4379,7 +4405,7 @@
           {
             "id": "ready",
             "kind": "review",
-            "title": "Ready for the next stage?",
+            "title": "Check what you have",
             "checks": [
               {
                 "label": "The story has a script",
@@ -4396,7 +4422,8 @@
                   ]
                 },
                 "op": "gte",
-                "value": 1
+                "value": 1,
+                "step": "upload-script"
               },
               {
                 "label": "Beats have been made from the beat sheet",
@@ -4407,7 +4434,8 @@
                   }
                 },
                 "op": "gte",
-                "value": 1
+                "value": 1,
+                "step": "cut"
               },
               {
                 "label": "There are characters",
@@ -4418,9 +4446,11 @@
                   }
                 },
                 "op": "gte",
-                "value": 1
+                "value": 1,
+                "step": "cast"
               }
-            ]
+            ],
+            "help": "Each line is one thing the next stage needs. A tick means it is there; a circle links to the step that makes it. When all three tick, the setup is done: what to do next is listed below."
           }
         ],
         "next": [
