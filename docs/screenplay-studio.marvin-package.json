@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "51",
+  "version": "52",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4163,6 +4163,208 @@
       }
     },
     {
+      "kind": "wizard",
+      "slug": "open-call",
+      "name": "Open call",
+      "description": "Scout talent for the troupe before any story is cast: find or make the actors of a world, take their headshots and fill in their sheets, bring in the voices and give each actor one.",
+      "payload": {
+        "title": "Open call",
+        "description": "Scout talent for the troupe before any story is cast: find or make the actors of a world, take their headshots and fill in their sheets, bring in the voices and give each actor one. A story's casting (who plays which role) happens in Narrate a story, from this troupe.",
+        "steps": [
+          {
+            "id": "world",
+            "kind": "choose",
+            "title": "World",
+            "help": "The world whose troupe this is. Pick one or make a new one.",
+            "as": "world",
+            "entry_type": "world",
+            "create": {
+              "fields": [
+                "premise"
+              ]
+            }
+          },
+          {
+            "id": "troupe",
+            "kind": "gallery",
+            "title": "The troupe",
+            "help": "Scouting: the actors of this world, the people who play its characters in every story. Add one with a few words, or upload a headshot of someone and fill in the rest later. Click an actor to open their sheet.",
+            "entry_type": "actor",
+            "parent": "world",
+            "parent_field": "world",
+            "picture": "general_view",
+            "subtitle": "build",
+            "badges": [
+              "status",
+              "presence"
+            ],
+            "add": {
+              "fields": [
+                "base",
+                "age",
+                "build",
+                "look"
+              ]
+            },
+            "upload": {
+              "field": "general_view"
+            },
+            "empty": "No actors in this world yet. Add one or upload a headshot."
+          },
+          {
+            "id": "actor",
+            "kind": "choose",
+            "title": "Work on an actor",
+            "as": "actor",
+            "entry_type": "actor",
+            "scope": {
+              "world": "${world}"
+            },
+            "optional": true,
+            "help": "Pick an actor to take their headshot and fill in their sheet. Skip this to go straight to the voices."
+          },
+          {
+            "id": "headshot",
+            "kind": "upload",
+            "title": "Headshot",
+            "entry": "actor",
+            "mode": "asset",
+            "field": "general_view",
+            "accept": [
+              ".png",
+              ".jpg",
+              ".jpeg",
+              ".webp"
+            ],
+            "when": {
+              "ctx": "actor",
+              "op": "set"
+            },
+            "help": "The general view: the actor as they are now, full figure, in the world's style. Age views (young, mid, old) are attached on the sheet and tagged age-young, age-mid, age-old; a character's master is made from the view at its age."
+          },
+          {
+            "id": "sheet",
+            "kind": "form",
+            "title": "Actor sheet",
+            "entry": "actor",
+            "fields": [
+              "base",
+              "presence",
+              "age",
+              "build",
+              "hair",
+              "skin_tone",
+              "look",
+              "distinguishing_features",
+              "baseline_wardrobe",
+              "notes",
+              "status"
+            ],
+            "when": {
+              "ctx": "actor",
+              "op": "set"
+            },
+            "help": "What stays the same in every role: the base figure, build, hair, skin, the look, the marks that identify them, and what they wear when nothing says otherwise. Set the status to approved once the sheet is right."
+          },
+          {
+            "id": "voices",
+            "kind": "run",
+            "title": "Voice library",
+            "workflow": "screenplay-import-voices",
+            "inputs": {},
+            "button": "Import voices from ElevenLabs",
+            "help": "Bring in any new voices on the workspace's ElevenLabs key, each with a preview clip. Voices already imported are left alone."
+          },
+          {
+            "id": "voice-cast",
+            "kind": "list",
+            "title": "Voice casting",
+            "entry_type": "actor",
+            "parent_field": "world",
+            "parent": "world",
+            "columns": [
+              "voice",
+              "presence",
+              "status"
+            ],
+            "help": "Give each actor their default voice (the slug of a Voice entry). A character may name another voice for one story."
+          },
+          {
+            "id": "ready",
+            "kind": "review",
+            "title": "Check the troupe",
+            "checks": [
+              {
+                "label": "The troupe has at least one actor",
+                "query": {
+                  "entry_type": "actor",
+                  "fields": {
+                    "world": "${world}"
+                  }
+                },
+                "op": "gte",
+                "value": 1,
+                "step": "troupe"
+              },
+              {
+                "label": "Every actor has a headshot",
+                "query": {
+                  "entry_type": "actor",
+                  "fields": {
+                    "world": "${world}"
+                  },
+                  "where": [
+                    {
+                      "field": "general_view",
+                      "op": "missing"
+                    }
+                  ]
+                },
+                "op": "eq",
+                "value": 0,
+                "step": "actor"
+              },
+              {
+                "label": "Every actor has a voice",
+                "query": {
+                  "entry_type": "actor",
+                  "fields": {
+                    "world": "${world}"
+                  },
+                  "where": [
+                    {
+                      "field": "voice",
+                      "op": "missing"
+                    }
+                  ]
+                },
+                "op": "eq",
+                "value": 0,
+                "step": "voice-cast"
+              }
+            ]
+          }
+        ],
+        "next": [
+          {
+            "text": "Age views: on an actor's sheet, attach pictures of them young, mid and old, tagged age-young, age-mid and age-old. A character's master picture is made from the view at its age."
+          },
+          {
+            "text": "Now cast a story: Narrate a story picks its characters from this troupe (role, speaker name, actor, age), then their master pictures.",
+            "href": "/workspace/wizards/narrate-a-story"
+          },
+          {
+            "text": "Approvals for anything that spends (masters, takes) show under Automation → Approvals.",
+            "href": "/automation/approvals"
+          }
+        ],
+        "open": {
+          "entry": "actor",
+          "label": "Open the actor's sheet"
+        }
+      }
+    },
+    {
       "required": false,
       "category": "General",
       "source": "core",
@@ -4180,7 +4382,7 @@
             "id": "world",
             "kind": "choose",
             "title": "World",
-            "help": "The world this story belongs to. Pick one or make a new one.",
+            "help": "The world this story belongs to. Pick one or make a new one. Its troupe (the actors) is built with the Open call guided setup; by the time a story is narrated the troupe should be together.",
             "as": "world",
             "entry_type": "world",
             "create": {
@@ -4188,32 +4390,6 @@
                 "premise"
               ]
             }
-          },
-          {
-            "id": "troupe",
-            "kind": "gallery",
-            "title": "Troupe",
-            "help": "The actors of this world: the people who play the characters. Add one with a few words, or upload a picture of someone and fill in the rest later. Click an actor to open their sheet (age views, voice).",
-            "entry_type": "actor",
-            "parent": "world",
-            "parent_field": "world",
-            "picture": "general_view",
-            "subtitle": "build",
-            "badges": [
-              "status",
-              "presence"
-            ],
-            "add": {
-              "fields": [
-                "age",
-                "build",
-                "look"
-              ]
-            },
-            "upload": {
-              "field": "general_view"
-            },
-            "empty": "No actors in this world yet. Add one or upload a picture."
           },
           {
             "id": "series",
@@ -4375,7 +4551,7 @@
             "id": "cast",
             "kind": "list",
             "title": "Characters",
-            "help": "Who is in the story. Give each a short id (old-ship-cook), the role, the name its lines carry, and the actor from the troupe who plays them. The pictures come after.",
+            "help": "Who is in the story. Give each a short id (old-ship-cook), the role, the name its lines carry, and the actor from the troupe who plays them (the troupe comes from the Open call guided setup). The pictures come after.",
             "entry_type": "cast-member",
             "parent_field": "story",
             "parent": "story",
