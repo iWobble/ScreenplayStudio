@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "52",
+  "version": "53",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4657,7 +4657,7 @@
       "kind": "view",
       "slug": "story-timeline",
       "name": "Timeline",
-      "description": "A story as time: its beats as a filmstrip, each as wide as it will last in the render, with the lines and sounds under them. Plays the takes there are.",
+      "description": "A story as time: its beats as a filmstrip, each as wide as it will last in the render, with the lines, sound effects, the scenes' ambience and the story's music under them. Plays what has a take.",
       "payload": {
         "kind": "timeline",
         "title": "Timeline",
@@ -4705,7 +4705,6 @@
             "id": "sounds",
             "title": "Sounds",
             "entry_type": "sound",
-            "of": "story",
             "placed": {
               "field": "sounds",
               "ref": "sound",
@@ -4713,6 +4712,38 @@
             },
             "audio": "audio",
             "seconds": "duration_seconds",
+            "status": "status",
+            "volume": "volume"
+          },
+          {
+            "id": "ambience",
+            "title": "Ambience",
+            "entry_type": "sound",
+            "bed": {
+              "via": "scene",
+              "entry_type": "scene",
+              "field": "ambience",
+              "volume": "ambience_volume",
+              "item_volume": "ambience_volume",
+              "muffled": "ambience_muffled"
+            },
+            "audio": "audio",
+            "seconds": "duration_seconds",
+            "loop": "loop",
+            "volume": "volume",
+            "status": "status"
+          },
+          {
+            "id": "music",
+            "title": "Music",
+            "entry_type": "sound",
+            "bed": {
+              "field": "music"
+            },
+            "audio": "audio",
+            "seconds": "duration_seconds",
+            "loop": "loop",
+            "volume": "volume",
             "status": "status"
           }
         ],
