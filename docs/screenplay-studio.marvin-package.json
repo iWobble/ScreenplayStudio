@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "49",
+  "version": "50",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4103,7 +4103,7 @@
             {
               "kind": "approval",
               "id": "spend",
-              "message": "Cut “${entry.title}”'s screenplay (${entry.data.screenplay|length} characters) into a beat sheet with AI? It uses AI credit. Nothing is replaced until you approve the result."
+              "message": "Cut “${entry.title}”'s screenplay (${entry.data.screenplay|length} characters) into a beat sheet with AI? The whole screenplay is sent and a beat sheet longer than it comes back: about a token per 4 characters each way, so a short test is a cent and a 20,000-character script is a few cents to a dime per run. It counts against this workspace's monthly AI budget. Nothing is replaced until you approve the result; for a long script run it once and fix the sheet by hand rather than cutting again."
             },
             {
               "kind": "agent",
@@ -4190,6 +4190,32 @@
             }
           },
           {
+            "id": "troupe",
+            "kind": "gallery",
+            "title": "Troupe",
+            "help": "The actors of this world: the people who play the characters. Add one with a few words, or upload a picture of someone and fill in the rest later. Click an actor to open their sheet (age views, voice).",
+            "entry_type": "actor",
+            "parent": "world",
+            "parent_field": "world",
+            "picture": "general_view",
+            "subtitle": "build",
+            "badges": [
+              "status",
+              "presence"
+            ],
+            "add": {
+              "fields": [
+                "age",
+                "build",
+                "look"
+              ]
+            },
+            "upload": {
+              "field": "general_view"
+            },
+            "empty": "No actors in this world yet. Add one or upload a picture."
+          },
+          {
             "id": "series",
             "kind": "choose",
             "title": "Series (optional)",
@@ -4230,6 +4256,20 @@
                 "series": "${series}"
               }
             }
+          },
+          {
+            "id": "details",
+            "kind": "form",
+            "title": "Story details",
+            "help": "The language and the silence between scenes are used when the audio is made. Set these now: once the AI is cutting the script, leave the story alone until you have answered its card.",
+            "entry": "story",
+            "fields": [
+              "premise",
+              "setting",
+              "language",
+              "scene_break_seconds",
+              "target_seconds"
+            ]
           },
           {
             "id": "how",
@@ -4332,24 +4372,10 @@
             }
           },
           {
-            "id": "details",
-            "kind": "form",
-            "title": "Story details",
-            "help": "The language and the silence between scenes are used when the audio is made.",
-            "entry": "story",
-            "fields": [
-              "premise",
-              "setting",
-              "language",
-              "scene_break_seconds",
-              "target_seconds"
-            ]
-          },
-          {
             "id": "cast",
             "kind": "list",
             "title": "Characters",
-            "help": "Who is in the story. Give each a short id (old-ship-cook), the role, and the name its lines carry. Casting an actor and the pictures come after.",
+            "help": "Who is in the story. Give each a short id (old-ship-cook), the role, the name its lines carry, and the actor from the troupe who plays them. The pictures come after.",
             "entry_type": "cast-member",
             "parent_field": "story",
             "parent": "story",
@@ -4379,7 +4405,7 @@
           {
             "id": "ready",
             "kind": "review",
-            "title": "Ready for the next stage?",
+            "title": "Check what you have",
             "checks": [
               {
                 "label": "The story has a script",
@@ -4396,7 +4422,8 @@
                   ]
                 },
                 "op": "gte",
-                "value": 1
+                "value": 1,
+                "step": "upload-script"
               },
               {
                 "label": "Beats have been made from the beat sheet",
@@ -4407,7 +4434,8 @@
                   }
                 },
                 "op": "gte",
-                "value": 1
+                "value": 1,
+                "step": "cut"
               },
               {
                 "label": "There are characters",
@@ -4418,9 +4446,32 @@
                   }
                 },
                 "op": "gte",
-                "value": 1
+                "value": 1,
+                "step": "cast"
               }
-            ]
+            ],
+            "help": "Each line is one thing the next stage needs. A tick means it is there; a circle links to the step that makes it. When all three tick, the setup is done: what to do next is listed below."
+          }
+        ],
+        "open": {
+          "entry": "story",
+          "label": "Open the story"
+        },
+        "next": [
+          {
+            "text": "Read the story's beats: each is one picture to make. Fix a beat's words or picture on the beat itself."
+          },
+          {
+            "text": "Cast the actors: give each character an actor from the troupe (the Characters step), then run “Screenplay: make a Character's master” for each to get its approved picture.",
+            "href": "/automation/workflows"
+          },
+          {
+            "text": "Give every speaker a voice (Voice entries; import them with “Screenplay: import the ElevenLabs voices”), then record the lines with “Screenplay: record the next lines of a story”.",
+            "href": "/automation/workflows"
+          },
+          {
+            "text": "Make the stills with “Screenplay: take a still for a beat”, cut the audio, then render the video. Approvals for all of these show under Automation → Approvals.",
+            "href": "/automation/approvals"
           }
         ]
       }
