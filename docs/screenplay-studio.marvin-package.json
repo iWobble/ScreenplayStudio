@@ -4453,9 +4453,13 @@
             "help": "Each line is one thing the next stage needs. A tick means it is there; a circle links to the step that makes it. When all three tick, the setup is done: what to do next is listed below."
           }
         ],
+        "open": {
+          "entry": "story",
+          "label": "Open the story"
+        },
         "next": [
           {
-            "text": "Open the story and read its beats: each is one picture to make. Fix a beat's words or picture on the beat itself."
+            "text": "Read the story's beats: each is one picture to make. Fix a beat's words or picture on the beat itself."
           },
           {
             "text": "Cast the actors: give each character an actor from the troupe (the Characters step), then run “Screenplay: make a Character's master” for each to get its approved picture.",
