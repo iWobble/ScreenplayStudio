@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "48",
+  "version": "49",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4130,7 +4130,7 @@
                 "op": "contains",
                 "value": "| Beat | Time | Audio | Single still / composition |"
               },
-              "message": "The beat sheet for “${entry.title}” is ready: about ${steps.cut.output.answer|split:\"\\n| \"|length} rows in ${steps.cut.output.answer|split:\"## \"|length} scene(s), ${steps.cut.output.answer|length} characters. It is saved on the story as Beat sheet (draft): open the story to read it all before deciding. Use it as the story's script? The screenplay stays in its own field.\n\nHow it starts:\n${steps.cut.output.answer|truncate:500}",
+              "message": "The beat sheet for “${entry.title}” is ready: about ${steps.cut.output.answer|split:\"\\n| \"|length} rows in ${steps.cut.output.answer|split:\"## \"|length} scene(s), ${steps.cut.output.answer|length} characters. It is saved on the story as Beat sheet (draft): open the story to read it all before deciding. Use it as the story's script? That replaces the current script (${entry.data.script|length} characters); the screenplay stays in its own field.\n\nHow it starts:\n${steps.cut.output.answer|truncate:500}",
               "choices": [
                 "Use as the script",
                 "Keep it as a draft"
@@ -4285,6 +4285,10 @@
               "ctx": "input",
               "op": "eq",
               "value": "script"
+            },
+            "requires": {
+              "entry": "story",
+              "field": "screenplay"
             }
           },
           {
@@ -4321,6 +4325,10 @@
               "ctx": "input",
               "op": "neq",
               "value": "none"
+            },
+            "requires": {
+              "entry": "story",
+              "field": "script"
             }
           },
           {
