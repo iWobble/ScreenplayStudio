@@ -22,6 +22,7 @@ class FakeMarvin(BaseHTTPRequestHandler):
     uploads: list = []
     trashed: list = []
     audio: bytes = b""
+    webm: bytes = b""
 
     def _json(self, status, body):
         self.send_response(status)
@@ -33,6 +34,14 @@ class FakeMarvin(BaseHTTPRequestHandler):
             return self._json(200, FakeMarvin.entries)
         if self.path == "/api/platform/assets/take-1":
             return self._json(200, {"mimeType": "audio/mpeg"})
+        if self.path == "/api/platform/assets/voice-1":
+            return self._json(200, {"id": "voice-1", "slug": "granny-voice", "name": "Granny voice.webm", "mimeType": "video/webm"})
+        if self.path == "/api/platform/assets/pic-1":
+            return self._json(200, {"id": "pic-1", "slug": "pic", "name": "pic.png", "mimeType": "image/png"})
+        if self.path == "/api/platform/assets/voice-1/file":
+            self.send_response(200)
+            self.end_headers()
+            return self.wfile.write(FakeMarvin.webm)
         if self.path == "/api/platform/assets/take-1/file":
             self.send_response(200)
             self.end_headers()
@@ -68,6 +77,9 @@ def marvin(tmp_path):
         tone = tmp_path / "t.mp3"
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "libmp3lame", str(tone)], check=True)
         FakeMarvin.audio = tone.read_bytes()
+        rec = tmp_path / "r.webm"
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=330:duration=1", "-c:a", "libopus", str(rec)], check=True)
+        FakeMarvin.webm = rec.read_bytes()
     FakeMarvin.uploads = []
     FakeMarvin.entries = [
         {"id": "e0", "slug": STORY, "title": "The Last Onion", "dataJson": {}},
@@ -191,3 +203,72 @@ def test_import_voices_needs_no_arguments():
     (contract,) = worker_jobs.describe_kinds(["import-voices"])
     assert contract["inputs"]["search"]["required"] is False
     worker_jobs.check_args("import-voices", {})  # raises if an argument were needed
+
+
+def _convert_job(entry, field, **more):
+    FakeMarvin.entries.append({"id": "e9", "slug": "convert-job-1", "dataJson": {"kind": "convert-audio", "status": "claimed", "args": {"entry": entry, "field": field, **more}}})
+    return {"kind": "convert-audio", "job": "convert-job-1", "args": {"entry": entry, "field": field, **more}}
+
+
+def _actor(asset="voice-1"):
+    FakeMarvin.entries.append({"id": "e8", "slug": "granny", "title": "Granny", "dataJson": {"role": "actor", "voice_sample": asset}})
+
+
+@needs_ffmpeg
+def test_convert_audio_makes_an_mp3_of_a_browser_recording_and_points_the_field_at_it(marvin):
+    _actor()
+    serve.run_job(_convert_job("granny", "voice_sample"), marvin)
+
+    assert _data("convert-job-1")["status"] == "done"
+    result = _data("convert-job-1")["result"]
+    assert result["converted"] is True and result["format"] == "mp3" and result["from"] == "voice-1" and 0.8 < result["seconds"] < 1.3
+    assert _data("granny") == {"role": "actor", "voice_sample": "asset-new"}  # the field now holds the new asset, the rest is kept
+    (content_type, body), = FakeMarvin.uploads
+    assert b'filename="converted.mp3"' in body and b"Content-Type: audio/mpeg" in body and b"Granny voice.mp3" in body and b"granny-voice-mp3" in body
+
+
+@needs_ffmpeg
+def test_convert_audio_can_make_m4a(marvin):
+    _actor()
+    serve.run_job(_convert_job("granny", "voice_sample", format="M4A"), marvin)
+
+    assert _data("convert-job-1")["result"]["format"] == "m4a"
+    (_, body), = FakeMarvin.uploads
+    assert b'filename="converted.m4a"' in body and b"Content-Type: audio/mp4" in body
+
+
+def test_convert_audio_leaves_a_file_that_is_already_that_format(marvin):
+    FakeMarvin.entries.append({"id": "e8", "slug": "granny", "dataJson": {"voice_sample": "take-1"}})
+    serve.run_job(_convert_job("granny", "voice_sample"), marvin)
+
+    result = _data("convert-job-1")["result"]
+    assert result["converted"] is False and "already mp3" in _data("convert-job-1")["log"]
+    assert FakeMarvin.uploads == [] and _data("granny")["voice_sample"] == "take-1"
+
+
+@pytest.mark.parametrize(
+    "entry, field, more, said",
+    [
+        ("", "voice_sample", {}, "“entry” is needed"),
+        ("granny", "", {}, "“field” is needed"),
+        ("nobody", "voice_sample", {}, "no entry"),
+        ("granny", "empty_field", {}, "nothing in"),
+        ("granny", "voice_sample", {"format": "wav"}, "not a format"),
+        ("granny", "picture", {}, "not a sound"),
+    ],
+)
+def test_convert_audio_says_why_on_the_record_when_it_cannot(marvin, entry, field, more, said):
+    FakeMarvin.entries.append({"id": "e8", "slug": "granny", "dataJson": {"voice_sample": "voice-1", "picture": "pic-1"}})
+    serve.run_job(_convert_job(entry, field, **more), marvin)
+
+    data = _data("convert-job-1")
+    assert data["status"] == "failed" and said in data["log"] and FakeMarvin.uploads == []
+
+
+def test_convert_audio_declares_what_it_takes_and_needs():
+    from marvin_worker import jobs as worker_jobs
+
+    (contract,) = worker_jobs.describe_kinds(["convert-audio"])
+
+    assert set(contract["inputs"]) == {"entry", "field", "format"} and contract["needs"] == ["ffmpeg"]
+    assert contract["produces"] == ["audio/mpeg", "audio/mp4"]

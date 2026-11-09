@@ -41,7 +41,7 @@ There is no entry-to-entry reference field: a child holds its parent's **slug** 
 
 ## Workers
 
-Heavy jobs run on a generic worker (`InnerOpen/marvin-worker`): a standing runner that registers the kinds it can do, or a dispatcher that starts one per job. Kinds declare what they take, give and need, and a bad job fails at once with the reason. This repo's `render/` registers `audio-cut`. Settings -> Workers shows who is alive, what each kind takes, the queue, and each job's log and result.
+Heavy jobs run on a generic worker (`InnerOpen/marvin-worker`): a standing runner that registers the kinds it can do, or a dispatcher that starts one per job. Kinds declare what they take, give and need, and a bad job fails at once with the reason. This repo's `render/` registers `audio-cut` and the other media kinds. `convert-audio` (workflow `screenplay-convert-audio`, inputs entry, field, format) turns a recording a browser made (webm, ogg) into an mp3 (default) or m4a that plays anywhere: it reads the entry's audio field, converts, and points the field at the new asset; the original stays in the library and a file already in that format is left alone. Settings -> Workers shows who is alive, what each kind takes, the queue, and each job's log and result.
 
 ## Rules that cost us time
 

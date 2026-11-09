@@ -12,7 +12,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import beat_export, beat_import, build, chapters, ffmpeg, filmstrip, fountain, manifest, marvin_pull, script, voices
+from . import audio_convert, beat_export, beat_import, build, chapters, ffmpeg, filmstrip, fountain, manifest, marvin_pull, script, voices
 
 
 def story_of(job: dict) -> str:
@@ -55,6 +55,61 @@ def audio_cut(job: dict, ctx: Context) -> dict:
         done["chapters"] = listing
         note += f" {len(listing.splitlines())} chapter markers." + "".join(f" {p}" for p in problems)
     return {"result": done, "log": note}
+
+
+@job_kind(
+    "convert-audio",
+    description="Turn a recording held in an entry's audio field (a browser's webm or ogg) into an mp3 or m4a that plays anywhere, and point the field at the new file; the original stays in the library",
+    inputs={
+        "entry": {"type": "string", "description": "the entry's slug, e.g. the actor or the speech line holding the recording"},
+        "field": {"type": "string", "description": "the field holding the recording, e.g. voice_sample or audio"},
+        "format": {"type": "string", "required": False, "description": "mp3 (the default) or m4a"},
+    },
+    produces=["audio/mpeg", "audio/mp4"],
+    needs=["ffmpeg"],
+)
+def convert_audio(job: dict, ctx: Context) -> dict:
+    """A recording in an entry's asset field → mp3 or m4a; the field points at the new asset. A file already in that format is left alone."""
+    args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
+    slug, field = str(args.get("entry") or "").strip(), str(args.get("field") or "").strip()
+    if not slug or not field:
+        raise JobError("this kind of job needs args.entry (the entry's slug) and args.field (the field holding the recording)")
+    try:
+        fmt = audio_convert.format_of(args.get("format"))
+    except audio_convert.ConvertError as e:
+        raise JobError(str(e)) from e
+    row = next(iter(marvin_api.query(ctx.creds, {"entries": slug}, limit=1)), None)
+    if row is None:
+        raise JobError(f"no entry “{slug}”")
+    held = (row.get("dataJson") or row.get("data") or {}).get(field)
+    if not held or not isinstance(held, str):
+        raise JobError(f"“{slug}” has nothing in “{field}”: record or upload a sound there first")
+    source = marvin_api.asset(ctx.creds, held)
+    mime, name = source.get("mimeType"), source.get("name") or source.get("slug") or ""
+    if audio_convert.is_already(mime, name, fmt):
+        return {"result": {"entry": slug, "field": field, "format": fmt, "asset": source.get("id") or held, "converted": False}, "log": f"“{name}” is already {fmt}: nothing to do."}
+    if not audio_convert.is_audio(mime, name):
+        raise JobError(f"“{name}” ({mime or 'unknown type'}) is not a sound")
+    ext = audio_convert.FORMATS[fmt][0]
+    src = ctx.work / f"source{Path(name).suffix or '.bin'}"
+    marvin_api.download_asset(ctx.creds, source.get("id") or held, src)
+    out = ctx.work / f"converted{ext}"
+    try:
+        seconds = audio_convert.convert(src, out, fmt)
+    except ffmpeg.FfmpegError as e:
+        raise JobError(f"could not read “{name}” as sound: {e}") from e
+    ctx.note(f"converted {name} to {fmt}: {seconds:.1f} s")
+    asset = marvin_api.upload_asset(
+        ctx.creds,
+        out,
+        slug=f"{source.get('slug') or str(held)[:8]}-{fmt}",
+        name=audio_convert.named(name, fmt),
+        mime=audio_convert.FORMATS[fmt][1],
+        description=f"{name}, converted to {fmt} for {slug}.",
+        metadata={"seconds": round(seconds, 2), "kind": "converted-audio", "from": source.get("id") or held},
+    )
+    marvin_api.update_entry(ctx.creds, slug, {field: asset["id"]})
+    return {"result": {"entry": slug, "field": field, "format": fmt, "asset": asset["id"], "from": source.get("id") or held, "seconds": round(seconds, 2), "converted": True}, "log": f"{name} → {audio_convert.named(name, fmt)}, {seconds:.1f} s. “{field}” on {slug} now holds it; the original stays in the library."}
 
 
 SCRIPT_FILES = {"fountain": "text/plain", "pdf": "application/pdf", "html": "text/html", "breakdown": "text/html"}
