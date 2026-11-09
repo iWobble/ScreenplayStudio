@@ -265,13 +265,14 @@ def import_beats(job: dict, ctx: Context) -> dict:
     source = str(args.get("source") or "script").strip().lower()
     if source not in ("script", "screenplay"):
         raise JobError(f"source “{source}” is not script or screenplay")
-    report, parts = "", None
+    report, parts, part_text = "", None, ""
     if source == "screenplay":
         sheet = ""  # the screenplay is the source: nothing is loaded into the script field, and the script is left as it is
         screenplay = str(story_data.get("screenplay") or "")
         if not screenplay.strip():
             raise JobError(f"nothing to read: {story} has no screenplay. Put the Fountain text in its Screenplay field (or upload a .fountain file there)")
-        parts = parse_part(args.get("part"))
+        part_text = args.get("part") or story_data.get("import_part")  # asked for in the run, else what the story says to bring in
+        parts = parse_part(part_text)
         try:
             pages = float(args.get("chapter_pages") or fountain.CHAPTER_PAGES)
         except ValueError:
@@ -287,7 +288,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
         report = fplan.report(parts)
         if lost := fountain.check(fplan):
             raise JobError("the cut would lose part of the screenplay, so nothing was made: " + "; ".join(lost) + "\n\n" + report)
-        text, where = fplan.sheet(parts), f"{story}'s screenplay field" + (f" (chapters {args.get('part')})" if parts is not None else "")
+        text, where = fplan.sheet(parts), f"{story}'s screenplay field" + (f" (chapters {part_text})" if parts is not None else "")
     elif sheet:
         if str(story_data.get("script") or "").strip():
             raise JobError(f"{story} already has a script, and the script is the one place to edit it: change it there, or empty it first to load {sheet}")
@@ -369,7 +370,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
         "sound_cues_not_imported": plan["sounds"],
         "problems": plan["problems"],
         "source": source,
-        "part": str(args.get("part") or "all"),
+        "part": str((part_text if source == "screenplay" else args.get("part")) or "all"),
         "split_report": report,
     }
     changed = plan["beats"] or plan["lines"] or plan["chapters"] or plan["updates"] or plan["trash"]
@@ -382,7 +383,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
                 story_data["sheet_base"], base_changed = digest, True
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     if source == "screenplay":  # the report is kept on the story, where a wizard step (or the person) reads it before and after importing
-        story_data["split_plan"] = f"{stamp} · {'preview' if dry else 'import'}, chapters {args.get('part') or 'all'}\n\n{report}\n\n{note}"
+        story_data["split_plan"] = f"{stamp} · {'preview' if dry else 'import'}, chapters {part_text or 'all'}\n\n{report}\n\n{note}"
     if source == "screenplay" or (not dry and (changed or loaded or base_changed)):
         bits = [f"+{len(plan['beats'])} beats, +{len(plan['lines'])} lines" + (f", +{len(plan['chapters'])} chapters" if plan["chapters"] else "")]
         if plan["updates"]:
@@ -394,7 +395,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
         if plan["kept"]:
             bits.append("differ from the script but kept (a picture or recording was made): " + ", ".join(short(s) for s, _ in plan["kept"][:8]))
         if (changed or loaded) and not dry:
-            via = f" · from the screenplay{' (chapters ' + str(args.get('part')) + ')' if parts is not None else ''}" if source == "screenplay" else ""
+            via = f" · from the screenplay{' (chapters ' + str(part_text) + ')' if parts is not None else ''}" if source == "screenplay" else ""
             entry = f"{stamp} · {'refresh' if refresh else 'add'}{via}{' · loaded from ' + sheet if loaded else ''} · " + " · ".join(bits)
             story_data["sheet_log"] = (str(story_data.get("sheet_log") or "").rstrip() + "\n" + entry).strip()
         body = json.dumps({"title": story_row.get("title"), "slug": story_row.get("slug"), "dataJson": story_data}).encode()

@@ -215,3 +215,13 @@ def test_more_records_than_one_page_are_all_seen_so_nothing_is_made_twice(marvin
     fake, ctx = marvin(text, have=have)
     done = run(ctx)
     assert done["result"]["beats_made"] == 0 and done["result"]["lines_made"] == 0
+
+
+def test_without_a_part_the_storys_own_import_part_says_which_chapters(marvin):
+    fake, ctx = marvin(THREE)
+    fake.story["dataJson"]["import_part"] = "3"
+    done = run(ctx)
+    assert done["result"]["chapters_made"] == ["s-chapter-03"] and done["result"]["part"] == "3"
+    fake2, ctx2 = marvin(THREE)
+    fake2.story["dataJson"]["import_part"] = "3"
+    assert run(ctx2, part="1")["result"]["chapters_made"] == ["s-chapter-01"]  # a part given in the run wins
