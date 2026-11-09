@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "66",
+  "version": "67",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1229,7 +1229,19 @@
               "label": "Voice",
               "type": "text",
               "ref": "voice",
-              "helpText": "The voice that speaks this line (a voice's slug). A new line takes the voice of the story's character with the same speaker. A voice with an ElevenLabs id is recorded by ElevenLabs when you queue the line; any other voice (your own) is not: record or upload the take on Audio."
+              "helpText": "The voice that speaks this line (a voice's slug). A new line takes the voice of the story's character with the same speaker. A voice with no ElevenLabs id (your own) is never sent to ElevenLabs either."
+            },
+            {
+              "key": "source",
+              "label": "Where the take came from",
+              "type": "select",
+              "options": [
+                "generated",
+                "uploaded",
+                "recorded"
+              ],
+              "defaultValue": "generated",
+              "helpText": "generated: ElevenLabs makes it from the text when you queue the line (you approve the spend). uploaded or recorded: your own take on Audio; queueing it never calls ElevenLabs, it only makes the file an mp3 and marks it recorded. Use it for a quick guide take before paying for the real voice: set it to generated and queue the line when you want ElevenLabs."
             },
             {
               "key": "engine",
@@ -2400,17 +2412,31 @@
                 "take_notes": "Waiting for approval to record."
               },
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2418,17 +2444,31 @@
               "id": "spend",
               "message": "Record ${entry.data.speaker}: “${entry.data.text}” with ElevenLabs (connection: ${entry.data.engine|default:\"elevenlabs\"}, model: ${entry.data.model|default:\"that connection's default\"})? It uses speech credit (${entry.data.text|length} characters).",
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2446,17 +2486,31 @@
               },
               "capability": "speech.synthesize",
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2469,17 +2523,31 @@
                 "take_notes": "Recorded; saved as a take record. Listen, then Keep or Redo. Pick a different take any time by setting a take's Status to In use."
               },
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2502,17 +2570,31 @@
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}"
               },
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2525,17 +2607,31 @@
               ],
               "image": "${steps.say.output.asset.url}",
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2552,17 +2648,31 @@
                     "value": "Keep"
                   },
                   {
-                    "any": [
-                      {
-                        "field": "entry.data.voice",
-                        "op": "exists",
-                        "value": false
-                      },
-                      {
-                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                        "op": "exists"
-                      }
-                    ]
+                    "not": {
+                      "any": [
+                        {
+                          "field": "entry.data.source",
+                          "op": "in",
+                          "value": [
+                            "uploaded",
+                            "recorded"
+                          ]
+                        },
+                        {
+                          "all": [
+                            {
+                              "field": "entry.data.voice",
+                              "op": "exists"
+                            },
+                            {
+                              "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                              "op": "exists",
+                              "value": false
+                            }
+                          ]
+                        }
+                      ]
+                    }
                   }
                 ]
               }
@@ -2581,17 +2691,31 @@
                     "value": "Redo"
                   },
                   {
-                    "any": [
-                      {
-                        "field": "entry.data.voice",
-                        "op": "exists",
-                        "value": false
-                      },
-                      {
-                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                        "op": "exists"
-                      }
-                    ]
+                    "not": {
+                      "any": [
+                        {
+                          "field": "entry.data.source",
+                          "op": "in",
+                          "value": [
+                            "uploaded",
+                            "recorded"
+                          ]
+                        },
+                        {
+                          "all": [
+                            {
+                              "field": "entry.data.voice",
+                              "op": "exists"
+                            },
+                            {
+                              "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                              "op": "exists",
+                              "value": false
+                            }
+                          ]
+                        }
+                      ]
+                    }
                   }
                 ]
               }
@@ -2614,15 +2738,27 @@
               "when": {
                 "all": [
                   {
-                    "all": [
+                    "any": [
                       {
-                        "field": "entry.data.voice",
-                        "op": "exists"
+                        "field": "entry.data.source",
+                        "op": "in",
+                        "value": [
+                          "uploaded",
+                          "recorded"
+                        ]
                       },
                       {
-                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                        "op": "exists",
-                        "value": false
+                        "all": [
+                          {
+                            "field": "entry.data.voice",
+                            "op": "exists"
+                          },
+                          {
+                            "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                            "op": "exists",
+                            "value": false
+                          }
+                        ]
                       }
                     ]
                   },
@@ -2639,20 +2775,32 @@
               "entity_slug": "${entry.slug}",
               "data": {
                 "status": "recorded",
-                "take_notes": "This line's voice is your own (it has no ElevenLabs id): the take you attached is made into an mp3 if it was not one. Nothing was sent to ElevenLabs."
+                "take_notes": "Your own take: made into an mp3 if it was not one, never sent to ElevenLabs. To have ElevenLabs make it, set Where the take came from to generated and queue the line."
               },
               "when": {
                 "all": [
                   {
-                    "all": [
+                    "any": [
                       {
-                        "field": "entry.data.voice",
-                        "op": "exists"
+                        "field": "entry.data.source",
+                        "op": "in",
+                        "value": [
+                          "uploaded",
+                          "recorded"
+                        ]
                       },
                       {
-                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                        "op": "exists",
-                        "value": false
+                        "all": [
+                          {
+                            "field": "entry.data.voice",
+                            "op": "exists"
+                          },
+                          {
+                            "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                            "op": "exists",
+                            "value": false
+                          }
+                        ]
                       }
                     ]
                   },
@@ -2669,20 +2817,32 @@
               "entity_slug": "${entry.slug}",
               "data": {
                 "status": "draft",
-                "take_notes": "This line's voice is your own (it has no ElevenLabs id), so nothing was sent to ElevenLabs. Record or upload the take on the Audio field, then queue it again."
+                "take_notes": "This line's take is your own (or its voice has no ElevenLabs id), so nothing was sent to ElevenLabs. Record or upload the take on the Audio field and queue it again; or set Where the take came from to generated for ElevenLabs."
               },
               "when": {
                 "all": [
                   {
-                    "all": [
+                    "any": [
                       {
-                        "field": "entry.data.voice",
-                        "op": "exists"
+                        "field": "entry.data.source",
+                        "op": "in",
+                        "value": [
+                          "uploaded",
+                          "recorded"
+                        ]
                       },
                       {
-                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                        "op": "exists",
-                        "value": false
+                        "all": [
+                          {
+                            "field": "entry.data.voice",
+                            "op": "exists"
+                          },
+                          {
+                            "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                            "op": "exists",
+                            "value": false
+                          }
+                        ]
                       }
                     ]
                   },
@@ -2751,17 +2911,31 @@
                 "take_notes": "Waiting for approval to record."
               },
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2769,17 +2943,31 @@
               "id": "spend",
               "message": "Record ${entry.data.speaker}: “${entry.data.delivery_text}” with ElevenLabs v3 (tags are read as direction, not spoken)? It uses speech credit (${entry.data.delivery_text|length} characters).",
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2797,17 +2985,31 @@
                 "model_id": "eleven_v3"
               },
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2820,17 +3022,31 @@
                 "take_notes": "Recorded; saved as a take record. Listen, then Keep or Redo. Pick a different take any time by setting a take's Status to In use."
               },
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2854,17 +3070,31 @@
                 "model": "eleven_v3"
               },
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2877,17 +3107,31 @@
               ],
               "image": "${steps.say.output.asset.url}",
               "when": {
-                "any": [
-                  {
-                    "field": "entry.data.voice",
-                    "op": "exists",
-                    "value": false
-                  },
-                  {
-                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                    "op": "exists"
-                  }
-                ]
+                "not": {
+                  "any": [
+                    {
+                      "field": "entry.data.source",
+                      "op": "in",
+                      "value": [
+                        "uploaded",
+                        "recorded"
+                      ]
+                    },
+                    {
+                      "all": [
+                        {
+                          "field": "entry.data.voice",
+                          "op": "exists"
+                        },
+                        {
+                          "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                          "op": "exists",
+                          "value": false
+                        }
+                      ]
+                    }
+                  ]
+                }
               }
             },
             {
@@ -2904,17 +3148,31 @@
                     "value": "Keep"
                   },
                   {
-                    "any": [
-                      {
-                        "field": "entry.data.voice",
-                        "op": "exists",
-                        "value": false
-                      },
-                      {
-                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                        "op": "exists"
-                      }
-                    ]
+                    "not": {
+                      "any": [
+                        {
+                          "field": "entry.data.source",
+                          "op": "in",
+                          "value": [
+                            "uploaded",
+                            "recorded"
+                          ]
+                        },
+                        {
+                          "all": [
+                            {
+                              "field": "entry.data.voice",
+                              "op": "exists"
+                            },
+                            {
+                              "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                              "op": "exists",
+                              "value": false
+                            }
+                          ]
+                        }
+                      ]
+                    }
                   }
                 ]
               }
@@ -2933,17 +3191,31 @@
                     "value": "Redo"
                   },
                   {
-                    "any": [
-                      {
-                        "field": "entry.data.voice",
-                        "op": "exists",
-                        "value": false
-                      },
-                      {
-                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                        "op": "exists"
-                      }
-                    ]
+                    "not": {
+                      "any": [
+                        {
+                          "field": "entry.data.source",
+                          "op": "in",
+                          "value": [
+                            "uploaded",
+                            "recorded"
+                          ]
+                        },
+                        {
+                          "all": [
+                            {
+                              "field": "entry.data.voice",
+                              "op": "exists"
+                            },
+                            {
+                              "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                              "op": "exists",
+                              "value": false
+                            }
+                          ]
+                        }
+                      ]
+                    }
                   }
                 ]
               }
@@ -2966,15 +3238,27 @@
               "when": {
                 "all": [
                   {
-                    "all": [
+                    "any": [
                       {
-                        "field": "entry.data.voice",
-                        "op": "exists"
+                        "field": "entry.data.source",
+                        "op": "in",
+                        "value": [
+                          "uploaded",
+                          "recorded"
+                        ]
                       },
                       {
-                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                        "op": "exists",
-                        "value": false
+                        "all": [
+                          {
+                            "field": "entry.data.voice",
+                            "op": "exists"
+                          },
+                          {
+                            "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                            "op": "exists",
+                            "value": false
+                          }
+                        ]
                       }
                     ]
                   },
@@ -2991,20 +3275,32 @@
               "entity_slug": "${entry.slug}",
               "data": {
                 "status": "recorded",
-                "take_notes": "This line's voice is your own (it has no ElevenLabs id): the take you attached is made into an mp3 if it was not one. Nothing was sent to ElevenLabs."
+                "take_notes": "Your own take: made into an mp3 if it was not one, never sent to ElevenLabs. To have ElevenLabs make it, set Where the take came from to generated and queue the line."
               },
               "when": {
                 "all": [
                   {
-                    "all": [
+                    "any": [
                       {
-                        "field": "entry.data.voice",
-                        "op": "exists"
+                        "field": "entry.data.source",
+                        "op": "in",
+                        "value": [
+                          "uploaded",
+                          "recorded"
+                        ]
                       },
                       {
-                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                        "op": "exists",
-                        "value": false
+                        "all": [
+                          {
+                            "field": "entry.data.voice",
+                            "op": "exists"
+                          },
+                          {
+                            "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                            "op": "exists",
+                            "value": false
+                          }
+                        ]
                       }
                     ]
                   },
@@ -3021,20 +3317,32 @@
               "entity_slug": "${entry.slug}",
               "data": {
                 "status": "draft",
-                "take_notes": "This line's voice is your own (it has no ElevenLabs id), so nothing was sent to ElevenLabs. Record or upload the take on the Audio field, then queue it again."
+                "take_notes": "This line's take is your own (or its voice has no ElevenLabs id), so nothing was sent to ElevenLabs. Record or upload the take on the Audio field and queue it again; or set Where the take came from to generated for ElevenLabs."
               },
               "when": {
                 "all": [
                   {
-                    "all": [
+                    "any": [
                       {
-                        "field": "entry.data.voice",
-                        "op": "exists"
+                        "field": "entry.data.source",
+                        "op": "in",
+                        "value": [
+                          "uploaded",
+                          "recorded"
+                        ]
                       },
                       {
-                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                        "op": "exists",
-                        "value": false
+                        "all": [
+                          {
+                            "field": "entry.data.voice",
+                            "op": "exists"
+                          },
+                          {
+                            "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                            "op": "exists",
+                            "value": false
+                          }
+                        ]
                       }
                     ]
                   },
