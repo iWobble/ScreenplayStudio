@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "65",
+  "version": "66",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1228,7 +1228,8 @@
               "key": "voice",
               "label": "Voice",
               "type": "text",
-              "ref": "voice"
+              "ref": "voice",
+              "helpText": "The voice that speaks this line (a voice's slug). A new line takes the voice of the story's character with the same speaker. A voice with an ElevenLabs id is recorded by ElevenLabs when you queue the line; any other voice (your own) is not: record or upload the take on Audio."
             },
             {
               "key": "engine",
@@ -2397,12 +2398,38 @@
               "op": "set_data",
               "data": {
                 "take_notes": "Waiting for approval to record."
+              },
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
               }
             },
             {
               "kind": "approval",
               "id": "spend",
-              "message": "Record ${entry.data.speaker}: “${entry.data.text}” with ElevenLabs (connection: ${entry.data.engine|default:\"elevenlabs\"}, model: ${entry.data.model|default:\"that connection's default\"})? It uses speech credit (${entry.data.text|length} characters)."
+              "message": "Record ${entry.data.speaker}: “${entry.data.text}” with ElevenLabs (connection: ${entry.data.engine|default:\"elevenlabs\"}, model: ${entry.data.model|default:\"that connection's default\"})? It uses speech credit (${entry.data.text|length} characters).",
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
+              }
             },
             {
               "kind": "integration",
@@ -2417,7 +2444,20 @@
                 "speed": "${entry.data.speed}",
                 "model_id": "${entry.data.model}"
               },
-              "capability": "speech.synthesize"
+              "capability": "speech.synthesize",
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
+              }
             },
             {
               "kind": "entry",
@@ -2427,6 +2467,19 @@
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}",
                 "status": "recorded",
                 "take_notes": "Recorded; saved as a take record. Listen, then Keep or Redo. Pick a different take any time by setting a take's Status to In use."
+              },
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
               }
             },
             {
@@ -2447,6 +2500,19 @@
                 "style": "${entry.data.style}",
                 "speed": "${entry.data.speed}",
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}"
+              },
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
               }
             },
             {
@@ -2457,7 +2523,20 @@
                 "Keep",
                 "Redo"
               ],
-              "image": "${steps.say.output.asset.url}"
+              "image": "${steps.say.output.asset.url}",
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
+              }
             },
             {
               "kind": "entry",
@@ -2466,9 +2545,26 @@
                 "status": "approved"
               },
               "when": {
-                "field": "steps.keep.output.choice",
-                "op": "eq",
-                "value": "Keep"
+                "all": [
+                  {
+                    "field": "steps.keep.output.choice",
+                    "op": "eq",
+                    "value": "Keep"
+                  },
+                  {
+                    "any": [
+                      {
+                        "field": "entry.data.voice",
+                        "op": "exists",
+                        "value": false
+                      },
+                      {
+                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                        "op": "exists"
+                      }
+                    ]
+                  }
+                ]
               }
             },
             {
@@ -2478,9 +2574,124 @@
                 "status": "queued"
               },
               "when": {
-                "field": "steps.keep.output.choice",
-                "op": "eq",
-                "value": "Redo"
+                "all": [
+                  {
+                    "field": "steps.keep.output.choice",
+                    "op": "eq",
+                    "value": "Redo"
+                  },
+                  {
+                    "any": [
+                      {
+                        "field": "entry.data.voice",
+                        "op": "exists",
+                        "value": false
+                      },
+                      {
+                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                        "op": "exists"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Prepare the take: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "convert-audio",
+                "args": {
+                  "entry": "${entry.slug}",
+                  "field": "audio",
+                  "format": "mp3"
+                },
+                "status": "queued"
+              },
+              "when": {
+                "all": [
+                  {
+                    "all": [
+                      {
+                        "field": "entry.data.voice",
+                        "op": "exists"
+                      },
+                      {
+                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                        "op": "exists",
+                        "value": false
+                      }
+                    ]
+                  },
+                  {
+                    "field": "entry.data.audio",
+                    "op": "exists"
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.slug}",
+              "data": {
+                "status": "recorded",
+                "take_notes": "This line's voice is your own (it has no ElevenLabs id): the take you attached is made into an mp3 if it was not one. Nothing was sent to ElevenLabs."
+              },
+              "when": {
+                "all": [
+                  {
+                    "all": [
+                      {
+                        "field": "entry.data.voice",
+                        "op": "exists"
+                      },
+                      {
+                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                        "op": "exists",
+                        "value": false
+                      }
+                    ]
+                  },
+                  {
+                    "field": "entry.data.audio",
+                    "op": "exists"
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.slug}",
+              "data": {
+                "status": "draft",
+                "take_notes": "This line's voice is your own (it has no ElevenLabs id), so nothing was sent to ElevenLabs. Record or upload the take on the Audio field, then queue it again."
+              },
+              "when": {
+                "all": [
+                  {
+                    "all": [
+                      {
+                        "field": "entry.data.voice",
+                        "op": "exists"
+                      },
+                      {
+                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                        "op": "exists",
+                        "value": false
+                      }
+                    ]
+                  },
+                  {
+                    "field": "entry.data.audio",
+                    "op": "exists",
+                    "value": false
+                  }
+                ]
               }
             }
           ]
@@ -2538,12 +2749,38 @@
               "op": "set_data",
               "data": {
                 "take_notes": "Waiting for approval to record."
+              },
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
               }
             },
             {
               "kind": "approval",
               "id": "spend",
-              "message": "Record ${entry.data.speaker}: “${entry.data.delivery_text}” with ElevenLabs v3 (tags are read as direction, not spoken)? It uses speech credit (${entry.data.delivery_text|length} characters)."
+              "message": "Record ${entry.data.speaker}: “${entry.data.delivery_text}” with ElevenLabs v3 (tags are read as direction, not spoken)? It uses speech credit (${entry.data.delivery_text|length} characters).",
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
+              }
             },
             {
               "kind": "integration",
@@ -2558,6 +2795,19 @@
                 "style": "${entry.data.style}",
                 "speed": "${entry.data.speed}",
                 "model_id": "eleven_v3"
+              },
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
               }
             },
             {
@@ -2568,6 +2818,19 @@
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}",
                 "status": "recorded",
                 "take_notes": "Recorded; saved as a take record. Listen, then Keep or Redo. Pick a different take any time by setting a take's Status to In use."
+              },
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
               }
             },
             {
@@ -2589,6 +2852,19 @@
                 "speed": "${entry.data.speed}",
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}",
                 "model": "eleven_v3"
+              },
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
               }
             },
             {
@@ -2599,7 +2875,20 @@
                 "Keep",
                 "Redo"
               ],
-              "image": "${steps.say.output.asset.url}"
+              "image": "${steps.say.output.asset.url}",
+              "when": {
+                "any": [
+                  {
+                    "field": "entry.data.voice",
+                    "op": "exists",
+                    "value": false
+                  },
+                  {
+                    "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                    "op": "exists"
+                  }
+                ]
+              }
             },
             {
               "kind": "entry",
@@ -2608,9 +2897,26 @@
                 "status": "approved"
               },
               "when": {
-                "field": "steps.keep.output.choice",
-                "op": "eq",
-                "value": "Keep"
+                "all": [
+                  {
+                    "field": "steps.keep.output.choice",
+                    "op": "eq",
+                    "value": "Keep"
+                  },
+                  {
+                    "any": [
+                      {
+                        "field": "entry.data.voice",
+                        "op": "exists",
+                        "value": false
+                      },
+                      {
+                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                        "op": "exists"
+                      }
+                    ]
+                  }
+                ]
               }
             },
             {
@@ -2620,9 +2926,124 @@
                 "status": "queued"
               },
               "when": {
-                "field": "steps.keep.output.choice",
-                "op": "eq",
-                "value": "Redo"
+                "all": [
+                  {
+                    "field": "steps.keep.output.choice",
+                    "op": "eq",
+                    "value": "Redo"
+                  },
+                  {
+                    "any": [
+                      {
+                        "field": "entry.data.voice",
+                        "op": "exists",
+                        "value": false
+                      },
+                      {
+                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                        "op": "exists"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Prepare the take: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "convert-audio",
+                "args": {
+                  "entry": "${entry.slug}",
+                  "field": "audio",
+                  "format": "mp3"
+                },
+                "status": "queued"
+              },
+              "when": {
+                "all": [
+                  {
+                    "all": [
+                      {
+                        "field": "entry.data.voice",
+                        "op": "exists"
+                      },
+                      {
+                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                        "op": "exists",
+                        "value": false
+                      }
+                    ]
+                  },
+                  {
+                    "field": "entry.data.audio",
+                    "op": "exists"
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.slug}",
+              "data": {
+                "status": "recorded",
+                "take_notes": "This line's voice is your own (it has no ElevenLabs id): the take you attached is made into an mp3 if it was not one. Nothing was sent to ElevenLabs."
+              },
+              "when": {
+                "all": [
+                  {
+                    "all": [
+                      {
+                        "field": "entry.data.voice",
+                        "op": "exists"
+                      },
+                      {
+                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                        "op": "exists",
+                        "value": false
+                      }
+                    ]
+                  },
+                  {
+                    "field": "entry.data.audio",
+                    "op": "exists"
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.slug}",
+              "data": {
+                "status": "draft",
+                "take_notes": "This line's voice is your own (it has no ElevenLabs id), so nothing was sent to ElevenLabs. Record or upload the take on the Audio field, then queue it again."
+              },
+              "when": {
+                "all": [
+                  {
+                    "all": [
+                      {
+                        "field": "entry.data.voice",
+                        "op": "exists"
+                      },
+                      {
+                        "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
+                        "op": "exists",
+                        "value": false
+                      }
+                    ]
+                  },
+                  {
+                    "field": "entry.data.audio",
+                    "op": "exists",
+                    "value": false
+                  }
+                ]
               }
             }
           ]
@@ -3194,6 +3615,73 @@
             }
           ]
         }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-line-voice",
+      "name": "Line takes its character's voice",
+      "description": "When a speech line is made with a speaker and no voice, it takes the voice of the story's character whose speaker is the same, so a take is recorded in that voice. A voice the line already has is kept.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Line takes its character's voice",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_created"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "speech-line"
+            },
+            {
+              "field": "entry.data.speaker",
+              "op": "exists"
+            },
+            {
+              "field": "entry.data.voice",
+              "op": "exists",
+              "value": false
+            }
+          ],
+          "actions": [
+            {
+              "kind": "collect",
+              "id": "who",
+              "entity": "entry",
+              "limit": 1,
+              "query": {
+                "entry_type": "cast-member",
+                "data": {
+                  "story": "${entry.data.story}",
+                  "speaker": "${entry.data.speaker}"
+                }
+              },
+              "fields": [
+                "data.voice"
+              ]
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.slug}",
+              "data": {
+                "voice": "${steps.who.output.rows.0.data.voice}"
+              },
+              "when": {
+                "field": "steps.who.output.rows.0.data.voice",
+                "op": "exists"
+              }
+            }
+          ]
+        },
+        "description": "When a speech line is made with a speaker and no voice, it takes the voice of the story's character whose speaker is the same. A voice the line already has is kept."
       }
     },
     {
