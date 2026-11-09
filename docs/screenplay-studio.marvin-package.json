@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "63",
+  "version": "64",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -5337,7 +5337,7 @@
             "id": "ready",
             "kind": "review",
             "title": "Check what you have",
-            "help": "A tick means it is there. Go back a step to bring in more chapters, or on to Narrate a story to cast the characters.",
+            "help": "A tick means it is there. A screenplay with one chapter makes no chapter entry: its beats sit straight under the story. Go back a step to bring in more chapters, or on to Narrate a story to cast the characters.",
             "checks": [
               {
                 "label": "The screenplay is in the story",
@@ -5356,18 +5356,6 @@
                 "op": "gte",
                 "value": 1,
                 "step": "upload"
-              },
-              {
-                "label": "Chapters have been made",
-                "query": {
-                  "entry_type": "chapter",
-                  "fields": {
-                    "story": "${story}"
-                  }
-                },
-                "op": "gte",
-                "value": 1,
-                "step": "import"
               },
               {
                 "label": "Beats have been made",
