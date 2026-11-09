@@ -99,15 +99,22 @@ def convert_audio(job: dict, ctx: Context) -> dict:
     except ffmpeg.FfmpegError as e:
         raise JobError(f"could not read “{name}” as sound: {e}") from e
     ctx.note(f"converted {name} to {fmt}: {seconds:.1f} s")
-    asset = marvin_api.upload_asset(
-        ctx.creds,
-        out,
-        slug=f"{source.get('slug') or str(held)[:8]}-{fmt}",
-        name=audio_convert.named(name, fmt),
-        mime=audio_convert.FORMATS[fmt][1],
-        description=f"{name}, converted to {fmt} for {slug}.",
-        metadata={"seconds": round(seconds, 2), "kind": "converted-audio", "from": source.get("id") or held},
-    )
+    base = f"{source.get('slug') or str(held)[:8]}-{fmt}"
+    for attempt in range(1, 7):  # converting the same recording again (for another entry) finds the slug taken: number it
+        try:
+            asset = marvin_api.upload_asset(
+                ctx.creds,
+                out,
+                slug=base if attempt == 1 else f"{base}-{attempt}",
+                name=audio_convert.named(name, fmt),
+                mime=audio_convert.FORMATS[fmt][1],
+                description=f"{name}, converted to {fmt} for {slug}.",
+                metadata={"seconds": round(seconds, 2), "kind": "converted-audio", "from": source.get("id") or held},
+            )
+            break
+        except marvin_api.MarvinError as e:
+            if "answered 409" not in str(e) or attempt == 6:
+                raise
     marvin_api.update_entry(ctx.creds, slug, {field: asset["id"]})
     return {"result": {"entry": slug, "field": field, "format": fmt, "asset": asset["id"], "from": source.get("id") or held, "seconds": round(seconds, 2), "converted": True}, "log": f"{name} → {audio_convert.named(name, fmt)}, {seconds:.1f} s. “{field}” on {slug} now holds it; the original stays in the library."}
 

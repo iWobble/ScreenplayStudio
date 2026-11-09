@@ -23,6 +23,7 @@ class FakeMarvin(BaseHTTPRequestHandler):
     trashed: list = []
     audio: bytes = b""
     webm: bytes = b""
+    taken_slugs: list = []
 
     def _json(self, status, body):
         self.send_response(status)
@@ -54,6 +55,8 @@ class FakeMarvin(BaseHTTPRequestHandler):
             wanted = json.loads(body)["spec"]["entries"]
             hits = [e for e in FakeMarvin.entries if e["slug"] == wanted]
             return self._json(200, {"entries": hits, "total": len(hits)})
+        if any(f'name="slug"\r\n\r\n{taken}\r\n'.encode() in body for taken in FakeMarvin.taken_slugs):
+            return self._json(409, {"detail": "A database constraint was violated."})
         FakeMarvin.uploads.append((self.headers["Content-Type"], body))
         self._json(201, {"id": "asset-new", "publicUrl": "https://assets.example/cut.mp3"})
 
@@ -81,6 +84,7 @@ def marvin(tmp_path):
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=330:duration=1", "-c:a", "libopus", str(rec)], check=True)
         FakeMarvin.webm = rec.read_bytes()
     FakeMarvin.uploads = []
+    FakeMarvin.taken_slugs = []
     FakeMarvin.entries = [
         {"id": "e0", "slug": STORY, "title": "The Last Onion", "dataJson": {}},
         {"id": "e1", "slug": f"{STORY}-beat-01", "dataJson": {"story": STORY, "number": "01"}},
@@ -225,6 +229,17 @@ def test_convert_audio_makes_an_mp3_of_a_browser_recording_and_points_the_field_
     assert _data("granny") == {"role": "actor", "voice_sample": "asset-new"}  # the field now holds the new asset, the rest is kept
     (content_type, body), = FakeMarvin.uploads
     assert b'filename="converted.mp3"' in body and b"Content-Type: audio/mpeg" in body and b"Granny voice.mp3" in body and b"granny-voice-mp3" in body
+
+
+@needs_ffmpeg
+def test_convert_audio_of_a_recording_already_converted_once_takes_the_next_free_slug(marvin):
+    _actor()
+    FakeMarvin.taken_slugs = ["granny-voice-mp3", "granny-voice-mp3-2"]
+    serve.run_job(_convert_job("granny", "voice_sample"), marvin)
+
+    assert _data("convert-job-1")["status"] == "done"
+    (_, body), = FakeMarvin.uploads
+    assert b"granny-voice-mp3-3" in body
 
 
 @needs_ffmpeg
