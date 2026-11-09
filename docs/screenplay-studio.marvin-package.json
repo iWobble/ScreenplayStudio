@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "54",
+  "version": "55",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -2899,6 +2899,67 @@
       }
     },
     {
+      "kind": "workflow",
+      "slug": "screenplay-actor-voice",
+      "name": "Screenplay: an actor's voice brings its sample",
+      "description": "",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: an actor's voice brings its sample",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_updated"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "actor"
+            },
+            {
+              "field": "entry.data.voice",
+              "op": "changed"
+            },
+            {
+              "field": "entry.data.voice",
+              "op": "exists"
+            }
+          ],
+          "actions": [
+            {
+              "kind": "collect",
+              "id": "voice",
+              "entity": "entry",
+              "limit": 1,
+              "query": {
+                "entries": "${entry.data.voice}"
+              },
+              "fields": [
+                "data.preview"
+              ]
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.slug}",
+              "data": {
+                "voice_sample": "${steps.voice.output.rows.0.data.preview}"
+              },
+              "when": {
+                "field": "steps.voice.output.rows.0.data.preview",
+                "op": "exists"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
       "kind": "collection",
       "slug": "screenplay-stories",
       "name": "Screenplay Studio: Stories",
@@ -4212,6 +4273,8 @@
             "scope": {
               "world": "${world}"
             },
+            "picture": "general_view",
+            "subtitle": "build",
             "optional": true,
             "help": "Pick an actor to take their headshot and fill in their sheet. Skip this to go straight to the voices."
           },
