@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "67",
+  "version": "68",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1658,7 +1658,7 @@
               "label": "Line",
               "type": "text",
               "required": true,
-              "helpText": "Slug of the speech line this is a take of."
+              "helpText": "Slug of the speech line this is a take of. The slug of the speech line this is a take of."
             },
             {
               "key": "story",
@@ -1672,6 +1672,18 @@
               "type": "asset",
               "helpText": "The recording. Upload your own to add a take recorded outside Marvin.",
               "accept": "audio/*"
+            },
+            {
+              "key": "source",
+              "label": "Where the take came from",
+              "type": "select",
+              "options": [
+                "generated",
+                "uploaded",
+                "recorded"
+              ],
+              "defaultValue": "generated",
+              "helpText": "generated: made by ElevenLabs. uploaded or recorded: your own file. Add one yourself by making a take for the line (Line = the line's slug), attaching the audio, and setting Status to In use and this to uploaded or recorded: the line then uses it and keeps the file as an mp3."
             },
             {
               "key": "status",
@@ -2354,6 +2366,65 @@
                   }
                 }
               ]
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.data.line}",
+              "data": {
+                "audio": "${entry.data.audio}",
+                "duration_seconds": "${entry.data.duration_seconds}",
+                "status": "recorded",
+                "take_notes": "Your own take “${entry.title}”: never sent to ElevenLabs, made into an mp3 if it was not one. To have ElevenLabs make it, set the line's Where the take came from to generated and queue it."
+              },
+              "when": {
+                "all": [
+                  {
+                    "field": "entry.data.source",
+                    "op": "in",
+                    "value": [
+                      "uploaded",
+                      "recorded"
+                    ]
+                  },
+                  {
+                    "field": "entry.data.audio",
+                    "op": "exists"
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Prepare the take: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "convert-audio",
+                "args": {
+                  "entry": "${entry.data.line}",
+                  "field": "audio",
+                  "format": "mp3"
+                },
+                "status": "queued"
+              },
+              "when": {
+                "all": [
+                  {
+                    "field": "entry.data.source",
+                    "op": "in",
+                    "value": [
+                      "uploaded",
+                      "recorded"
+                    ]
+                  },
+                  {
+                    "field": "entry.data.audio",
+                    "op": "exists"
+                  }
+                ]
+              }
             }
           ]
         }
@@ -2567,7 +2638,8 @@
                 "similarity_boost": "${entry.data.similarity_boost}",
                 "style": "${entry.data.style}",
                 "speed": "${entry.data.speed}",
-                "duration_seconds": "${steps.say.output.asset.duration_seconds}"
+                "duration_seconds": "${steps.say.output.asset.duration_seconds}",
+                "source": "generated"
               },
               "when": {
                 "not": {
@@ -2723,59 +2795,18 @@
             {
               "kind": "entry",
               "op": "create",
-              "entry_type": "job",
-              "title": "Prepare the take: ${entry.title}",
+              "entry_type": "take",
               "status": "draft",
+              "title": "${entry.title} · own take",
               "data": {
-                "kind": "convert-audio",
-                "args": {
-                  "entry": "${entry.slug}",
-                  "field": "audio",
-                  "format": "mp3"
-                },
-                "status": "queued"
-              },
-              "when": {
-                "all": [
-                  {
-                    "any": [
-                      {
-                        "field": "entry.data.source",
-                        "op": "in",
-                        "value": [
-                          "uploaded",
-                          "recorded"
-                        ]
-                      },
-                      {
-                        "all": [
-                          {
-                            "field": "entry.data.voice",
-                            "op": "exists"
-                          },
-                          {
-                            "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                            "op": "exists",
-                            "value": false
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "field": "entry.data.audio",
-                    "op": "exists"
-                  }
-                ]
-              }
-            },
-            {
-              "kind": "entry",
-              "op": "set_data",
-              "entity_slug": "${entry.slug}",
-              "data": {
-                "status": "recorded",
-                "take_notes": "Your own take: made into an mp3 if it was not one, never sent to ElevenLabs. To have ElevenLabs make it, set Where the take came from to generated and queue the line."
+                "line": "${entry.slug}",
+                "story": "${entry.data.story}",
+                "audio": "${entry.data.audio}",
+                "status": "in_use",
+                "source": "${entry.data.source}",
+                "spoken": "${entry.data.text}",
+                "voice": "${entry.data.voice}",
+                "duration_seconds": "${entry.data.duration_seconds}"
               },
               "when": {
                 "all": [
@@ -3067,7 +3098,8 @@
                 "style": "${entry.data.style}",
                 "speed": "${entry.data.speed}",
                 "duration_seconds": "${steps.say.output.asset.duration_seconds}",
-                "model": "eleven_v3"
+                "model": "eleven_v3",
+                "source": "generated"
               },
               "when": {
                 "not": {
@@ -3223,59 +3255,18 @@
             {
               "kind": "entry",
               "op": "create",
-              "entry_type": "job",
-              "title": "Prepare the take: ${entry.title}",
+              "entry_type": "take",
               "status": "draft",
+              "title": "${entry.title} · own take",
               "data": {
-                "kind": "convert-audio",
-                "args": {
-                  "entry": "${entry.slug}",
-                  "field": "audio",
-                  "format": "mp3"
-                },
-                "status": "queued"
-              },
-              "when": {
-                "all": [
-                  {
-                    "any": [
-                      {
-                        "field": "entry.data.source",
-                        "op": "in",
-                        "value": [
-                          "uploaded",
-                          "recorded"
-                        ]
-                      },
-                      {
-                        "all": [
-                          {
-                            "field": "entry.data.voice",
-                            "op": "exists"
-                          },
-                          {
-                            "field": "steps.voice.output.rows.0.data.elevenlabs_voice_id",
-                            "op": "exists",
-                            "value": false
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "field": "entry.data.audio",
-                    "op": "exists"
-                  }
-                ]
-              }
-            },
-            {
-              "kind": "entry",
-              "op": "set_data",
-              "entity_slug": "${entry.slug}",
-              "data": {
-                "status": "recorded",
-                "take_notes": "Your own take: made into an mp3 if it was not one, never sent to ElevenLabs. To have ElevenLabs make it, set Where the take came from to generated and queue the line."
+                "line": "${entry.slug}",
+                "story": "${entry.data.story}",
+                "audio": "${entry.data.audio}",
+                "status": "in_use",
+                "source": "${entry.data.source}",
+                "spoken": "${entry.data.text}",
+                "voice": "${entry.data.voice}",
+                "duration_seconds": "${entry.data.duration_seconds}"
               },
               "when": {
                 "all": [
