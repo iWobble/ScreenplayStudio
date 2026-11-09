@@ -225,3 +225,11 @@ def test_without_a_part_the_storys_own_import_part_says_which_chapters(marvin):
     fake2, ctx2 = marvin(THREE)
     fake2.story["dataJson"]["import_part"] = "3"
     assert run(ctx2, part="1")["result"]["chapters_made"] == ["s-chapter-01"]  # a part given in the run wins
+
+
+def test_a_chapter_whose_title_changed_under_the_same_number_is_flagged_before_anything_is_made(marvin):
+    have = {"s-chapter-02": {"id": "c2", "slug": "s-chapter-02", "title": "Something else", "dataJson": {"story": "s", "number": "02"}}}
+    fake, ctx = marvin(THREE, have=have)
+    done = run(ctx, dry_run="yes")
+    assert "Check the numbering" in done["log"] and "chapter 2 is “Something else” in Marvin but “Two” in the screenplay" in done["log"]
+    assert "Check the numbering" not in run(marvin(THREE)[1], dry_run="yes")["log"]  # nothing there yet: nothing to flag
