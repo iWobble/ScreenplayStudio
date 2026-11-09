@@ -12,16 +12,19 @@ from pathlib import Path
 _ROW = re.compile(r"^\|\s*(\d+[a-z]?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*(.*?)\s*\|\s*$")
 _TIME = re.compile(r"(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)\s*s")
 _LABEL = re.compile(r"(?:^|(?<=[.?!]\s))([A-Z][a-z]+):\s+")
+_LABEL_FENCED = re.compile(r"(?:^|(?<=¶\s))([A-Z][a-z]+):\s+")
+"""A cell whose speakers are divided by `¶` (what the Fountain import writes): a name counts only at the start or after one, so a colon inside
+someone's words ("Wait: stop") is never taken for a speaker, and a speech that ends in a comma or a dash does not swallow the next."""
 SOUND = "Sound"
 
 
 def split_audio(cell: str) -> list[dict]:
     """The audio cell as [{speaker, text, kind}] — kind is 'speech' or 'sound'. Text with no label is a note, not speech."""
-    marks = list(_LABEL.finditer(cell))
+    marks = list((_LABEL_FENCED if "¶" in cell else _LABEL).finditer(cell))
     out: list[dict] = []
     for i, m in enumerate(marks):
         end = marks[i + 1].start() if i + 1 < len(marks) else len(cell)
-        text = cell[m.end() : end].strip()
+        text = cell[m.end() : end].strip().rstrip("¶").strip()
         if not text:
             continue
         kind = "sound" if m.group(1) == SOUND else "speech"
