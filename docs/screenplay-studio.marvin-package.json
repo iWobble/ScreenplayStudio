@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "62",
+  "version": "63",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -4904,7 +4904,7 @@
           },
           {
             "text": "Now cast a story: Narrate a story picks its characters from this troupe (role, speaker name, actor, age), then their master pictures.",
-            "href": "/workspace/wizards/narrate-a-story"
+            "href": "/workspace/setups/narrate-a-story"
           },
           {
             "text": "Approvals for anything that spends (masters, takes) show under Automation → Approvals.",
@@ -5392,7 +5392,7 @@
         "next": [
           {
             "text": "Cast the characters and give them voices: Narrate a story, from the Characters step.",
-            "href": "/workspace/wizards/narrate-a-story"
+            "href": "/workspace/setups/narrate-a-story"
           },
           {
             "text": "Read the beats: each is one picture to make. Fix a beat's words or picture on the beat itself."
