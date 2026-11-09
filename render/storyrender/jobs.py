@@ -380,8 +380,10 @@ def import_beats(job: dict, ctx: Context) -> dict:
             digest = beat_export.digest(beat_export.signature_of_rows(rows))
             if story_data.get("sheet_base") != digest:
                 story_data["sheet_base"], base_changed = digest, True
-    if not dry and (changed or loaded or base_changed):
-        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    if source == "screenplay":  # the report is kept on the story, where a wizard step (or the person) reads it before and after importing
+        story_data["split_plan"] = f"{stamp} · {'preview' if dry else 'import'}, chapters {args.get('part') or 'all'}\n\n{report}\n\n{note}"
+    if source == "screenplay" or (not dry and (changed or loaded or base_changed)):
         bits = [f"+{len(plan['beats'])} beats, +{len(plan['lines'])} lines" + (f", +{len(plan['chapters'])} chapters" if plan["chapters"] else "")]
         if plan["updates"]:
             bits.append(f"{len(plan['updates'])} updated")
@@ -391,7 +393,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
             bits.append("kept though gone from the script (something was made from them): " + ", ".join(short(s) for s, _ in plan["orphans_kept"][:8]))
         if plan["kept"]:
             bits.append("differ from the script but kept (a picture or recording was made): " + ", ".join(short(s) for s, _ in plan["kept"][:8]))
-        if changed or loaded:
+        if (changed or loaded) and not dry:
             via = f" · from the screenplay{' (chapters ' + str(args.get('part')) + ')' if parts is not None else ''}" if source == "screenplay" else ""
             entry = f"{stamp} · {'refresh' if refresh else 'add'}{via}{' · loaded from ' + sheet if loaded else ''} · " + " · ".join(bits)
             story_data["sheet_log"] = (str(story_data.get("sheet_log") or "").rstrip() + "\n" + entry).strip()

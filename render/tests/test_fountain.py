@@ -169,7 +169,10 @@ def test_the_job_cuts_the_screenplay_and_leaves_the_script_alone(marvin):
 def test_a_preview_reports_the_split_and_writes_nothing(marvin):
     fake, ctx = marvin(THREE)
     done = run(ctx, dry_run="yes")
-    assert fake.made == [] and fake.patched == [] and "3 chapters" in done["log"] and done["result"]["dry_run"] is True
+    assert fake.made == [] and "3 chapters" in done["log"] and done["result"]["dry_run"] is True
+    story = [p for p in fake.patched if p[0] == "e0"]  # only the report is written, to the story's split_plan: no records, and no entry in its log
+    assert len(fake.patched) == 1 and "preview" in story[0][1]["dataJson"]["split_plan"] and "3 chapters" in story[0][1]["dataJson"]["split_plan"]
+    assert "sheet_log" not in story[0][1]["dataJson"]
 
 
 def test_one_part_makes_only_that_chapter(marvin):
