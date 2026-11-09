@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "69",
+  "version": "70",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -2085,7 +2085,8 @@
               "kind": "entry",
               "op": "set_data",
               "data": {
-                "status": "queued"
+                "status": "queued",
+                "source": "generated"
               }
             }
           ]
@@ -2392,6 +2393,60 @@
                     "op": "exists"
                   }
                 ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-use-new-take",
+      "name": "A new own take becomes the one in use",
+      "description": "A take made with your own audio (uploaded or recorded, not In use yet) becomes the line's take in use; the line then plays it and the other takes step back.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "A new own take becomes the one in use",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_created"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "take"
+            },
+            {
+              "field": "entry.data.source",
+              "op": "in",
+              "value": [
+                "uploaded",
+                "recorded"
+              ]
+            },
+            {
+              "field": "entry.data.audio",
+              "op": "exists"
+            },
+            {
+              "field": "entry.data.status",
+              "op": "neq",
+              "value": "in_use"
+            }
+          ],
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.slug}",
+              "data": {
+                "status": "in_use"
               }
             }
           ]
@@ -5649,6 +5704,81 @@
         "open": {
           "entry": "actor",
           "label": "Open the actor's sheet"
+        }
+      }
+    },
+    {
+      "kind": "wizard",
+      "slug": "takes-of-a-line",
+      "name": "Takes of a line",
+      "description": "Pick a story and one of its lines, then hear its takes, add your own by recording or uploading, or have ElevenLabs make one.",
+      "payload": {
+        "title": "Takes of a line",
+        "description": "Pick a story and one of its lines, then hear its takes, add your own by recording or uploading, or have ElevenLabs make one. The take in use is what the story plays.",
+        "steps": [
+          {
+            "id": "story",
+            "kind": "choose",
+            "title": "Story",
+            "help": "The story the line is in.",
+            "as": "story",
+            "entry_type": "story"
+          },
+          {
+            "id": "line",
+            "kind": "choose",
+            "title": "Line",
+            "help": "The speech line to take. The list shows each line with its speaker and its first words.",
+            "as": "line",
+            "entry_type": "speech-line",
+            "scope": {
+              "story": "${story}"
+            }
+          },
+          {
+            "id": "takes",
+            "kind": "gallery",
+            "title": "Takes",
+            "entry_type": "take",
+            "parent_field": "line",
+            "parent": "line",
+            "audio": "audio",
+            "subtitle": "status",
+            "badges": [
+              "source"
+            ],
+            "add": {
+              "fields": [
+                "notes"
+              ],
+              "data": {
+                "story": "${story}",
+                "source": "recorded"
+              }
+            },
+            "upload": {
+              "field": "audio",
+              "accept": "audio/*"
+            },
+            "generate": {
+              "workflow": "screenplay-make-line",
+              "inputs": {
+                "line": "${line}"
+              },
+              "button": "Make a take with ElevenLabs"
+            },
+            "empty": "No takes yet. Record one or upload a file: it becomes the take the line plays. Or have ElevenLabs make one (you approve the spend first).",
+            "help": "Every version of this line. Play them, record or upload your own (it is used at once and never sent to ElevenLabs), or press Make a take with ElevenLabs: you approve the spend, hear it, then Keep or Redo. To switch back to an earlier take, set its Status to In use on the take."
+          }
+        ],
+        "next": [
+          {
+            "text": "Set a take's Status to In use on the take itself to make it the one the line plays. Settle the line's Text, Delivery text and Model before asking ElevenLabs: each Redo spends credit."
+          }
+        ],
+        "open": {
+          "entry": "line",
+          "label": "Open the line"
         }
       }
     },
