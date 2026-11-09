@@ -308,6 +308,22 @@ def import_beats(job: dict, ctx: Context) -> dict:
     ctx.note(f"read {len(rows)} beats from {where} ({'a beat-sheet table' if kind == 'table' else 'numbered lines'})")
     have = {e["slug"]: e for kind_ in ("beat", "speech-line") for e in _all(ctx.creds, {"entry_type": kind_, "data": {"story": story}})}
     chapters_have = {e["slug"]: e for e in _all(ctx.creds, {"entry_type": "chapter", "data": {"story": story}})}
+    if source == "screenplay":
+        # A chapter inserted before others shifts their numbers (unless every title carries its own number), and the beats made under the old
+        # numbers would then no longer match the screenplay. Say so in the plan, before anything is made.
+        wrote = {c.number: c.title.strip().lower() for c in fplan.chapters}
+        moved = sorted(
+            (n, str(rec.get("title") or ""), next(c.title for c in fplan.chapters if c.number == n))
+            for slug, rec in chapters_have.items()
+            if (n := _chapter_of(story, slug)) in wrote and str(rec.get("title") or "").strip().lower() not in ("", wrote[n])
+        )
+        if moved and not fplan.single:
+            lines = "; ".join(f"chapter {n} is “{old}” in Marvin but “{new}” in the screenplay" for n, old, new in moved[:6])
+            report += (
+                f"\n\nCheck the numbering: {lines}{'…' if len(moved) > 6 else ''}. If a chapter was inserted or moved, the chapters after it have new numbers, "
+                "and bringing them in would add beats beside the old ones. Number the section titles in the screenplay (`## 03 The heist`) so a chapter keeps its "
+                "number wherever it sits; if the title was only reworded, ignore this."
+            )
     if parts is not None:  # a piece of the story: what is in the other pieces is not this run's to keep, trash or change
         have = {k: v for k, v in have.items() if _chapter_of(story, k) in parts}
         chapters_have = {k: v for k, v in chapters_have.items() if _chapter_of(story, k) in parts}
