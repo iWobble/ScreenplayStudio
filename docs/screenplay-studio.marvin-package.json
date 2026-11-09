@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "55",
+  "version": "56",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -137,7 +137,8 @@
               "key": "still",
               "label": "Still",
               "type": "asset",
-              "role": "still"
+              "role": "still",
+              "accept": "image/*"
             },
             {
               "key": "move",
@@ -260,21 +261,24 @@
               "label": "General view",
               "type": "asset",
               "helpText": "The actor in plain base clothes: front, side and back.",
-              "role": "general_view"
+              "role": "general_view",
+              "accept": "image/*"
             },
             {
               "key": "age_views",
               "label": "Views at different ages",
               "type": "asset-list",
               "role": "age_view",
-              "helpText": "The same person at other ages (and angles), as many as you like. Tag each picture in the Assets library: age-young, age-mid or age-old, plus face-closeup or profile if it is one. Making a Character's master starts from the views tagged for its age."
+              "helpText": "The same person at other ages (and angles), as many as you like. Tag each picture in the Assets library: age-young, age-mid or age-old, plus face-closeup or profile if it is one. Making a Character's master starts from the views tagged for its age.",
+              "accept": "image/*"
             },
             {
               "key": "voice_sample",
               "label": "Voice sample",
               "type": "asset",
               "role": "voice_sample",
-              "helpText": "A short clip of their voice, to hear who they are: ElevenLabs' own preview, a line made in their voice, or your own recording."
+              "helpText": "A short clip of their voice, to hear who they are: ElevenLabs' own preview, a line made in their voice, or your own recording.",
+              "accept": "audio/*"
             },
             {
               "key": "status",
@@ -343,7 +347,8 @@
               "key": "master",
               "label": "Master picture",
               "type": "asset",
-              "role": "master"
+              "role": "master",
+              "accept": "image/*"
             },
             {
               "key": "status",
@@ -508,7 +513,8 @@
               "label": "Screen test",
               "type": "asset",
               "helpText": "The actor dressed as the character.",
-              "role": "screen_test"
+              "role": "screen_test",
+              "accept": "image/*"
             }
           ]
         }
@@ -727,7 +733,8 @@
               "label": "Audio cut",
               "type": "asset",
               "role": "audio",
-              "helpText": "The stitched sound of the recorded lines (an audio-cut job). Play it, then say where a part needs to change."
+              "helpText": "The stitched sound of the recorded lines (an audio-cut job). Play it, then say where a part needs to change.",
+              "accept": "audio/*"
             },
             {
               "key": "timeline",
@@ -739,7 +746,8 @@
               "key": "video",
               "label": "Video",
               "type": "asset",
-              "role": "video"
+              "role": "video",
+              "accept": "video/*"
             },
             {
               "key": "status",
@@ -848,7 +856,8 @@
               "label": "Approved illustrated anchor",
               "type": "asset",
               "role": "anchor",
-              "helpText": "The approved painted look of this place. Photos govern structure only."
+              "helpText": "The approved painted look of this place. Photos govern structure only.",
+              "accept": "image/*"
             },
             {
               "key": "status",
@@ -986,7 +995,8 @@
               "key": "still",
               "label": "Still",
               "type": "asset",
-              "role": "still"
+              "role": "still",
+              "accept": "image/*"
             },
             {
               "key": "focal_path",
@@ -1120,7 +1130,8 @@
               "key": "audio",
               "label": "Take",
               "type": "asset",
-              "role": "audio"
+              "role": "audio",
+              "accept": "audio/*"
             },
             {
               "key": "take_notes",
@@ -1275,7 +1286,8 @@
               "key": "audio",
               "label": "Audio",
               "type": "asset",
-              "role": "audio"
+              "role": "audio",
+              "accept": "audio/*"
             },
             {
               "key": "duration_seconds",
@@ -1356,13 +1368,15 @@
               "label": "References",
               "type": "asset-list",
               "role": "reference",
-              "helpText": "Master pictures and the style sheet."
+              "helpText": "Master pictures and the style sheet.",
+              "accept": "image/*"
             },
             {
               "key": "image",
               "label": "Image",
               "type": "asset",
-              "role": "image"
+              "role": "image",
+              "accept": "image/*"
             },
             {
               "key": "status",
@@ -1500,37 +1514,43 @@
               "key": "script_pdf",
               "label": "Script (PDF)",
               "type": "asset",
-              "helpText": "The screenplay as a PDF in Courier 12: the one to share or print. Made by the script job."
+              "helpText": "The screenplay as a PDF in Courier 12: the one to share or print. Made by the script job.",
+              "accept": "application/pdf"
             },
             {
               "key": "script_fountain",
               "label": "Script (Fountain)",
               "type": "asset",
-              "helpText": "The screenplay as plain Fountain text, for a screenwriting app. Made by the script job."
+              "helpText": "The screenplay as plain Fountain text, for a screenwriting app. Made by the script job.",
+              "accept": ".fountain,text/plain"
             },
             {
               "key": "script_html",
               "label": "Script (web page)",
               "type": "asset",
-              "helpText": "The screenplay as an HTML page. Made by the script job."
+              "helpText": "The screenplay as an HTML page. Made by the script job.",
+              "accept": "text/html,.html"
             },
             {
               "key": "script_breakdown",
               "label": "Script breakdown (web page)",
               "type": "asset",
-              "helpText": "Who speaks and appears, where, and which sounds, read from the records. Made by the script job."
+              "helpText": "Who speaks and appears, where, and which sounds, read from the records. Made by the script job.",
+              "accept": "text/html,.html"
             },
             {
               "key": "filmstrip",
               "label": "Filmstrip (web page)",
               "type": "asset",
-              "helpText": "The story's sound with each beat's still, as the render will cut it. Open it in its own tab to play it; approve the beats from the approval it raises. Made by the filmstrip job."
+              "helpText": "The story's sound with each beat's still, as the render will cut it. Open it in its own tab to play it; approve the beats from the approval it raises. Made by the filmstrip job.",
+              "accept": "text/html,.html"
             },
             {
               "key": "video",
               "label": "Video",
               "type": "asset",
-              "helpText": "The story's rendered video (vertical, narrated, captions burned in). Made by the render job after the filmstrip is approved. By default this is a smaller 720x1280 copy; the full-quality file is kept in the worker's output folder."
+              "helpText": "The story's rendered video (vertical, narrated, captions burned in). Made by the render job after the filmstrip is approved. By default this is a smaller 720x1280 copy; the full-quality file is kept in the worker's output folder.",
+              "accept": "video/*"
             },
             {
               "key": "world",
@@ -1556,7 +1576,8 @@
               "label": "References",
               "type": "asset-list",
               "role": "reference",
-              "helpText": "Mood and location pictures for this story. A reference library for people and briefs; nothing attaches them to a picture automatically."
+              "helpText": "Mood and location pictures for this story. A reference library for people and briefs; nothing attaches them to a picture automatically.",
+              "accept": "image/*"
             }
           ]
         }
@@ -1597,7 +1618,8 @@
               "key": "audio",
               "label": "Audio",
               "type": "asset",
-              "helpText": "The recording. Upload your own to add a take recorded outside Marvin."
+              "helpText": "The recording. Upload your own to add a take recorded outside Marvin.",
+              "accept": "audio/*"
             },
             {
               "key": "status",
@@ -1710,7 +1732,8 @@
               "label": "Preview",
               "type": "asset",
               "role": "preview",
-              "helpText": "A short clip of the voice, to hear it."
+              "helpText": "A short clip of the voice, to hear it.",
+              "accept": "audio/*"
             },
             {
               "key": "speaker",
@@ -1868,7 +1891,8 @@
               "label": "Base sheets",
               "type": "asset-list",
               "role": "base_sheet",
-              "helpText": "One sheet per base listed above (front, side, back): what actors are made from."
+              "helpText": "One sheet per base listed above (front, side, back): what actors are made from.",
+              "accept": "image/*"
             }
           ]
         }
@@ -3878,31 +3902,36 @@
               "key": "source",
               "label": "Recording",
               "type": "asset",
-              "helpText": "The audio or video that was transcribed."
+              "helpText": "The audio or video that was transcribed.",
+              "accept": "audio/*,video/*"
             },
             {
               "key": "paragraphs",
               "label": "Transcript",
               "type": "asset",
-              "helpText": "The words in paragraphs: the one to read or hand on."
+              "helpText": "The words in paragraphs: the one to read or hand on.",
+              "accept": "text/plain,.txt,.md"
             },
             {
               "key": "timestamped",
               "label": "With times",
               "type": "asset",
-              "helpText": "The same, a line per phrase with the time it starts."
+              "helpText": "The same, a line per phrase with the time it starts.",
+              "accept": "text/plain,.txt,.md"
             },
             {
               "key": "words",
               "label": "Words",
               "type": "asset",
-              "helpText": "The plain text, unbroken."
+              "helpText": "The plain text, unbroken.",
+              "accept": "text/plain,.txt,.md"
             },
             {
               "key": "json",
               "label": "As JSON",
               "type": "asset",
-              "helpText": "The words with their times, for a program to read."
+              "helpText": "The words with their times, for a program to read.",
+              "accept": "application/json,.json"
             },
             {
               "key": "language",
