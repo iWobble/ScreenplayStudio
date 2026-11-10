@@ -598,12 +598,14 @@ def render_video(job: dict, ctx: Context) -> dict:
                 marvin_api.update_entry(ctx.creds, beat["slug"], {"status": "approved"})
                 marked += 1
         ctx.note(f"marked {marked} beats approved")
-    pulled = marvin_pull.pull(story, ctx.work / "story", creds=ctx.creds, **({"beats": only} if only else {}))
-    ctx.note(f"pulled {pulled['shots']} shots, {pulled['lines']} recorded lines")
-    m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)
-    full = ctx.work / f"{name}.mp4"
     quality = str(args.get("quality") or "preview").strip().lower()
     draft = quality == "draft" or bool(only)  # a quick look: fast encode, a smaller copy, no full-quality file kept (some beats are always one)
+    pulled = marvin_pull.pull(story, ctx.work / "story", creds=ctx.creds, **({"beats": only} if only else {}), **({"placeholders": True} if draft else {}))
+    ctx.note(f"pulled {pulled['shots']} shots, {pulled['lines']} recorded lines")
+    if pulled.get("placeholders"):
+        ctx.note(f"no still yet for beat {', '.join(pulled['placeholders'])}: a plain card stands in for it in this draft")
+    m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)
+    full = ctx.work / f"{name}.mp4"
     made = build.render(m, full, draft=draft)
     size_mb = full.stat().st_size / 1e6
     ctx.note(f"rendered {made['measured_seconds']} s, {made['shots']} shots, {size_mb:.0f} MB")

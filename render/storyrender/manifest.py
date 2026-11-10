@@ -198,7 +198,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         sid = str(s.get("id") or f"shot{i}")
         where = f"shot {sid}"
         if not s.get("still") and need_stills:
-            raise ManifestError(f"{where}: no still")
+            raise ManifestError(f"{where}: no still (make one for that beat, or render a draft, which shows a plain card in its place)")
         still = audio_path(s["still"], f"{where} still") if (s.get("still") and (need_stills or (base / s["still"]).is_file())) else Path()
         move = s.get("move") or {}
         shot = Shot(

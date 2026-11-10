@@ -48,7 +48,7 @@ def test_something_that_is_not_a_beat_says_how_to_ask(bad):
 def test_the_pull_takes_the_choice_through(monkeypatch):
     seen = []
     monkeypatch.setattr(marvin_pull, "credentials", lambda: ("u", "t"))
-    monkeypatch.setattr(marvin_pull, "_pull", lambda story, out, creds, chosen=None: seen.append(chosen) or {})
+    monkeypatch.setattr(marvin_pull, "_pull", lambda story, out, creds, chosen=None, placeholders=False: seen.append(chosen) or {})
     marvin_pull.pull("s", None, beats="2-3")
     marvin_pull.pull("s", None)
     assert seen[0]("02") and not seen[0]("04") and seen[1] is None

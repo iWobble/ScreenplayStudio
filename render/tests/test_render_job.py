@@ -24,9 +24,12 @@ class Marvin:
 
         self.pulled_with = []
 
-        def pull(story, out, creds=None, beats=None):
+        self.placeholders_asked = []
+
+        def pull(story, out, creds=None, beats=None, placeholders=False):
             self.pulled_with.append(beats)
-            return {"manifest": str(project), "shots": 3, "lines": 3, "not_recorded": []}
+            self.placeholders_asked.append(placeholders)
+            return {"manifest": str(project), "shots": 3, "lines": 3, "not_recorded": [], "placeholders": ["02"] if placeholders else []}
 
         monkeypatch.setattr(jobs.marvin_pull, "pull", pull)
         monkeypatch.setattr(jobs.marvin_api, "query", self.query)
@@ -171,3 +174,14 @@ def test_a_story_render_asks_for_every_beat(tmp_path, monkeypatch):
     (tmp_path / "work").mkdir()
     jobs.render_video({"job": "render-1", "args": {"story": "s"}}, _ctx(tmp_path))
     assert marvin.pulled_with == [None]
+
+
+@needs_ffmpeg
+def test_a_draft_gets_placeholder_cards_for_beats_with_no_still_and_says_so_but_a_full_render_does_not(tmp_path, monkeypatch):
+    marvin = Marvin(tmp_path, monkeypatch)
+    (tmp_path / "work").mkdir()
+    ctx = _ctx(tmp_path)
+    jobs.render_video({"job": "render-1", "args": {"story": "s", "quality": "draft"}}, ctx)
+    assert marvin.placeholders_asked == [True] and any("no still yet for beat 02" in n for n in ctx.notes)
+    jobs.render_video({"job": "render-2", "args": {"story": "s"}}, _ctx(tmp_path))
+    assert marvin.placeholders_asked == [True, False]  # a real render still insists on its pictures
