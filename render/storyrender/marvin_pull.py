@@ -7,6 +7,7 @@ The Marvin calls are `marvin_worker.marvin_api`'s (it names itself to Marvin's e
 """
 
 import json
+import re
 from pathlib import Path
 
 from marvin_worker import marvin_api
@@ -54,22 +55,58 @@ def chapter_rows(rows: list[dict], story: str, data) -> list[dict]:
     return [{"id": e["slug"], "title": e.get("title") or e["slug"]} for e in own]
 
 
-def pull(story: str, out: Path, *, creds: tuple[str, str] | None = None) -> dict:
-    """Write `out/manifest.json` for the story's recorded lines. Returns what was found: the shots, and the lines still to record."""
+_BEAT_NUMBER = re.compile(r"^0*(\d+)([a-z]*)$")
+_BEAT_RANGE = re.compile(r"^0*(\d+)\s*-\s*0*(\d+)$")
+
+
+def beat_chooser(spec: str | None):
+    """Which beats a draft is for, from a person's words: `3`, `2-4`, `1,3,5` or `4a` (an inserted beat). A number with no letter takes the
+    beat and the ones inserted after it (`4` is 04 and 04a); a range is by number. Returns a test on a beat's number, or None for every beat."""
+    tokens = [t for t in re.split(r"[,\s]+", (spec or "").strip().lower()) if t]
+    if not tokens:
+        return None
+    singles: set[tuple[int, str]] = set()
+    whole: set[int] = set()
+    spans: list[tuple[int, int]] = []
+    for token in tokens:
+        if m := _BEAT_RANGE.match(token):
+            spans.append((int(m.group(1)), int(m.group(2))))
+        elif m := _BEAT_NUMBER.match(token):
+            (singles.add((int(m.group(1)), m.group(2))) if m.group(2) else whole.add(int(m.group(1))))
+        else:
+            raise PullError(f"“{token}” is not a beat: use a number (3), a range (2-4), a list (1,3,5) or an inserted beat (4a)")
+
+    def wants(number: object) -> bool:
+        m = _BEAT_NUMBER.match(str(number or "").strip().lower())
+        if not m:
+            return False
+        n, suffix = int(m.group(1)), m.group(2)
+        return n in whole or (n, suffix) in singles or any(low <= n <= high for low, high in spans)
+
+    return wants
+
+
+def pull(story: str, out: Path, *, creds: tuple[str, str] | None = None, beats: str | None = None) -> dict:
+    """Write `out/manifest.json` for the story's recorded lines. Returns what was found: the shots, and the lines still to record. `beats`
+    limits it to some beats (a quick look at one beat without the rest of the film): see beat_chooser."""
     creds = creds or credentials()
     try:
-        return _pull(story, out, creds)
+        return _pull(story, out, creds, beat_chooser(beats))
     except marvin_api.MarvinError as e:
         raise PullError(str(e)) from e
 
 
-def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
+def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None) -> dict:
     rows = marvin_api.entries(creds)
     data = lambda e: e.get("dataJson") or e.get("data") or {}  # noqa: E731
     story_row = next((e for e in rows if e.get("slug") == story), None)
     if story_row is None:
         raise PullError(f"no story “{story}” in the workspace the CLI is signed in to")
     beats = sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-beat-") and data(e).get("story") == story), key=lambda e: str(data(e).get("number")))
+    if chosen is not None:
+        beats = [b for b in beats if chosen(data(b).get("number"))]
+        if not beats:
+            raise PullError("none of the beats you chose exist in this story")
     lines = sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-line-") and data(e).get("story") == story), key=lambda e: e["slug"])
     by_beat: dict[str, list[dict]] = {}
     for line in lines:

@@ -581,6 +581,7 @@ PREVIEW_SIZE = "720:1280"
     inputs={
         "story": {"type": "string", "description": "the story entry's slug"},
         "quality": {"type": "string", "required": False, "description": "draft: a quick look to check an overlay or a level (fast encode, 720x1280, replaces the story's video; no full-quality file is kept). preview (default): upload a 720x1280 copy. full: upload the 1080x1920 file (Marvin refuses an upload over its asset limit, 100 MB by default)"},
+        "beats": {"type": "string", "required": False, "description": "only these beats, as a quick look: 3, 2-4, 1,3,5 or 4a (an inserted beat). Always a draft; it is kept as its own video file and never replaces the story's video"},
         "approve_beats": {"type": "string", "required": False, "description": "yes: mark every beat of the story approved before rendering"},
     },
     produces=["video/mp4"],
@@ -589,19 +590,20 @@ PREVIEW_SIZE = "720:1280"
 def render_video(job: dict, ctx: Context) -> dict:
     """The story as a vertical narrated video, kept as the story's `video`; the previous one goes to the Trash."""
     story, name, args = story_of(job), job["job"], job.get("args") or {}
-    if _yes(args.get("approve_beats")):
+    only = str(args.get("beats") or "").strip()  # a quick look at some beats: 3, 2-4, 1,3,5
+    if _yes(args.get("approve_beats")) and not only:
         marked = 0
         for beat in marvin_api.query(ctx.creds, {"entry_type": "beat", "data": {"story": story}}, limit=1000):
             if (beat.get("dataJson") or {}).get("status") != "approved":
                 marvin_api.update_entry(ctx.creds, beat["slug"], {"status": "approved"})
                 marked += 1
         ctx.note(f"marked {marked} beats approved")
-    pulled = marvin_pull.pull(story, ctx.work / "story", creds=ctx.creds)
+    pulled = marvin_pull.pull(story, ctx.work / "story", creds=ctx.creds, **({"beats": only} if only else {}))
     ctx.note(f"pulled {pulled['shots']} shots, {pulled['lines']} recorded lines")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)
     full = ctx.work / f"{name}.mp4"
     quality = str(args.get("quality") or "preview").strip().lower()
-    draft = quality == "draft"  # a quick look: fast encode, a smaller copy, no full-quality file kept
+    draft = quality == "draft" or bool(only)  # a quick look: fast encode, a smaller copy, no full-quality file kept (some beats are always one)
     made = build.render(m, full, draft=draft)
     size_mb = full.stat().st_size / 1e6
     ctx.note(f"rendered {made['measured_seconds']} s, {made['shots']} shots, {size_mb:.0f} MB")
@@ -627,15 +629,17 @@ def render_video(job: dict, ctx: Context) -> dict:
             ctx.creds,
             upload,
             slug=f"{name}-video",
-            name=f"{title}: video" + ("" if quality == "full" else " (draft)" if draft else " (preview quality)"),
+            name=f"{title}: video" + (f" (draft of beat {only})" if only else "" if quality == "full" else " (draft)" if draft else " (preview quality)"),
             mime="video/mp4",
             description=f"The video of {title}, rendered from its approved stills and recorded lines.",
-            metadata={"kind": "video", "story": story, "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" else "draft" if draft else "preview"},
+            metadata={"kind": "video", "story": story, "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" and not only else "draft" if draft else "preview", **({"beats": only} if only else {})},
         )
     except marvin_api.MarvinError as e:
         raise JobError(f"the video was made but Marvin would not take the upload ({e}). " + (f"The full-quality file is at {kept}. " if kept else "") + "Use quality preview, or raise Marvin's asset size limit") from e
-    before = next((((e.get("dataJson") or {}).get("video")) for e in marvin_api.query(ctx.creds, {"entries": story}, limit=1)), None)
-    marvin_api.update_entry(ctx.creds, story, {"video": asset["id"]})
+    before = None
+    if not only:  # a look at some beats is its own file in the library: it never replaces the story's video
+        before = next((((e.get("dataJson") or {}).get("video")) for e in marvin_api.query(ctx.creds, {"entries": story}, limit=1)), None)
+        marvin_api.update_entry(ctx.creds, story, {"video": asset["id"]})
     if before and before != asset["id"]:
         try:
             marvin_api.request(ctx.creds, f"/api/platform/assets/{before}", method="DELETE")
@@ -644,4 +648,4 @@ def render_video(job: dict, ctx: Context) -> dict:
     note = f"{made['measured_seconds']} s, {made['shots']} shots." + (f" Full-quality file: {kept}." if kept else "")
     if pulled["not_recorded"]:
         note += f" Not recorded yet, so left out: {', '.join(pulled['not_recorded'])}."
-    return {"result": {"video": asset["id"], "url": asset.get("publicUrl"), "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" else "draft" if draft else "preview", "kept": kept}, "log": note}
+    return {"result": {"video": asset["id"], "url": asset.get("publicUrl"), "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" and not only else "draft" if draft else "preview", "kept": kept, **({"beats": only} if only else {})}, "log": note}

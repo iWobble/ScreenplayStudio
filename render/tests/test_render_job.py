@@ -22,7 +22,10 @@ class Marvin:
         self.refuse = refuse_upload
         project = demo.make(tmp_path / "demo", size=(360, 640))
 
-        def pull(story, out, creds=None):
+        self.pulled_with = []
+
+        def pull(story, out, creds=None, beats=None):
+            self.pulled_with.append(beats)
             return {"manifest": str(project), "shots": 3, "lines": 3, "not_recorded": []}
 
         monkeypatch.setattr(jobs.marvin_pull, "pull", pull)
@@ -145,3 +148,26 @@ def test_quality_draft_is_a_quick_look_a_labelled_copy_with_no_full_file_kept(tm
     assert name == "render-1-preview.mp4" and meta["name"].endswith("(draft)") and meta["metadata"]["quality"] == "draft"
     assert done["result"]["quality"] == "draft" and done["result"]["kept"] == "" and not (tmp_path / "out").exists()
     assert ("s", {"video": "asset-new"}) in marvin.updated
+
+
+@needs_ffmpeg
+def test_a_look_at_some_beats_asks_the_pull_for_them_is_a_draft_and_leaves_the_stories_video_alone(tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDIO_OUT_DIR", str(tmp_path / "out"))
+    marvin = Marvin(tmp_path, monkeypatch, old_video="asset-old", beats=[("b1", "draft")])
+    (tmp_path / "work").mkdir()
+    done = jobs.render_video({"job": "render-1", "args": {"story": "s", "beats": "3", "quality": "full", "approve_beats": "yes"}}, _ctx(tmp_path))
+    assert marvin.pulled_with == ["3"]
+    (name, _size, meta), = marvin.uploads
+    assert meta["name"].endswith("(draft of beat 3)") and meta["metadata"]["quality"] == "draft" and meta["metadata"]["beats"] == "3"
+    assert not any(slug == "s" for slug, _ in marvin.updated)  # the story's video is not replaced
+    assert marvin.deleted == [] and not (tmp_path / "out").exists()  # the old video stays, no full-quality file kept
+    assert marvin.beats["b1"]["dataJson"]["status"] == "draft"  # and nothing was approved on the way
+    assert done["result"]["beats"] == "3" and done["result"]["url"] and done["result"]["quality"] == "draft"
+
+
+@needs_ffmpeg
+def test_a_story_render_asks_for_every_beat(tmp_path, monkeypatch):
+    marvin = Marvin(tmp_path, monkeypatch)
+    (tmp_path / "work").mkdir()
+    jobs.render_video({"job": "render-1", "args": {"story": "s"}}, _ctx(tmp_path))
+    assert marvin.pulled_with == [None]
