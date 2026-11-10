@@ -580,7 +580,7 @@ PREVIEW_SIZE = "720:1280"
     description="Make a story's video from its approved stills and recorded lines (1080x1920, captions burned in) and keep it on the story as `video`. By default a smaller 720x1280 copy goes to Marvin (its upload limit is 100 MB) and the full-quality file is kept in the worker's output folder; `approve_beats` first marks every beat of the story approved, which is what approving the filmstrip means",
     inputs={
         "story": {"type": "string", "description": "the story entry's slug"},
-        "quality": {"type": "string", "required": False, "description": "preview (default): upload a 720x1280 copy. full: upload the 1080x1920 file (Marvin refuses an upload over its asset limit, 100 MB by default)"},
+        "quality": {"type": "string", "required": False, "description": "draft: a quick look to check an overlay or a level (fast encode, 720x1280, replaces the story's video; no full-quality file is kept). preview (default): upload a 720x1280 copy. full: upload the 1080x1920 file (Marvin refuses an upload over its asset limit, 100 MB by default)"},
         "approve_beats": {"type": "string", "required": False, "description": "yes: mark every beat of the story approved before rendering"},
     },
     produces=["video/mp4"],
@@ -600,12 +600,14 @@ def render_video(job: dict, ctx: Context) -> dict:
     ctx.note(f"pulled {pulled['shots']} shots, {pulled['lines']} recorded lines")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)
     full = ctx.work / f"{name}.mp4"
-    made = build.render(m, full)
+    quality = str(args.get("quality") or "preview").strip().lower()
+    draft = quality == "draft"  # a quick look: fast encode, a smaller copy, no full-quality file kept
+    made = build.render(m, full, draft=draft)
     size_mb = full.stat().st_size / 1e6
     ctx.note(f"rendered {made['measured_seconds']} s, {made['shots']} shots, {size_mb:.0f} MB")
     kept = ""
     out_dir = os.environ.get("STUDIO_OUT_DIR", "").strip()
-    if out_dir:
+    if out_dir and not draft:
         try:  # a copy that cannot be kept (a folder the worker may not write to) must not fail a video that was made
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             keep = Path(out_dir) / f"{story}-{name}.mp4"
@@ -614,7 +616,6 @@ def render_video(job: dict, ctx: Context) -> dict:
             ctx.note(f"kept the full-quality file at {kept}")
         except OSError as e:
             ctx.note(f"could not keep the full-quality file in {out_dir} ({e.strerror or e}); the video goes to Marvin without it. Make that folder writable by the worker's user")
-    quality = str(args.get("quality") or "preview").strip().lower()
     upload = full
     if quality != "full":
         upload = ctx.work / f"{name}-preview.mp4"
@@ -626,10 +627,10 @@ def render_video(job: dict, ctx: Context) -> dict:
             ctx.creds,
             upload,
             slug=f"{name}-video",
-            name=f"{title}: video" + ("" if quality == "full" else " (preview quality)"),
+            name=f"{title}: video" + ("" if quality == "full" else " (draft)" if draft else " (preview quality)"),
             mime="video/mp4",
             description=f"The video of {title}, rendered from its approved stills and recorded lines.",
-            metadata={"kind": "video", "story": story, "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" else "preview"},
+            metadata={"kind": "video", "story": story, "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" else "draft" if draft else "preview"},
         )
     except marvin_api.MarvinError as e:
         raise JobError(f"the video was made but Marvin would not take the upload ({e}). " + (f"The full-quality file is at {kept}. " if kept else "") + "Use quality preview, or raise Marvin's asset size limit") from e
@@ -643,4 +644,4 @@ def render_video(job: dict, ctx: Context) -> dict:
     note = f"{made['measured_seconds']} s, {made['shots']} shots." + (f" Full-quality file: {kept}." if kept else "")
     if pulled["not_recorded"]:
         note += f" Not recorded yet, so left out: {', '.join(pulled['not_recorded'])}."
-    return {"result": {"video": asset["id"], "url": asset.get("publicUrl"), "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" else "preview", "kept": kept}, "log": note}
+    return {"result": {"video": asset["id"], "url": asset.get("publicUrl"), "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" else "draft" if draft else "preview", "kept": kept}, "log": note}

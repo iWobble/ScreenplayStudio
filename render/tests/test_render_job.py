@@ -133,3 +133,15 @@ def test_it_declares_its_contract():
 
     meta = META["render"]
     assert meta["inputs"]["story"]["required"] and not meta["inputs"]["quality"]["required"] and "video/mp4" in meta["produces"] and "ffmpeg" in meta["needs"]
+
+
+@needs_ffmpeg
+def test_quality_draft_is_a_quick_look_a_labelled_copy_with_no_full_file_kept(tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDIO_OUT_DIR", str(tmp_path / "out"))
+    marvin = Marvin(tmp_path, monkeypatch)
+    (tmp_path / "work").mkdir()
+    done = jobs.render_video({"job": "render-1", "args": {"story": "s", "quality": "draft"}}, _ctx(tmp_path))
+    (name, _size, meta), = marvin.uploads
+    assert name == "render-1-preview.mp4" and meta["name"].endswith("(draft)") and meta["metadata"]["quality"] == "draft"
+    assert done["result"]["quality"] == "draft" and done["result"]["kept"] == "" and not (tmp_path / "out").exists()
+    assert ("s", {"video": "asset-new"}) in marvin.updated
