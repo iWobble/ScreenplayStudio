@@ -19,7 +19,7 @@ services:
     user: "${STUDIO_UID:-1000}:${STUDIO_GID:-1000}"   # the folder below is yours, so the worker writes to it as you: export STUDIO_UID=$(id -u) STUDIO_GID=$(id -g)
     environment:
       WORKER_NAME: desktop-runner
-      WORKER_KINDS: audio-cut,script,filmstrip,import-voices,import-beats,sync-sheet,render,convert-audio
+      WORKER_KINDS: audio-cut,script,filmstrip,import-voices,import-beats,sync-sheet,render,convert-audio,measure-audio
     volumes:
       - ${STUDIO_OUT:-${HOME}/screenplay-studio-out}:/out   # full-quality renders land here
 

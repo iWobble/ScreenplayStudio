@@ -287,3 +287,55 @@ def test_convert_audio_declares_what_it_takes_and_needs():
 
     assert set(contract["inputs"]) == {"entry", "field", "format"} and contract["needs"] == ["ffmpeg"]
     assert contract["produces"] == ["audio/mpeg", "audio/mp4"]
+
+
+def _measure_job(entry, **more):
+    FakeMarvin.entries.append({"id": "e7", "slug": "measure-job-1", "dataJson": {"kind": "measure-audio", "status": "claimed", "args": {"entry": entry, **more}}})
+    return {"kind": "measure-audio", "job": "measure-job-1", "args": {"entry": entry, **more}}
+
+
+def _take(asset="voice-1", **data):
+    FakeMarvin.entries.append({"id": "e6", "slug": "granny-take-1", "title": "Take 1", "dataJson": {"line": "granny-line", "audio": asset, "status": "recorded", **data}})
+
+
+@needs_ffmpeg
+def test_measure_audio_writes_the_real_length_of_a_recording_to_the_take(marvin):
+    _take()
+    serve.run_job(_measure_job("granny-take-1"), marvin)
+
+    assert _data("measure-job-1")["status"] == "done"
+    assert _data("measure-job-1")["result"]["seconds"] == _data("granny-take-1")["duration_seconds"]
+    assert 0.8 < _data("granny-take-1")["duration_seconds"] < 1.3
+    assert _data("granny-take-1")["line"] == "granny-line" and _data("granny-take-1")["status"] == "recorded"  # the rest is kept
+    assert FakeMarvin.uploads == []  # nothing is uploaded: the file is left as it is
+
+
+@needs_ffmpeg
+def test_measure_audio_can_write_to_another_field_and_read_another(marvin):
+    _actor()
+    serve.run_job(_measure_job("granny", field="voice_sample", seconds_field="sample_seconds"), marvin)
+
+    assert 0.8 < _data("granny")["sample_seconds"] < 1.3 and _data("granny")["voice_sample"] == "voice-1"
+
+
+def test_measure_audio_of_an_entry_with_no_recording_says_why_on_the_record(marvin):
+    _take(asset="")
+    serve.run_job(_measure_job("granny-take-1"), marvin)
+
+    assert _data("measure-job-1")["status"] == "failed" and "nothing in" in str(_data("measure-job-1"))
+
+
+def test_measure_audio_of_a_picture_is_refused(marvin):
+    _take(asset="pic-1")
+    serve.run_job(_measure_job("granny-take-1"), marvin)
+
+    assert _data("measure-job-1")["status"] == "failed" and "not a sound" in str(_data("measure-job-1"))
+
+
+def test_measure_audio_needs_an_entry():
+    from marvin_worker import jobs as worker_jobs
+
+    (contract,) = worker_jobs.describe_kinds(["measure-audio"])
+    assert contract["inputs"]["entry"].get("required", True) is True and contract["inputs"]["field"]["required"] is False
+    with pytest.raises(Exception):
+        worker_jobs.check_args("measure-audio", {})

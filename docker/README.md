@@ -9,6 +9,7 @@ One image, `screenplay-studio-worker`, holds every kind of job the Screenplay St
 | `import-beats`, `sync-sheet` | a story's script into beats, lines and chapters, and back again |
 | `import-voices` | the ElevenLabs voices into voice records |
 | `convert-audio` | a recording a browser made (webm, ogg) into an mp3 or m4a, and the entry's field pointed at it |
+| `measure-audio` | the real length of the recording in an entry's audio field (a browser's webm has none in its header: it is decoded), written to the entry's `duration_seconds`; the file is not changed |
 | `transcribe` | a recording into text (faster-whisper, free, on the CPU) |
 
 The workers only reach **out** to Marvin and poll for `job` records; nothing listens. Run one container for the light jobs and one for transcribing (a long transcription then never holds up a filmstrip); `WORKER_KINDS` chooses what each offers.
