@@ -162,7 +162,7 @@ def _level(bed: Bed) -> str:
     return expr
 
 
-def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path) -> None:
+def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path, end_fade: float | None = None) -> None:
     """Lay each bed under the narration: looped to length, muffled if heard from inside, at the level each shot asks for, faded in and
     out so a change of place is a crossfade. The narration is the base: nothing here makes the cut longer."""
     inputs, chains, labels = [], [], []
@@ -171,6 +171,8 @@ def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path) -> None
         length = end - begin
         fade_in = min(bed.ambience.fade_in or BED_FADE, length / 2)  # the sound's own fades, else the crossfade
         fade_out = min(bed.ambience.fade_out or BED_FADE, length / 2)
+        if end_fade and bed.end >= total - 1e-6:  # the bed that runs to the end of the film fades out over the story's setting
+            fade_out = min(end_fade, length / 2)
         shifted = Bed(bed.ambience, begin, end, [(max(b, begin), e, v) for b, e, v in bed.levels])
         shifted.levels[0] = (begin, shifted.levels[0][1], shifted.levels[0][2])
         inputs += ["-stream_loop", "-1", "-i", str(bed.ambience.audio)]
@@ -185,13 +187,13 @@ def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path) -> None
     ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(narration), *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), str(out)])
 
 
-def _with_ambience(timeline: Timeline, narration: Path) -> Path:
+def _with_ambience(timeline: Timeline, narration: Path, end_fade: float | None = None) -> Path:
     """The narration with its ambience beds under it (the same file when no shot has one)."""
     runs = beds(timeline)
     if not runs:
         return narration
     mixed = narration.with_name("narration-mixed.wav")
-    _mix_beds(narration, runs, timeline.duration, mixed)
+    _mix_beds(narration, runs, timeline.duration, mixed, end_fade)
     return mixed
 
 
@@ -219,7 +221,7 @@ def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | N
             wavs.append(wav)
         _join(clips, work / "video.mp4", work, kind="video")
         _join(wavs, work / "narration.wav", work, kind="audio")
-        mixed = _with_ambience(timeline, work / "narration.wav")
+        mixed = _with_ambience(timeline, work / "narration.wav", manifest.end_fade)
         if mixed != work / "narration.wav":
             mixed.replace(work / "narration.wav")  # the final encode reads narration.wav
         (work / "captions.ass").write_text(captions.ass(timeline, size, manifest.caption))
@@ -266,7 +268,7 @@ def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, 
     chain: list[str] = []
     if manifest.music:
         cmd += ["-stream_loop", "-1", "-i", manifest.music["audio"]]
-        fade_out = float(manifest.music.get("fade_out") or 2.0)  # a bed fades out at the end, by default over the last 2 s
+        fade_out = float(manifest.end_fade or manifest.music.get("fade_out") or 2.0)  # the music fades out at the end: the story's setting, else the sound's, else 2 s
         fade_in = float(manifest.music.get("fade_in") or 0)
         fade_at = max(0.0, timeline.duration - fade_out)
         rise = f"afade=t=in:st=0:d={min(fade_in, timeline.duration / 2):.3f}," if fade_in > 0 else ""
@@ -316,7 +318,7 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
             _narration(planned, wav)
             wavs.append(wav)
         _join(wavs, work / "narration.wav", work, kind="audio")
-        heard = _with_ambience(timeline, work / "narration.wav")
+        heard = _with_ambience(timeline, work / "narration.wav", manifest.end_fade)
         ffmpeg.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-i", str(heard), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-q:a", "2", str(out)]
         )

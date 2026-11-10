@@ -75,6 +75,7 @@ class Ambience:
 
 
 BLENDS = ("normal", "screen", "multiply", "overlay", "lighten", "addition")
+MAX_END_FADE = 30.0
 DUCKS = ("light", "strong")
 
 
@@ -125,6 +126,8 @@ class Manifest:
     caption: dict = field(default_factory=dict)
     loudnorm: bool = True
     end_hold: float = 0.0
+    end_fade: float | None = None
+    """Seconds every bed (the ambience that runs to the end and the music) fades out over at the end of the film; None leaves each sound's own."""
     chapters: list[Chapter] = field(default_factory=list)
     """The story's chapters in order; a shot names one by id. Empty for a story that is not cut into chapters."""
 
@@ -266,6 +269,11 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
     size = tuple(raw.get("size") or DEFAULT_SIZE)
     if len(size) != 2 or size[0] * 16 != size[1] * 9:
         raise ManifestError(f"size must be 9:16 (got {size}); a Short is vertical")
+    end_fade = raw.get("end_fade")
+    if end_fade not in (None, ""):
+        end_fade = float(end_fade)
+        if not 0 < end_fade <= MAX_END_FADE:
+            raise ManifestError(f"end_fade is more than 0 and at most {MAX_END_FADE:g} seconds (got {end_fade:g})")
     return Manifest(
         title=str(raw.get("title") or path.stem),
         size=(int(size[0]), int(size[1])),
@@ -275,6 +283,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         caption=dict(raw.get("caption") or {}),
         loudnorm=bool(raw.get("loudnorm", True)),
         end_hold=float(raw.get("end_hold") or 0),
+        end_fade=end_fade if isinstance(end_fade, float) else None,
         chapters=[Chapter(str(c["id"]), str(c.get("title") or c["id"])) for c in raw.get("chapters") or [] if isinstance(c, dict) and c.get("id")],
     )
 
