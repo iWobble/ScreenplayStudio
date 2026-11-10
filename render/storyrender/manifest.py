@@ -76,6 +76,9 @@ class Ambience:
     fade_out_set: bool = False
 
 
+TRANSITIONS = ("cut", "fade", "dissolve")
+MAX_TRANSITION = 5.0
+DEFAULT_TRANSITION_SECONDS = 0.5
 BLENDS = ("normal", "screen", "multiply", "overlay", "lighten", "addition")
 MAX_END_FADE = 30.0
 DUCKS = ("light", "strong")
@@ -107,6 +110,9 @@ class Shot:
     ambience: Ambience | None = None
     overlay: Overlay | None = None
     music_volume: float | None = None
+    transition: str = "cut"
+    """How the film gets into this shot from the one before: cut, fade (down to black and up) or dissolve (a cross-fade). Never changes a length."""
+    transition_seconds: float = 0.0
     """The music's level while this shot plays (0 = silence), when it differs from the story's; None keeps the story's."""
     chapter: str | None = None
     """The id of the chapter this shot belongs to (a story is cut into chapters; see `chapters.py`)."""
@@ -218,6 +224,14 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             tail=float(s.get("tail", TAIL)),
             chapter=str(s["chapter"]) if s.get("chapter") else None,
         )
+        kind = str(s.get("transition") or "cut")
+        if kind not in TRANSITIONS:
+            raise ManifestError(f"{where}: transition is {', '.join(TRANSITIONS)} (got {kind})")
+        if kind != "cut":
+            seconds = float(s.get("transition_seconds") or DEFAULT_TRANSITION_SECONDS)
+            if not 0 < seconds <= MAX_TRANSITION:
+                raise ManifestError(f"{where}: transition_seconds is more than 0 and at most {MAX_TRANSITION:g} (got {seconds:g})")
+            shot.transition, shot.transition_seconds = kind, seconds
         if s.get("ambience"):
             amb = s["ambience"]
             shot.ambience = Ambience(
