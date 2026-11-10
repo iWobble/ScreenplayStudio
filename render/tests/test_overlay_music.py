@@ -86,7 +86,7 @@ def test_a_blend_is_the_blend_filter_with_its_mode_and_opacity(blend):
 def test_normal_keeps_the_videos_own_transparency_and_only_fades_when_asked():
     plain = build.overlay_filter(Overlay(Path("o.webm")), (360, 640), 30)
     faded = build.overlay_filter(Overlay(Path("o.webm"), "normal", 0.5), (360, 640), 30)
-    assert "overlay=shortest=1:format=auto" in plain and "colorchannelmixer" not in plain
+    assert "overlay=format=auto:shortest=1" in plain and "colorchannelmixer" not in plain
     assert "colorchannelmixer=aa=0.500" in faded
 
 
@@ -389,3 +389,108 @@ def test_a_beats_ambience_and_the_stories_play_together_the_stories_runs_through
     assert _bed_db(tmp_path / "out.mp4", *window(mid), 1500) > -45 and _bed_db(tmp_path / "out.mp4", *window(mid), 2500) > -45  # both, in the beat
     assert _bed_db(tmp_path / "out.mp4", *window(first), 1500) > -45  # the story's alone elsewhere
     assert _bed_db(tmp_path / "out.mp4", *window(first), 2500) < _bed_db(tmp_path / "out.mp4", *window(mid), 2500) - 12  # and the beat's bed is not there
+
+
+# ── pictures over a still: a PNG, an animated GIF, a fade, a delay ────────────────────────────────────────────────────────────────────────
+def _solid_png(path: Path, colour: str = "red", size: str = "64x64") -> Path:
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"color=c={colour}:s={size}", "-frames:v", "1", str(path)], check=True)
+    return path
+
+
+def _two_frame_gif(path: Path) -> Path:
+    """0.5 s red then 0.5 s blue, played once (what an animated picture does): the last frame is blue."""
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=red:s=64x64:r=10:d=0.5", "-f", "lavfi", "-i", "color=c=blue:s=64x64:r=10:d=0.5",
+         "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0,split[a][b];[a]palettegen[p];[b][p]paletteuse", "-loop", "-1", str(path)],
+        check=True,
+    )  # fmt: skip
+    return path
+
+
+def _with_overlay(tmp_path: Path, make, **overlay) -> manifest.Manifest:
+    import json as _json
+
+    project = demo.make(tmp_path / "demo", size=(360, 640))
+    file = make(project.parent / "over")
+    raw = _json.loads(project.read_text())
+    raw["shots"][0]["overlay"] = {"video": file.name, **overlay}
+    project.write_text(_json.dumps(raw))
+    return manifest.load(project, probe=ffmpeg.duration)
+
+
+def test_the_manifest_keeps_play_fade_and_delay_and_refuses_bad_ones(tmp_path):
+    (tmp_path / "b.png").write_bytes(b"x")
+    (tmp_path / "o.gif").write_bytes(b"x")
+    ok = {"shots": [{"id": "a", "still": "b.png", "hold": 2, "lines": [], "overlay": {"video": "o.gif", "play": "loop", "fade": 0.5, "delay": 1}}]}
+    (tmp_path / "m.json").write_text(json.dumps(ok))
+    ov = manifest.load(tmp_path / "m.json", probe=lambda _p: 1.0, need_stills=False).shots[0].overlay
+    assert (ov.play, ov.fade, ov.delay) == ("loop", 0.5, 1.0)
+    for bad in ({"play": "ping-pong"}, {"fade": 11}, {"delay": -1}):
+        ok["shots"][0]["overlay"] = {"video": "o.gif", **bad}
+        (tmp_path / "m.json").write_text(json.dumps(ok))
+        with pytest.raises(ManifestError, match="overlay"):
+            manifest.load(tmp_path / "m.json", probe=lambda _p: 1.0, need_stills=False)
+
+
+def test_a_gif_plays_once_a_video_loops_and_a_picture_is_held():
+    gif, mp4, png = (Overlay(Path(f"o.{e}")) for e in ("gif", "mp4", "png"))
+    assert build.plays_once(gif) and not build.plays_once(mp4)
+    assert build.plays_once(Overlay(Path("o.mp4"), play="once")) and not build.plays_once(Overlay(Path("o.gif"), play="loop"))  # said so: it wins
+    assert "-stream_loop" not in build._overlay_input(gif) and "-stream_loop" in build._overlay_input(mp4)
+    assert build._overlay_input(png, 30)[:2] == ["-loop", "1"]
+    assert ":shortest=0:eof_action=repeat" in build.overlay_filter(gif, (360, 640), 30, 4.0)  # held on its last frame
+    assert ":shortest=1" in build.overlay_filter(mp4, (360, 640), 30, 4.0) and ":shortest=1" in build.overlay_filter(png, (360, 640), 30, 4.0)
+
+
+@needs_ffmpeg
+def test_a_png_with_nothing_transparent_covers_the_still_for_the_whole_shot(tmp_path):
+    m = _with_overlay(tmp_path, lambda p: _solid_png(p.with_suffix(".png"), "red"))
+    build.render(m, tmp_path / "out.mp4", draft=True)
+    for t in (0.3, 1.5):
+        r, g, b = _frame_rgb(tmp_path / "out.mp4", t)
+        assert r > 200 and g < 60 and b < 60
+
+
+@needs_ffmpeg
+def test_an_overlay_starts_after_its_delay_and_fades_in_and_out(tmp_path):
+    m = _with_overlay(tmp_path, lambda p: _solid_png(p.with_suffix(".png"), "red"), delay=1.0, fade=1.0)
+    plain = manifest.load(demo.make(tmp_path / "plain", size=(360, 640)), probe=ffmpeg.duration)
+    build.render(m, tmp_path / "out.mp4", draft=True)
+    build.render(plain, tmp_path / "plain.mp4", draft=True)
+    away = lambda t: max(abs(a - b) for a, b in zip(_frame_rgb(tmp_path / "out.mp4", t), _frame_rgb(tmp_path / "plain.mp4", t), strict=True))  # noqa: E731 - how far a frame is from the same one with no overlay
+    assert away(0.5) < 15  # before its delay: the still only
+    assert 20 < away(1.5) < away(2.6)  # half way through its fade-in, then fully there
+    end = manifest.plan(m).shots[0].duration
+    assert away(end - 0.05) < away(end - 1.6)  # and fading out as the shot ends
+
+
+@needs_ffmpeg
+def test_a_gif_plays_through_once_and_holds_its_last_frame_to_the_end_of_the_shot(tmp_path):
+    m = _with_overlay(tmp_path, _two_frame_gif_named)
+    build.render(m, tmp_path / "out.mp4", draft=True)
+    early, late = _frame_rgb(tmp_path / "out.mp4", 0.25), _frame_rgb(tmp_path / "out.mp4", 2.5)
+    assert early[0] > early[2]  # the first half second is the red frame
+    assert late[2] > late[0]  # long after the gif's one second, it is still on its last, blue frame: not looped back to red
+    assert ffmpeg.duration(tmp_path / "out.mp4") == pytest.approx(manifest.plan(m).duration, abs=0.3)  # a short gif does not shorten the film
+
+
+def _two_frame_gif_named(stem: Path) -> Path:
+    return _two_frame_gif(stem.with_suffix(".gif"))
+
+
+@needs_ffmpeg
+def test_a_gif_told_to_loop_goes_back_to_its_first_frame(tmp_path):
+    m = _with_overlay(tmp_path, _two_frame_gif_named, play="loop")
+    build.render(m, tmp_path / "out.mp4", draft=True)
+    at = lambda t: _frame_rgb(tmp_path / "out.mp4", t)  # noqa: E731
+    assert at(0.25)[0] > at(0.25)[2] and at(0.75)[2] > at(0.75)[0] and at(1.25)[0] > at(1.25)[2]  # red, blue, red again
+
+
+@needs_ffmpeg
+def test_a_delayed_fade_in_works_with_a_blend_too(tmp_path):
+    m = _with_overlay(tmp_path, lambda p: _colour_video(p.with_suffix(".mp4"), "white", 1.0), blend="screen", delay=1.0, fade=1.0)
+    build.render(m, tmp_path / "out.mp4", draft=True)
+    plain = manifest.load(demo.make(tmp_path / "plain", size=(360, 640)), probe=ffmpeg.duration)
+    build.render(plain, tmp_path / "plain.mp4", draft=True)
+    assert _frame_rgb(tmp_path / "out.mp4", 0.5) == pytest.approx(_frame_rgb(tmp_path / "plain.mp4", 0.5), abs=14)  # before the delay: untouched
+    assert min(_frame_rgb(tmp_path / "out.mp4", 2.4)) > 230  # then white screened over everything

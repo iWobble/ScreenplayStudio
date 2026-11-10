@@ -32,7 +32,7 @@ def credentials(path: Path = CREDENTIALS) -> tuple[str, str]:
 def _extension(mime: str | None, fallback: str) -> str:
     return {
         "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp",
-        "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
+        "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov", "image/gif": "gif", "image/apng": "apng", "image/vnd.mozilla.apng": "apng",
     }.get(
         (mime or "").split(";")[0].lower(), fallback
     )
@@ -371,7 +371,7 @@ def _unit(value) -> float | None:
 
 
 def _overlay(creds, out: Path, beat: dict, scenes: dict, story_data: dict, data, taken: dict) -> dict | None:
-    """The video over a beat's still: the beat's own, else its scene's, else the story's. A level that sets its blend to "none" says no overlay
+    """The video or picture over a beat's still (a video, an animated GIF or a PNG with transparency): the beat's own, else its scene's, else the story's. A level that sets its blend to "none" says no overlay
     here, and the levels above it are not consulted (a quiet beat in a rainy scene)."""
     scene = scenes.get(str(beat.get("scene")))
     for owner in (beat, data(scene) if scene else {}, story_data):
@@ -385,7 +385,12 @@ def _overlay(creds, out: Path, beat: dict, scenes: dict, story_data: dict, data,
         if key not in taken:
             taken[key] = _fetch_asset(creds, key, out / "video" / "overlays" / key[:12], "mp4")
         opacity = _unit(owner.get("overlay_opacity"))
-        return {"video": str(taken[key].relative_to(out)), "blend": blend or "normal", "opacity": 1.0 if opacity is None else opacity, "id": key}
+        play = str(owner.get("overlay_play") or "").strip().lower()
+        fade, delay = _positive(owner.get("overlay_fade")), _positive(owner.get("overlay_delay"))  # from the same level that named the picture
+        return {
+            "video": str(taken[key].relative_to(out)), "blend": blend or "normal", "opacity": 1.0 if opacity is None else opacity, "id": key,
+            **({"play": play} if play in ("loop", "once") else {}), **({"fade": min(fade, 10.0)} if fade else {}), **({"delay": min(delay, 60.0)} if delay else {}),
+        }  # fmt: skip
     return None
 
 

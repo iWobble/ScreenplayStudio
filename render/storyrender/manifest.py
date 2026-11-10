@@ -80,6 +80,9 @@ class Ambience:
 TRANSITIONS = ("cut", "fade", "dissolve")
 MAX_TRANSITION = 5.0
 DEFAULT_TRANSITION_SECONDS = 0.5
+PLAYS = ("", "loop", "once")
+MAX_OVERLAY_FADE = 10.0
+MAX_OVERLAY_DELAY = 60.0
 BLENDS = ("normal", "screen", "multiply", "overlay", "lighten", "addition")
 MAX_END_FADE = 30.0
 DUCKS = ("light", "strong")
@@ -94,6 +97,12 @@ class Overlay:
     blend: str = "normal"
     opacity: float = 1.0
     ref: str | None = None
+    play: str = ""
+    """loop, or once (play through, then hold the last frame). Empty: an animated picture (GIF, APNG) plays once, a video loops."""
+    fade: float = 0.0
+    """Seconds it fades in over at its start and out over at the end of the shot."""
+    delay: float = 0.0
+    """Seconds into the shot before it appears (a typed-out text starts a moment after the picture)."""
 
 
 @dataclass
@@ -254,7 +263,11 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             opacity = float(ov.get("opacity", 1.0))
             if blend not in BLENDS or not 0 <= opacity <= 1:
                 raise ManifestError(f"{where} overlay: blend is one of {', '.join(BLENDS)} and opacity 0–1 (got {blend}, {opacity})")
-            shot.overlay = Overlay(audio_path(ov.get("video") or "", f"{where} overlay"), blend, opacity, ov.get("id"))
+            play = str(ov.get("play") or "")
+            fade, delay = float(ov.get("fade") or 0), float(ov.get("delay") or 0)
+            if play not in PLAYS or not 0 <= fade <= MAX_OVERLAY_FADE or not 0 <= delay <= MAX_OVERLAY_DELAY:
+                raise ManifestError(f"{where} overlay: play is loop or once, fade 0–{MAX_OVERLAY_FADE:g} and delay 0–{MAX_OVERLAY_DELAY:g} seconds (got {play or 'empty'}, {fade:g}, {delay:g})")
+            shot.overlay = Overlay(audio_path(ov.get("video") or "", f"{where} overlay"), blend, opacity, ov.get("id"), play, fade, delay)
         if s.get("music_volume") not in (None, ""):
             shot.music_volume = float(s["music_volume"])
             if not 0 <= shot.music_volume <= 1:
