@@ -187,9 +187,12 @@ def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path, end_fad
     ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(narration), *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), str(out)])
 
 
-def _with_ambience(timeline: Timeline, narration: Path, end_fade: float | None = None) -> Path:
-    """The narration with its ambience beds under it (the same file when no shot has one)."""
+def _with_ambience(timeline: Timeline, narration: Path, end_fade: float | None = None, story_bed: Ambience | None = None) -> Path:
+    """The narration with its ambience beds under it (the same file when there are none). The story's own bed runs under the whole film and
+    plays together with the beds of the beats and scenes, which layer over it."""
     runs = beds(timeline)
+    if story_bed is not None and timeline.duration > 0:
+        runs.insert(0, Bed(story_bed, 0.0, timeline.duration, [(0.0, timeline.duration, story_bed.volume)]))
     if not runs:
         return narration
     mixed = narration.with_name("narration-mixed.wav")
@@ -221,7 +224,7 @@ def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | N
             wavs.append(wav)
         _join(clips, work / "video.mp4", work, kind="video")
         _join(wavs, work / "narration.wav", work, kind="audio")
-        mixed = _with_ambience(timeline, work / "narration.wav", manifest.end_fade)
+        mixed = _with_ambience(timeline, work / "narration.wav", manifest.end_fade, manifest.ambience)
         if mixed != work / "narration.wav":
             mixed.replace(work / "narration.wav")  # the final encode reads narration.wav
         (work / "captions.ass").write_text(captions.ass(timeline, size, manifest.caption))
@@ -341,7 +344,7 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
             _narration(planned, wav)
             wavs.append(wav)
         _join(wavs, work / "narration.wav", work, kind="audio")
-        heard = _with_ambience(timeline, work / "narration.wav", manifest.end_fade)
+        heard = _with_ambience(timeline, work / "narration.wav", manifest.end_fade, manifest.ambience)
         ffmpeg.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-i", str(heard), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-q:a", "2", str(out)]
         )

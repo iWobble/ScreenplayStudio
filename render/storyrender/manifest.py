@@ -126,6 +126,8 @@ class Manifest:
     caption: dict = field(default_factory=dict)
     loudnorm: bool = True
     end_hold: float = 0.0
+    ambience: Ambience | None = None
+    """The story's own ambience: one bed under the whole film, layered with whatever a beat or its scene asks for."""
     end_fade: float | None = None
     """Seconds every bed (the ambience that runs to the end and the music) fades out over at the end of the film; None leaves each sound's own."""
     chapters: list[Chapter] = field(default_factory=list)
@@ -269,6 +271,13 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
     size = tuple(raw.get("size") or DEFAULT_SIZE)
     if len(size) != 2 or size[0] * 16 != size[1] * 9:
         raise ManifestError(f"size must be 9:16 (got {size}); a Short is vertical")
+    story_bed = None
+    if raw.get("ambience"):
+        amb = raw["ambience"]
+        story_bed = Ambience(
+            audio_path(amb.get("audio") or "", "ambience"), float(amb.get("volume", 0.5)), False, amb.get("id"),
+            fade_in=float(amb.get("fade_in") or 0), fade_out=float(amb.get("fade_out") or 0),
+        )  # fmt: skip
     end_fade = raw.get("end_fade")
     if end_fade not in (None, ""):
         end_fade = float(end_fade)
@@ -280,6 +289,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         fps=int(raw.get("fps") or DEFAULT_FPS),
         shots=shots,
         music=music,
+        ambience=story_bed,
         caption=dict(raw.get("caption") or {}),
         loudnorm=bool(raw.get("loudnorm", True)),
         end_hold=float(raw.get("end_hold") or 0),
