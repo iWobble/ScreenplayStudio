@@ -575,18 +575,6 @@ def sync_sheet(job: dict, ctx: Context) -> dict:
 PREVIEW_SIZE = "720:1280"
 
 
-@job_kind(
-    "render",
-    description="Make a story's video from its approved stills and recorded lines (1080x1920, captions burned in) and keep it on the story as `video`. By default a smaller 720x1280 copy goes to Marvin (its upload limit is 100 MB) and the full-quality file is kept in the worker's output folder; `approve_beats` first marks every beat of the story approved, which is what approving the filmstrip means",
-    inputs={
-        "story": {"type": "string", "description": "the story entry's slug"},
-        "quality": {"type": "string", "required": False, "description": "draft: a quick look to check an overlay or a level (fast encode, 720x1280, replaces the story's video; no full-quality file is kept). preview (default): upload a 720x1280 copy. full: upload the 1080x1920 file (Marvin refuses an upload over its asset limit, 100 MB by default)"},
-        "beats": {"type": "string", "required": False, "description": "only these beats, as a quick look: 3, 2-4, 1,3,5 or 4a (an inserted beat). Always a draft; it is kept as its own video file and never replaces the story's video"},
-        "approve_beats": {"type": "string", "required": False, "description": "yes: mark every beat of the story approved before rendering"},
-    },
-    produces=["video/mp4"],
-    needs=["ffmpeg"],
-)
 def _keep_subtitles(ctx: Context, story: str, name: str, title: str, text: str) -> None:
     """The captions as a subtitle file (SubRip) kept on the story as `subtitles`, for a platform that takes them as a file; the previous one goes to
     the Trash. A story with no captions gets none, and a failure here never fails a video that was made."""
@@ -608,6 +596,18 @@ def _keep_subtitles(ctx: Context, story: str, name: str, title: str, text: str) 
         ctx.note(f"could not keep the subtitle file ({e})")
 
 
+@job_kind(
+    "render",
+    description="Make a story's video from its approved stills and recorded lines (1080x1920, captions burned in) and keep it on the story as `video`. By default a smaller 720x1280 copy goes to Marvin (its upload limit is 100 MB) and the full-quality file is kept in the worker's output folder; `approve_beats` first marks every beat of the story approved, which is what approving the filmstrip means",
+    inputs={
+        "story": {"type": "string", "description": "the story entry's slug"},
+        "quality": {"type": "string", "required": False, "description": "draft: a quick look to check an overlay or a level (fast encode, 720x1280, replaces the story's video; no full-quality file is kept). preview (default): upload a 720x1280 copy. full: upload the 1080x1920 file (Marvin refuses an upload over its asset limit, 100 MB by default)"},
+        "beats": {"type": "string", "required": False, "description": "only these beats, as a quick look: 3, 2-4, 1,3,5 or 4a (an inserted beat). Always a draft; it is kept as its own video file and never replaces the story's video"},
+        "approve_beats": {"type": "string", "required": False, "description": "yes: mark every beat of the story approved before rendering"},
+    },
+    produces=["video/mp4"],
+    needs=["ffmpeg"],
+)
 def render_video(job: dict, ctx: Context) -> dict:
     """The story as a vertical narrated video, kept as the story's `video`; the previous one goes to the Trash."""
     story, name, args = story_of(job), job["job"], job.get("args") or {}
