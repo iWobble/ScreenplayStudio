@@ -12,7 +12,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import audio_convert, beat_export, beat_import, build, chapters, ffmpeg, filmstrip, fountain, manifest, marvin_pull, script, voices
+from . import audio_convert, audio_measure, beat_export, beat_import, build, chapters, ffmpeg, filmstrip, fountain, manifest, marvin_pull, script, voices
 
 
 def story_of(job: dict) -> str:
@@ -117,6 +117,45 @@ def convert_audio(job: dict, ctx: Context) -> dict:
                 raise
     marvin_api.update_entry(ctx.creds, slug, {field: asset["id"]})
     return {"result": {"entry": slug, "field": field, "format": fmt, "asset": asset["id"], "from": source.get("id") or held, "seconds": round(seconds, 2), "converted": True}, "log": f"{name} → {audio_convert.named(name, fmt)}, {seconds:.1f} s. “{field}” on {slug} now holds it; the original stays in the library."}
+
+
+@job_kind(
+    "measure-audio",
+    description="Read how long the recording in an entry's audio field really is and write it to the entry (a browser's recording or an upload has no length stored anywhere else). Nothing is changed in the file",
+    inputs={
+        "entry": {"type": "string", "description": "the entry's slug, e.g. the take holding the recording"},
+        "field": {"type": "string", "required": False, "description": "the field holding the recording (audio by default)"},
+        "seconds_field": {"type": "string", "required": False, "description": "the number field the length is written to (duration_seconds by default)"},
+    },
+    produces=[],
+    needs=["ffmpeg"],
+)
+def measure_audio(job: dict, ctx: Context) -> dict:
+    """A recording in an entry's asset field → its length in seconds, written to the entry's number field."""
+    args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
+    slug = str(args.get("entry") or "").strip()
+    field = str(args.get("field") or "audio").strip()
+    target = str(args.get("seconds_field") or "duration_seconds").strip()
+    if not slug:
+        raise JobError("this kind of job needs args.entry (the entry's slug)")
+    row = next(iter(marvin_api.query(ctx.creds, {"entries": slug}, limit=1)), None)
+    if row is None:
+        raise JobError(f"no entry “{slug}”")
+    held = (row.get("dataJson") or row.get("data") or {}).get(field)
+    if not held or not isinstance(held, str):
+        raise JobError(f"“{slug}” has nothing in “{field}”: record or upload a sound there first")
+    source = marvin_api.asset(ctx.creds, held)
+    name = source.get("name") or source.get("slug") or "recording"
+    if not audio_convert.is_audio(source.get("mimeType"), name):
+        raise JobError(f"“{name}” ({source.get('mimeType') or 'unknown type'}) is not a sound")
+    src = ctx.work / f"measure{Path(name).suffix or '.bin'}"
+    marvin_api.download_asset(ctx.creds, source.get("id") or held, src)
+    try:
+        seconds = round(audio_measure.seconds(src), 3)
+    except ffmpeg.FfmpegError as e:
+        raise JobError(f"could not read “{name}” as sound: {e}") from e
+    marvin_api.update_entry(ctx.creds, slug, {target: seconds})
+    return {"result": {"entry": slug, "field": field, "seconds_field": target, "seconds": seconds}, "log": f"{name}: {seconds:.2f} s, written to {target} on {slug}"}
 
 
 SCRIPT_FILES = {"fountain": "text/plain", "pdf": "application/pdf", "html": "text/html", "breakdown": "text/html"}
