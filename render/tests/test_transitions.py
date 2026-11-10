@@ -54,7 +54,7 @@ def test_a_transition_takes_at_most_half_of_each_shot_and_the_first_shot_has_non
     timeline = manifest.plan(Manifest("t", (360, 640), 30, shots))
     edges = build.edges_of(timeline, 30)
     assert (edges[0].blend_in, edges[2].blend_out) == (0, 0)  # nothing before the first shot or after the last
-    assert all(e.blend_in <= build.clip_frames(timeline.shots[i], 30) // 2 for i, e in enumerate(edges))  # never more than half of a shot
+    assert all(e.blend_in + e.blend_out <= build.clip_frames(timeline.shots[i], 30) - 1 for i, e in enumerate(edges))  # never a shot's every frame
     assert edges[0].blend_out == edges[1].blend_in and edges[1].blend_out == edges[2].blend_in  # both sides of a boundary agree
 
 
@@ -106,3 +106,33 @@ def test_a_beats_transition_replaces_the_stories_and_a_cut_adds_nothing():
     assert marvin_pull.transition_of({"transition": "cut"}, story) == {}  # a cut beats the story's dissolve: "no transition into this beat"
     assert marvin_pull.transition_of({}, {}) == {} and marvin_pull.transition_of({"transition": "wipe"}, {}) == {}  # nothing set, or not known: a cut
     assert marvin_pull.transition_of({}, {"transition": "fade"}) == {"transition": "fade"}  # no length: the renderer's default
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("kind", ["fade", "dissolve"])
+def test_a_shot_shorter_than_its_two_transitions_still_keeps_a_frame_and_the_film_still_renders(tmp_path, kind):
+    """A real story's short beats met a 0.8 s transition on both sides: the whole shot was taken and the encoder was left with nothing."""
+    project = demo.make(tmp_path / "demo", size=(360, 640))
+    raw = json.loads(project.read_text())
+    raw["shots"][1]["lines"] = []
+    raw["shots"][1]["hold"] = 16 / 24  # exactly 16 frames of a draft: an even count that two half-takes would use up entirely
+    for shot in raw["shots"][1:]:
+        shot["transition"], shot["transition_seconds"] = kind, 2.0  # far longer than that shot
+    project.write_text(json.dumps(raw))
+    m = manifest.load(project, probe=ffmpeg.duration)
+    build.render(m, tmp_path / "out.mp4", draft=True, keep=tmp_path / "work")
+    assert float(ffmpeg.probe(tmp_path / "work" / "video.mp4")["format"]["duration"]) == pytest.approx(manifest.plan(m).duration, abs=1.5 / 24)
+
+
+@needs_ffmpeg
+def test_a_dissolve_renders_at_a_full_size_story_too(tmp_path):
+    """The first real story (1080x1920, so 540x960 as a draft) stopped at xfade ("rate of 1/0") where the small demo had not: the two inputs of the
+    cross-fade now both get a constant frame rate."""
+    project = demo.make(tmp_path / "demo")  # the default size
+    raw = json.loads(project.read_text())
+    for shot in raw["shots"][1:]:
+        shot["transition"], shot["transition_seconds"] = "dissolve", 0.8
+    project.write_text(json.dumps(raw))
+    m = manifest.load(project, probe=ffmpeg.duration)
+    build.render(m, tmp_path / "out.mp4", draft=True, keep=tmp_path / "work")
+    assert float(ffmpeg.probe(tmp_path / "work" / "video.mp4")["format"]["duration"]) == pytest.approx(manifest.plan(m).duration, abs=1.5 / 24)

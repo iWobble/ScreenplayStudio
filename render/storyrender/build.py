@@ -94,7 +94,7 @@ def edges_of(timeline: Timeline, fps: int) -> list[Edges]:
         if shot.transition == "cut" or shot.transition_seconds <= 0:
             continue
         half = round(shot.transition_seconds * fps / 2)
-        half = min(half, clip_frames(shots[k - 1], fps) // 2, clip_frames(shots[k], fps) // 2)
+        half = min(half, (clip_frames(shots[k - 1], fps) - 1) // 2, (clip_frames(shots[k], fps) - 1) // 2)  # both sides of a shot may take at most all but one of its frames
         if half < 1:
             continue
         if shot.transition == "fade":
@@ -262,8 +262,9 @@ def _dissolve(before: Path, after: Path, before_frames: int, half: int, fps: int
     longer or shorter. (A camera move eases to rest at both ends, so holding an end frame does not show.)"""
     d = 2 * half / fps
     graph = (
-        f"[0:v]trim=start_frame={before_frames - half},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop={half + 1}[a];"  # one frame over: xfade drops its last
-        f"[1:v]trim=end_frame={half},setpts=PTS-STARTPTS,tpad=start_mode=clone:start={half}:stop_mode=clone:stop=1[b];"
+        # fps= on both: xfade stops at an input whose frame rate is unknown ("rate of 1/0"), which a trimmed and padded stream can end up with.
+        f"[0:v]trim=start_frame={before_frames - half},setpts=PTS-STARTPTS,fps={fps},tpad=stop_mode=clone:stop={half + 1},fps={fps}[a];"  # one frame over: xfade drops its last
+        f"[1:v]trim=end_frame={half},setpts=PTS-STARTPTS,fps={fps},tpad=start_mode=clone:start={half}:stop_mode=clone:stop=1,fps={fps}[b];"
         f"[a][b]xfade=transition=fade:duration={d:.4f}:offset=0,fps={fps}[v]"
     )
     ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(before), "-i", str(after), "-filter_complex", graph, "-map", "[v]", "-frames:v", str(2 * half), *_encode(draft), str(out)])
