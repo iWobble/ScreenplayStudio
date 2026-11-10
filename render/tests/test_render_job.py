@@ -68,7 +68,7 @@ def test_it_renders_uploads_a_preview_copy_and_puts_it_on_the_story(tmp_path, mo
     marvin = Marvin(tmp_path, monkeypatch, old_video="asset-old")
     (tmp_path / "work").mkdir()
     done = jobs.render_video({"job": "render-1", "args": {"story": "s"}}, _ctx(tmp_path))
-    (name, size, meta), = marvin.uploads
+    (name, size, meta), = [u for u in marvin.uploads if u[2]["mime"] == "video/mp4"]  # the video (the captions go up as a file of their own)
     assert name == "render-1-preview.mp4" and meta["mime"] == "video/mp4" and meta["slug"] == "render-1-video" and meta["metadata"]["quality"] == "preview"
     assert ("s", {"video": "asset-new"}) in marvin.updated and ("/api/platform/assets/asset-old", "DELETE") in marvin.deleted  # the old copy goes to the Trash
     assert done["result"]["video"] == "asset-new" and done["result"]["quality"] == "preview" and done["result"]["seconds"] > 3
@@ -147,7 +147,7 @@ def test_quality_draft_is_a_quick_look_a_labelled_copy_with_no_full_file_kept(tm
     marvin = Marvin(tmp_path, monkeypatch)
     (tmp_path / "work").mkdir()
     done = jobs.render_video({"job": "render-1", "args": {"story": "s", "quality": "draft"}}, _ctx(tmp_path))
-    (name, _size, meta), = marvin.uploads
+    (name, _size, meta), = [u for u in marvin.uploads if u[2]["mime"] == "video/mp4"]
     assert name == "render-1-preview.mp4" and meta["name"].endswith("(draft)") and meta["metadata"]["quality"] == "draft"
     assert done["result"]["quality"] == "draft" and done["result"]["kept"] == "" and not (tmp_path / "out").exists()
     assert ("s", {"video": "asset-new"}) in marvin.updated
@@ -160,12 +160,26 @@ def test_a_look_at_some_beats_asks_the_pull_for_them_is_a_draft_and_leaves_the_s
     (tmp_path / "work").mkdir()
     done = jobs.render_video({"job": "render-1", "args": {"story": "s", "beats": "3", "quality": "full", "approve_beats": "yes"}}, _ctx(tmp_path))
     assert marvin.pulled_with == ["3"]
-    (name, _size, meta), = marvin.uploads
+    (name, _size, meta), = [u for u in marvin.uploads if u[2]["mime"] == "video/mp4"]
     assert meta["name"].endswith("(draft of beat 3)") and meta["metadata"]["quality"] == "draft" and meta["metadata"]["beats"] == "3"
     assert not any(slug == "s" for slug, _ in marvin.updated)  # the story's video is not replaced
     assert marvin.deleted == [] and not (tmp_path / "out").exists()  # the old video stays, no full-quality file kept
     assert marvin.beats["b1"]["dataJson"]["status"] == "draft"  # and nothing was approved on the way
     assert done["result"]["beats"] == "3" and done["result"]["url"] and done["result"]["quality"] == "draft"
+
+
+@needs_ffmpeg
+def test_a_whole_story_render_keeps_its_captions_as_a_subtitle_file_and_a_beats_draft_does_not(tmp_path, monkeypatch):
+    marvin = Marvin(tmp_path, monkeypatch)
+    (tmp_path / "work").mkdir()
+    jobs.render_video({"job": "render-1", "args": {"story": "s"}}, _ctx(tmp_path))
+    kept = [kw for _name, _size, kw in marvin.uploads if kw["mime"] == "application/x-subrip"]
+    assert len(kept) == 1 and kept[0]["metadata"] == {"kind": "subtitles", "story": "s"} and kept[0]["slug"] == "render-1-subtitles"
+    assert any(slug == "s" and "subtitles" in changes for slug, changes in marvin.updated)
+    marvin.uploads.clear()
+    marvin.updated.clear()
+    jobs.render_video({"job": "render-2", "args": {"story": "s", "beats": "1"}}, _ctx(tmp_path))
+    assert not [u for u in marvin.uploads if u[2]["mime"] == "application/x-subrip"] and not any("subtitles" in c for _s, c in marvin.updated)
 
 
 @needs_ffmpeg

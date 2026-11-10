@@ -12,7 +12,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import audio_convert, audio_measure, beat_export, beat_import, build, chapters, ffmpeg, filmstrip, fountain, manifest, marvin_pull, script, voices
+from . import audio_convert, audio_measure, beat_export, beat_import, build, captions, chapters, ffmpeg, filmstrip, fountain, manifest, marvin_pull, script, voices
 
 
 def story_of(job: dict) -> str:
@@ -587,6 +587,27 @@ PREVIEW_SIZE = "720:1280"
     produces=["video/mp4"],
     needs=["ffmpeg"],
 )
+def _keep_subtitles(ctx: Context, story: str, name: str, title: str, text: str) -> None:
+    """The captions as a subtitle file (SubRip) kept on the story as `subtitles`, for a platform that takes them as a file; the previous one goes to
+    the Trash. A story with no captions gets none, and a failure here never fails a video that was made."""
+    if not text.strip():
+        return
+    file = ctx.work / f"{name}.srt"
+    file.write_text(text, encoding="utf-8")
+    try:
+        asset = marvin_api.upload_asset(ctx.creds, file, slug=f"{name}-subtitles", name=f"{title}: subtitles", mime="application/x-subrip", description=f"The captions of {title} as a subtitle file.", metadata={"kind": "subtitles", "story": story})
+        before = next((((e.get("dataJson") or {}).get("subtitles")) for e in marvin_api.query(ctx.creds, {"entries": story}, limit=1)), None)
+        marvin_api.update_entry(ctx.creds, story, {"subtitles": asset["id"]})
+        if before and before != asset["id"]:
+            try:
+                marvin_api.request(ctx.creds, f"/api/platform/assets/{before}", method="DELETE")
+            except marvin_api.MarvinError:
+                pass  # an old file that cannot be trashed must not fail the render
+        ctx.note("kept the captions as a subtitle file on the story")
+    except marvin_api.MarvinError as e:
+        ctx.note(f"could not keep the subtitle file ({e})")
+
+
 def render_video(job: dict, ctx: Context) -> dict:
     """The story as a vertical narrated video, kept as the story's `video`; the previous one goes to the Trash."""
     story, name, args = story_of(job), job["job"], job.get("args") or {}
@@ -647,6 +668,8 @@ def render_video(job: dict, ctx: Context) -> dict:
             marvin_api.request(ctx.creds, f"/api/platform/assets/{before}", method="DELETE")
         except marvin_api.MarvinError:
             pass  # an old copy that cannot be trashed must not fail a video that was made
+    if not only:  # a look at some beats makes no subtitle file of its own
+        _keep_subtitles(ctx, story, name, title, captions.srt(manifest.plan(m)))
     note = f"{made['measured_seconds']} s, {made['shots']} shots." + (f" Full-quality file: {kept}." if kept else "")
     if pulled["not_recorded"]:
         note += f" Not recorded yet, so left out: {', '.join(pulled['not_recorded'])}."
