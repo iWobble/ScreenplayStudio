@@ -12,7 +12,7 @@ from pathlib import Path
 
 from marvin_worker import marvin_api
 
-from . import captions, cards, ffmpeg
+from . import captions, cards, ffmpeg, formats
 
 CREDENTIALS = Path.home() / ".marvin" / "credentials.json"
 
@@ -144,6 +144,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     sounds = {e["slug"]: e for e in marvin_api.query(creds, {"entries": sorted(wanted)}, limit=max(len(wanted), 1))} if wanted else {}
     taken: dict[str, Path] = {}  # an ambience's take is downloaded once, however many beats use it
     videos: dict[str, Path] = {}  # …and so is an overlay video
+    size = formats.size_of(data(story_row)) or PLACEHOLDER_SIZE  # the picture shape the story asked for: the cards and placeholder cards are made to fit it
     shots, missing, carded = [], [], []
     scenes_of: list[str] = []  # the scene of each shot made, for the pause where a scene ends
     for beat in beats:
@@ -187,7 +188,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             still = _fetch_asset(creds, str(data(beat)["still"]), out / "stills" / f"b{number}", "png")
             shot["still"] = str(still.relative_to(out))
         elif placeholders:
-            shot["still"] = str(_placeholder(out / "stills" / f"b{number}-placeholder.png", number).relative_to(out))
+            shot["still"] = str(_placeholder(out / "stills" / f"b{number}-placeholder.png", number, size).relative_to(out))
             carded.append(number)
         shots.append(shot)
         scenes_of.append(str(data(beat).get("scene") or "").strip())
@@ -198,14 +199,14 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         raise PullError(f"“{story}” has no recorded lines yet: record some with the screenplay-record-lines workflow")
     out.mkdir(parents=True, exist_ok=True)
     if chosen is None:  # a title card before the beats and an end card after them: real shots, so everything after them starts when the render starts it
-        intro, outro = cards.shots(data(story_row), out)
+        intro, outro = cards.shots(data(story_row), out, size)
         shots = [s for s in (intro, *shots, outro) if s is not None]
     music = music_of(creds, out, data(story_row), data)
     story_bed = story_ambience(creds, out, data(story_row), sounds, data, taken, missing)
     start_fade = _positive(data(story_row).get("start_fade_seconds"))  # every bed that starts the film fades in over this long
     end_fade = _positive(data(story_row).get("end_fade_seconds"))  # every bed fades out over this long at the end of the film
     (out / "manifest.json").write_text(
-        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"caption": caption} if (caption := caption_of(data(story_row), speaker_colours(rows, story, data))) else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {})}, indent=2, ensure_ascii=False)
+        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"size": list(size)} if formats.size_of(data(story_row)) else {}), **({"loudness": level} if (level := formats.loudness_of(data(story_row))) else {}), **({"caption": caption} if (caption := caption_of(data(story_row), speaker_colours(rows, story, data))) else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {})}, indent=2, ensure_ascii=False)
     )
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded}
 

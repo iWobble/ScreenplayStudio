@@ -304,7 +304,7 @@ def _join(files: list[Path], out: Path, work: Path, *, kind: str) -> None:
 def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | None = None) -> dict:
     """Render the manifest to `out`. Returns what was made: duration and the measured result."""
     timeline: Timeline = plan(manifest)
-    size = (manifest.size[0] // 2, manifest.size[1] // 2) if draft else manifest.size
+    size = (manifest.size[0] // 2 // 2 * 2, manifest.size[1] // 2 // 2 * 2) if draft else manifest.size  # half, and even: the encoder takes no odd side (4:5's 1350 halves to 675)
     fps = 24 if draft else manifest.fps
     out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="storyrender-") as tmp:
@@ -410,7 +410,7 @@ def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, 
         chain.append("[1:a][bed]amix=inputs=2:normalize=0:duration=first[mix]")
         audio = "[mix]"
     if manifest.loudnorm:
-        chain.append(f"{audio}loudnorm=I=-16:TP=-1.5:LRA=11[aout]")
+        chain.append(f"{audio}loudnorm=I={manifest.loudness:g}:TP=-1.5:LRA=11[aout]")
         audio = "[aout]"
     cmd += ["-filter_complex", ";".join(chain)] if chain else []
     cmd += [

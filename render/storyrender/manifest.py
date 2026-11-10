@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 DEFAULT_SIZE = (1080, 1920)
+ASPECTS = ((9, 16), (1, 1), (4, 5), (16, 9))  # the shapes a film may have (formats.SHAPES)
 DEFAULT_FPS = 30
 TRIM_SLACK = 0.05  # an `end` a hair past the file's length (rounded timings) is read as its end
 LEAD = 0.3  # silence before a shot's first line
@@ -135,6 +136,8 @@ class Manifest:
     music: dict | None = None
     caption: dict = field(default_factory=dict)
     loudnorm: bool = True
+    loudness: float = -16.0
+    """The integrated loudness (LUFS) the sound is normalised to when `loudnorm` is on: -14 is what the big platforms aim for."""
     end_hold: float = 0.0
     ambience: Ambience | None = None
     """The story's own ambience: one bed under the whole film, layered with whatever a beat or its scene asks for."""
@@ -294,8 +297,11 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         if music.get("duck") not in (None, "") and music["duck"] not in DUCKS:
             raise ManifestError(f"music: duck is {' or '.join(DUCKS)} (got {music['duck']})")
     size = tuple(raw.get("size") or DEFAULT_SIZE)
-    if len(size) != 2 or size[0] * 16 != size[1] * 9:
-        raise ManifestError(f"size must be 9:16 (got {size}); a Short is vertical")
+    if len(size) != 2 or not any(size[0] * h == size[1] * w for w, h in ASPECTS):
+        raise ManifestError(f"size must be 9:16, 1:1, 4:5 or 16:9 (got {size})")
+    loudness = raw.get("loudness")
+    if loudness not in (None, "") and not -30 <= float(loudness) <= -5:
+        raise ManifestError(f"loudness is a target between -30 and -5 LUFS (got {loudness})")
     story_bed = None
     if raw.get("ambience"):
         amb = raw["ambience"]
@@ -323,6 +329,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         ambience=story_bed,
         caption=dict(raw.get("caption") or {}),
         loudnorm=bool(raw.get("loudnorm", True)),
+        loudness=float(loudness) if loudness not in (None, "") else -16.0,
         end_hold=float(raw.get("end_hold") or 0),
         start_fade=start_fade if isinstance(start_fade, float) else None,
         end_fade=end_fade if isinstance(end_fade, float) else None,
