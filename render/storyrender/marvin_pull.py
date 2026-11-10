@@ -12,7 +12,7 @@ from pathlib import Path
 
 from marvin_worker import marvin_api
 
-from . import cards, ffmpeg
+from . import captions, cards, ffmpeg
 
 CREDENTIALS = Path.home() / ".marvin" / "credentials.json"
 
@@ -205,7 +205,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     start_fade = _positive(data(story_row).get("start_fade_seconds"))  # every bed that starts the film fades in over this long
     end_fade = _positive(data(story_row).get("end_fade_seconds"))  # every bed fades out over this long at the end of the film
     (out / "manifest.json").write_text(
-        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {})}, indent=2, ensure_ascii=False)
+        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"caption": caption} if (caption := caption_of(data(story_row), speaker_colours(rows, story, data))) else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {})}, indent=2, ensure_ascii=False)
     )
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded}
 
@@ -291,6 +291,34 @@ def scene_breaks(scenes: list[str], seconds: object) -> list[float]:
         return [0.0] * len(scenes)
     following = [*scenes[1:], ""] if scenes else []
     return [pause if (here and there and here != there) else 0.0 for here, there in zip(scenes, following, strict=True)]
+
+
+def caption_of(story: dict, speakers: dict[str, str]) -> dict:
+    """The caption look the story asks for, as the manifest's `caption` (only what is set and valid): `caption_style`, `caption_position`,
+    `caption_size`, `caption_color`, `caption_highlight_color`, and a colour for each speaker whose cast member has a `caption_color`."""
+    out: dict = {}
+    for key, options in (("style", captions.STYLES), ("position", captions.POSITIONS), ("size", captions.SIZES)):
+        value = str(story.get(f"caption_{key}") or "").strip().lower()
+        if value in options:
+            out[key] = value
+    for key, field in (("color", "caption_color"), ("highlight", "caption_highlight_color")):
+        value = str(story.get(field) or "").strip()
+        if captions._HEX.match(value):
+            out[key] = "#" + value.lstrip("#").lower()
+    if speakers:
+        out["speakers"] = speakers
+    return out
+
+
+def speaker_colours(rows: list[dict], story: str, data) -> dict[str, str]:
+    """{speaker: #RRGGBB} from the story's cast members that have a `caption_color`: the word a line's speaker is written as, lower case."""
+    out: dict[str, str] = {}
+    for row in rows:
+        d = data(row)
+        value = str(d.get("caption_color") or "").strip()
+        if d.get("story") == story and str(d.get("speaker") or "").strip() and captions._HEX.match(value):
+            out[str(d["speaker"]).strip().lower()] = "#" + value.lstrip("#").lower()
+    return out
 
 
 TRANSITION_KINDS = ("cut", "fade", "dissolve")
