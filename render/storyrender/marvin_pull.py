@@ -167,7 +167,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
                 shot[key] = float(data(beat)[field])
         if effects:
             shot["sfx"] = effects
-        bed = _ambience(creds, out, data(beat), scenes, sounds, data, taken, missing)
+        bed = _ambience(creds, out, data(beat), scenes, sounds, data, taken, missing, data(story_row))
         if bed:
             shot["ambience"] = bed
         cover = _overlay(creds, out, data(beat), scenes, data(story_row), data, videos)
@@ -193,9 +193,10 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     out.mkdir(parents=True, exist_ok=True)
     music = music_of(creds, out, data(story_row), data)
     story_bed = story_ambience(creds, out, data(story_row), sounds, data, taken, missing)
+    start_fade = _positive(data(story_row).get("start_fade_seconds"))  # every bed that starts the film fades in over this long
     end_fade = _positive(data(story_row).get("end_fade_seconds"))  # every bed fades out over this long at the end of the film
     (out / "manifest.json").write_text(
-        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"end_fade": end_fade} if end_fade else {})}, indent=2, ensure_ascii=False)
+        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {})}, indent=2, ensure_ascii=False)
     )
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded}
 
@@ -212,6 +213,19 @@ def spoken_words(d: dict, metadata: dict | None) -> list[dict]:
     raw = (metadata or {}).get("words")
     words = [w for w in raw if isinstance(w, dict) and w.get("text") is not None] if isinstance(raw, list) else []
     return [w for w in words if not (str(w["text"]).startswith("[") and str(w["text"]).endswith("]"))]
+
+
+def cascaded_fades(sound: dict, *levels: dict) -> dict:
+    """An ambience bed's fades, each setting overriding the one before: the sound's own, then the story's `ambience_fade_in` / `_out`, then the
+    beat's. Those that came from the story or the beat are flagged (`fade_in_set`, `fade_out_set`), so the film's start and end fades, which only
+    cover what nothing more specific set, leave them alone."""
+    fades = fades_of(sound)
+    for source in levels:
+        for key in ("fade_in", "fade_out"):
+            if (value := _positive(source.get(f"ambience_{key}"))) is not None:
+                fades[key] = value
+                fades[f"{key}_set"] = True
+    return fades
 
 
 def fades_of(d: dict) -> dict:
@@ -273,7 +287,7 @@ def story_ambience(creds, out: Path, story_data: dict, sounds: dict, data, taken
     if name not in taken:
         taken[name] = _fetch_asset(creds, str(data(sound)["audio"]), out / "audio" / "sounds" / name, "mp3")
     level = next((v for v in (story_data.get("ambience_volume"), data(sound).get("volume")) if v not in (None, "")), 0.5)
-    return {"id": name, "audio": str(taken[name].relative_to(out)), "volume": float(level), **fades_of(data(sound))}
+    return {"id": name, "audio": str(taken[name].relative_to(out)), "volume": float(level), **cascaded_fades(data(sound), story_data)}
 
 
 def _positive(value) -> float | None:
@@ -313,7 +327,7 @@ def _overlay(creds, out: Path, beat: dict, scenes: dict, story_data: dict, data,
     return None
 
 
-def _ambience(creds, out: Path, beat: dict, scenes: dict, sounds: dict, data, taken: dict, missing: list) -> dict | None:
+def _ambience(creds, out: Path, beat: dict, scenes: dict, sounds: dict, data, taken: dict, missing: list, story_data: dict | None = None) -> dict | None:
     """The bed under a beat: its own ambience, else its scene's. At the level the beat sets, else the scene's, else the sound's own; muffled when
     the scene is heard from inside. It plays together with the story's own bed (see story_ambience), which runs under everything. A beat with
     none, or a sound with no take yet, gives no bed (the sound is named in `not_recorded`)."""
@@ -335,4 +349,4 @@ def _ambience(creds, out: Path, beat: dict, scenes: dict, sounds: dict, data, ta
     else:
         named_level, muffled = data(scene).get("ambience_volume"), bool(data(scene).get("ambience_muffled"))
     level = next((v for v in (beat.get("ambience_volume"), named_level, data(sound).get("volume")) if v not in (None, "")), 0.5)
-    return {"id": name, "audio": str(taken[name].relative_to(out)), "volume": float(level), "muffled": muffled, **fades_of(data(sound))}
+    return {"id": name, "audio": str(taken[name].relative_to(out)), "volume": float(level), "muffled": muffled, **cascaded_fades(data(sound), story_data or {}, beat)}

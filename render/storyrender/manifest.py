@@ -72,6 +72,8 @@ class Ambience:
     ref: str | None = None
     fade_in: float = 0.0  # 0: the renderer's own crossfade (BED_FADE)
     fade_out: float = 0.0
+    fade_in_set: bool = False  # set by the story or the beat (not the sound): the film's start fade does not replace it
+    fade_out_set: bool = False
 
 
 BLENDS = ("normal", "screen", "multiply", "overlay", "lighten", "addition")
@@ -128,6 +130,8 @@ class Manifest:
     end_hold: float = 0.0
     ambience: Ambience | None = None
     """The story's own ambience: one bed under the whole film, layered with whatever a beat or its scene asks for."""
+    start_fade: float | None = None
+    """Seconds every bed that starts the film (the music, the story's ambience) fades in over; None leaves each sound's own."""
     end_fade: float | None = None
     """Seconds every bed (the ambience that runs to the end and the music) fades out over at the end of the film; None leaves each sound's own."""
     chapters: list[Chapter] = field(default_factory=list)
@@ -219,6 +223,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             shot.ambience = Ambience(
                 audio_path(amb.get("audio") or "", f"{where} ambience"), float(amb.get("volume", 0.5)), bool(amb.get("muffled", False)), amb.get("id"),
                 fade_in=float(amb.get("fade_in") or 0), fade_out=float(amb.get("fade_out") or 0),
+                fade_in_set=bool(amb.get("fade_in_set")), fade_out_set=bool(amb.get("fade_out_set")),
             )
         if s.get("overlay"):
             ov = s["overlay"]
@@ -277,7 +282,13 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         story_bed = Ambience(
             audio_path(amb.get("audio") or "", "ambience"), float(amb.get("volume", 0.5)), False, amb.get("id"),
             fade_in=float(amb.get("fade_in") or 0), fade_out=float(amb.get("fade_out") or 0),
+            fade_in_set=bool(amb.get("fade_in_set")), fade_out_set=bool(amb.get("fade_out_set")),
         )  # fmt: skip
+    start_fade = raw.get("start_fade")
+    if start_fade not in (None, ""):
+        start_fade = float(start_fade)
+        if not 0 < start_fade <= MAX_END_FADE:
+            raise ManifestError(f"start_fade is more than 0 and at most {MAX_END_FADE:g} seconds (got {start_fade:g})")
     end_fade = raw.get("end_fade")
     if end_fade not in (None, ""):
         end_fade = float(end_fade)
@@ -293,6 +304,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         caption=dict(raw.get("caption") or {}),
         loudnorm=bool(raw.get("loudnorm", True)),
         end_hold=float(raw.get("end_hold") or 0),
+        start_fade=start_fade if isinstance(start_fade, float) else None,
         end_fade=end_fade if isinstance(end_fade, float) else None,
         chapters=[Chapter(str(c["id"]), str(c.get("title") or c["id"])) for c in raw.get("chapters") or [] if isinstance(c, dict) and c.get("id")],
     )
