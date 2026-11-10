@@ -173,7 +173,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         bed = _ambience(creds, out, data(beat), scenes, sounds, data, taken, missing, data(story_row))
         if bed:
             shot["ambience"] = bed
-        cover = _overlay(creds, out, data(beat), scenes, data(story_row), data, videos)
+        cover = _info_overlay(creds, out, data(beat), number, size) or _overlay(creds, out, data(beat), scenes, data(story_row), data, videos)
         if cover:
             shot["overlay"] = cover
         if (level := _unit(data(beat).get("music_volume"))) is not None:
@@ -368,6 +368,18 @@ def _unit(value) -> float | None:
     except (TypeError, ValueError):
         return None
     return level if level is not None and 0 <= level <= 1 else None
+
+
+def _info_overlay(creds, out: Path, beat: dict, number, size: tuple[int, int]) -> dict | None:
+    """The beat's info card (see cards.info_of), drawn as a picture and handed on as the beat's overlay: it replaces any overlay the beat, its scene
+    or the story has for this beat. It starts after `overlay_delay` (default 0.6 s) and fades with `overlay_fade` (default 0.35 s)."""
+    card = cards.info_of(beat)
+    if card is None:
+        return None
+    icon = _fetch_asset(creds, card["icon"], out / "video" / "info" / f"b{number}-icon", "png") if card["icon"] else None
+    picture = cards.make_info(card, out / "video" / "info" / f"b{number}.png", size, icon)
+    fade, delay = _positive(beat.get("overlay_fade")), _positive(beat.get("overlay_delay"))
+    return {"video": str(picture.relative_to(out)), "blend": "normal", "opacity": 1.0, "id": f"info-b{number}", "fade": min(fade or cards.INFO_FADE, 10.0), "delay": min(delay if delay is not None else cards.INFO_DELAY, 60.0)}
 
 
 def _overlay(creds, out: Path, beat: dict, scenes: dict, story_data: dict, data, taken: dict) -> dict | None:

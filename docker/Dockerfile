@@ -12,7 +12,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 # screenplain + reportlab: the screenplay (Fountain -> PDF in Courier 12, and HTML), pure Python so no browser is needed.
 # faster-whisper + av: transcribing. `av` is pinned because faster-whisper 1.2.1 breaks on a newer one.
-RUN pip install --no-cache-dir screenplain==0.12.0 reportlab==5.1.0 faster-whisper==1.2.1 "av>=14,<17"
+RUN pip install --no-cache-dir screenplain==0.12.0 reportlab==5.1.0 "pillow>=10" faster-whisper==1.2.1 "av>=14,<17"
 # /models keeps the transcription model across restarts (mount a volume); /out keeps full-quality renders (mount a folder).
 RUN mkdir /models /out && chown 1001 /models /out
 COPY render/storyrender ./storyrender
