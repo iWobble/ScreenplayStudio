@@ -1,5 +1,6 @@
 """The media kinds of job, run through the generic worker core: what `audio-cut` writes back to Marvin's records."""
 
+import inspect
 import json
 import shutil
 import subprocess
@@ -7,12 +8,19 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
-from marvin_worker import serve
+from marvin_worker import jobs as worker_jobs, serve
 
 from storyrender import jobs  # noqa: F401 — importing registers the kinds
 
 needs_ffmpeg = pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg not installed")
 STORY = "the-last-onion"
+
+
+def test_every_registered_kind_runs_a_job_function_and_the_render_kind_is_the_render():
+    """The decorator registers the function just below it: a helper put between a @job_kind and its function became the handler (every render failed with a TypeError)."""
+    for kind, handler in worker_jobs.HANDLERS.items():
+        assert list(inspect.signature(handler).parameters) == ["job", "ctx"], f"{kind} runs {handler.__name__}"
+    assert worker_jobs.HANDLERS["render"] is jobs.render_video
 
 
 class FakeMarvin(BaseHTTPRequestHandler):
