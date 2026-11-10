@@ -12,7 +12,7 @@ from pathlib import Path
 
 from marvin_worker import marvin_api
 
-from . import ffmpeg
+from . import cards, ffmpeg
 
 CREDENTIALS = Path.home() / ".marvin" / "credentials.json"
 
@@ -192,6 +192,9 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     if not shots:
         raise PullError(f"“{story}” has no recorded lines yet: record some with the screenplay-record-lines workflow")
     out.mkdir(parents=True, exist_ok=True)
+    if chosen is None:  # a title card before the beats and an end card after them: real shots, so everything after them starts when the render starts it
+        intro, outro = cards.shots(data(story_row), out)
+        shots = [s for s in (intro, *shots, outro) if s is not None]
     music = music_of(creds, out, data(story_row), data)
     story_bed = story_ambience(creds, out, data(story_row), sounds, data, taken, missing)
     start_fade = _positive(data(story_row).get("start_fade_seconds"))  # every bed that starts the film fades in over this long
