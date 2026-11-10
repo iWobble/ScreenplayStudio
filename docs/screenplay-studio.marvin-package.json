@@ -6189,7 +6189,8 @@
             "optional": true,
             "scope": {
               "story": "${story}"
-            }
+            },
+            "sort": "natural"
           },
           {
             "id": "beat",
@@ -6204,7 +6205,8 @@
               "chapter": "${chapter}"
             },
             "picture": "still",
-            "subtitle": "number"
+            "subtitle": "number",
+            "sort": "natural"
           },
           {
             "id": "line",
@@ -6216,7 +6218,8 @@
             "scope": {
               "story": "${story}",
               "beat": "${beat}"
-            }
+            },
+            "sort": "natural"
           },
           {
             "id": "takes",
