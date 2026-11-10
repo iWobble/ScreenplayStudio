@@ -239,7 +239,33 @@ def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | N
 
 
 MUSIC_RAMP = 0.5  # seconds a change of the music's level takes, so it eases rather than clicks
-DUCKING = {"light": (0.05, 3, 30, 450), "strong": (0.03, 8, 20, 600)}  # sidechain threshold, ratio, attack ms, release ms
+DUCK_DEPTH = {"light": 0.35, "strong": 0.12}  # the music's gain while someone speaks: about -9 dB and -18 dB, however loud the voice is
+DUCK_ATTACK = 0.2  # seconds the music takes to go down, finished as the line starts
+DUCK_RELEASE = 0.5  # and to come back after the line ends
+
+
+def speech_windows(timeline: Timeline) -> list[tuple[float, float]]:
+    """When someone is speaking, as (start, end) seconds on the film: each line's span, with lines closer than one attack plus one release
+    joined, so the music does not pump up in a short pause between two lines and the ramps never overlap."""
+    spans = sorted((pl.start, pl.start + pl.line.duration) for p in timeline.shots for pl in p.lines if pl.line.duration > 0)
+    joined: list[tuple[float, float]] = []
+    for begin, end in spans:
+        if joined and begin - joined[-1][1] < DUCK_ATTACK + DUCK_RELEASE:
+            joined[-1] = (joined[-1][0], max(joined[-1][1], end))
+        else:
+            joined.append((begin, end))
+    return joined
+
+
+def duck_gain(windows: list[tuple[float, float]], depth: float) -> str | None:
+    """The music's gain over the film as one ffmpeg expression: 1, falling to `depth` over each speech window and back after it. None when
+    nobody speaks. The windows do not overlap (speech_windows), so the ramps simply add."""
+    if not windows:
+        return None
+    ramps = "+".join(
+        f"min(clip((t-{begin - DUCK_ATTACK:.3f})/{DUCK_ATTACK},0,1),clip(({end + DUCK_RELEASE:.3f}-t)/{DUCK_RELEASE},0,1))" for begin, end in windows
+    )
+    return f"1-{1 - depth:.3f}*({ramps})"
 
 
 def music_level(timeline: Timeline, base: float, ramp: float = MUSIC_RAMP) -> str | None:
@@ -273,19 +299,16 @@ def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, 
         fade_at = max(0.0, timeline.duration - fade_out)
         rise = f"afade=t=in:st=0:d={min(fade_in, timeline.duration / 2):.3f}," if fade_in > 0 else ""
         level = music_level(timeline, float(manifest.music["volume"]))
-        volume = f"volume='{level}':eval=frame" if level else f"volume={manifest.music['volume']}"
-        duck = DUCKING.get(str(manifest.music.get("duck") or ""))
-        bed = "[bed0]" if duck else "[bed]"
-        chain.append(
-            f"[2:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,{volume},{rise}afade=t=out:st={fade_at:.3f}:d={fade_out:g},atrim=0:{timeline.duration:.3f}{bed}"
-        )
-        if duck:  # the narration also keys the compressor that lowers the bed while someone speaks
-            threshold, ratio, attack, release = duck
-            chain.append("[1:a]asplit=2[key][talk]")
-            chain.append(f"[bed0][key]sidechaincompress=threshold={threshold}:ratio={ratio}:attack={attack}:release={release}[bed]")
-            chain.append("[talk][bed]amix=inputs=2:normalize=0:duration=first[mix]")
+        depth = DUCK_DEPTH.get(str(manifest.music.get("duck") or ""))
+        duck = duck_gain(speech_windows(timeline), depth) if depth else None
+        if level or duck:  # the level the beats ask for, times the dip under speech
+            volume = f"volume='({level or manifest.music['volume']})*({duck or 1})':eval=frame"
         else:
-            chain.append("[1:a][bed]amix=inputs=2:normalize=0:duration=first[mix]")
+            volume = f"volume={manifest.music['volume']}"
+        chain.append(
+            f"[2:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,{volume},{rise}afade=t=out:st={fade_at:.3f}:d={fade_out:g},atrim=0:{timeline.duration:.3f}[bed]"
+        )
+        chain.append("[1:a][bed]amix=inputs=2:normalize=0:duration=first[mix]")
         audio = "[mix]"
     if manifest.loudnorm:
         chain.append(f"{audio}loudnorm=I=-16:TP=-1.5:LRA=11[aout]")

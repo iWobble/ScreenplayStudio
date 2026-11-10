@@ -300,15 +300,50 @@ def test_the_music_goes_silent_in_a_beat_that_sets_it_to_zero_and_comes_back(tmp
     assert _bed_db(tmp_path / "out.mp4", *window(after)) > _bed_db(tmp_path / "out.mp4", *window(quiet)) + 20  # and back for the next
 
 
+def _speaking(*spans) -> manifest.Timeline:
+    """A timeline whose lines speak in the given (start, seconds) spans, one shot per span, so the windows are easy to read."""
+    shots = [Shot(f"s{i}", Path(f"s{i}.png"), hold=0.0, lines=[Line("x", None, seconds)]) for i, (_, seconds) in enumerate(spans)]
+    timeline = manifest.plan(Manifest("t", (360, 640), 30, shots))
+    for planned, (start, _) in zip(timeline.shots, spans, strict=True):  # place each line where the test wants it
+        planned.lines[0].start = start
+    return timeline
+
+
+def test_speech_windows_are_the_lines_spans_with_close_lines_joined():
+    far = _speaking((1.0, 2.0), (6.0, 1.0))
+    assert build.speech_windows(far) == [(1.0, 3.0), (6.0, 7.0)]
+    close = _speaking((1.0, 2.0), (3.4, 1.0), (9.0, 1.0))  # 0.4 s between the first two: less than a ramp down and up
+    assert build.speech_windows(close) == [(1.0, 4.4), (9.0, 10.0)]
+    assert build.speech_windows(_timeline(_shot("a", 4))) == []  # nobody speaks
+
+
+def test_the_duck_gain_falls_to_the_depth_in_a_line_and_is_back_to_one_between_them():
+    expr = build.duck_gain(build.speech_windows(_speaking((2.0, 2.0), (8.0, 2.0))), build.DUCK_DEPTH["strong"])
+    assert _at(expr, 0.0) == pytest.approx(1.0) and _at(expr, 1.0) == pytest.approx(1.0)  # before the first line
+    assert _at(expr, 3.0) == pytest.approx(0.12)  # inside it, whatever the voice's own level
+    assert _at(expr, 1.9) == pytest.approx(1 - 0.88 * 0.5, abs=0.01)  # half way down as the line is about to start (a 0.2 s ramp)
+    assert _at(expr, 6.0) == pytest.approx(1.0)  # between the lines the music is back
+    assert _at(expr, 9.0) == pytest.approx(0.12)
+    assert build.duck_gain([], 0.12) is None
+
+
+def _ducked(tmp_path: Path, duck: str | None):
+    manifest_ = _music_project(tmp_path, [None, None, None], duck=duck, hz=1500)
+    build.render(manifest_, tmp_path / "out.mp4", draft=True)
+    return manifest_, tmp_path / "out.mp4"
+
+
 @needs_ffmpeg
-def test_ducking_lowers_the_bed_while_someone_speaks(tmp_path):
-    plain = _music_project(tmp_path / "a", [None, None, None], hz=1500)  # a bed far from the narration's pitch, so it can be measured on its own
-    ducked = _music_project(tmp_path / "b", [None, None, None], duck="strong", hz=1500)
-    build.render(plain, tmp_path / "plain.mp4", draft=True)
-    build.render(ducked, tmp_path / "ducked.mp4", draft=True)
-    shot = manifest.plan(plain).shots[0]
-    window = (shot.start + 0.6, max(0.3, min(shot.duration - 1.0, 1.0)))
-    assert _bed_db(tmp_path / "ducked.mp4", *window) < _bed_db(tmp_path / "plain.mp4", *window) - 3
+def test_ducking_lowers_the_bed_by_a_set_amount_while_someone_speaks_whatever_the_voice_level(tmp_path):
+    plain_m, plain = _ducked(tmp_path / "plain", None)
+    _, light = _ducked(tmp_path / "light", "light")
+    _, strong = _ducked(tmp_path / "strong", "strong")
+    line = manifest.plan(plain_m).shots[0].lines[0]
+    window = (line.start + 0.5, min(1.0, line.line.duration - 0.8))  # well inside the line, past the ramp
+    base = _bed_db(plain, *window)
+    assert _bed_db(light, *window) == pytest.approx(base - 9.1, abs=2.0)  # about -9 dB
+    assert _bed_db(strong, *window) == pytest.approx(base - 18.4, abs=3.5)  # about -18 dB (the encoded test film's noise floor eats a little of the bottom)
+    assert _bed_db(strong, *window) < _bed_db(light, *window) - 4  # and clearly deeper than light
 
 
 def test_a_line_object_still_builds_without_the_new_fields():
