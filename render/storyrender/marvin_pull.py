@@ -145,6 +145,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     taken: dict[str, Path] = {}  # an ambience's take is downloaded once, however many beats use it
     videos: dict[str, Path] = {}  # …and so is an overlay video
     shots, missing, carded = [], [], []
+    scenes_of: list[str] = []  # the scene of each shot made, for the pause where a scene ends
     for beat in beats:
         number = str(data(beat).get("number"))
         spoken = []
@@ -189,6 +190,10 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             shot["still"] = str(_placeholder(out / "stills" / f"b{number}-placeholder.png", number).relative_to(out))
             carded.append(number)
         shots.append(shot)
+        scenes_of.append(str(data(beat).get("scene") or "").strip())
+    for shot, pause in zip(shots, scene_breaks(scenes_of, data(story_row).get("scene_break_seconds")), strict=True):
+        if pause:
+            shot["after"] = pause
     if not shots:
         raise PullError(f"“{story}” has no recorded lines yet: record some with the screenplay-record-lines workflow")
     out.mkdir(parents=True, exist_ok=True)
@@ -275,6 +280,17 @@ def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) 
         volume = item.get("volume") if item.get("volume") is not None else d.get("volume")
         effects.append({"id": row["slug"], "audio": str(file.relative_to(out)), "at": float(item.get("at") or 0), "volume": float(volume if volume is not None else 0.6), **fades_of(d)})
     return effects
+
+
+def scene_breaks(scenes: list[str], seconds: object) -> list[float]:
+    """The quiet to add after each shot where its scene ends: the story's `scene_break_seconds` (when that is above 0) after a shot whose next shot
+    is in a different scene. A shot or its neighbour with no scene has none, and neither has the last. Must match the timeline view's
+    `spine.scene_break` (Marvin: timeline.ts)."""
+    pause = _positive(seconds)
+    if pause is None:
+        return [0.0] * len(scenes)
+    following = [*scenes[1:], ""] if scenes else []
+    return [pause if (here and there and here != there) else 0.0 for here, there in zip(scenes, following, strict=True)]
 
 
 TRANSITION_KINDS = ("cut", "fade", "dissolve")

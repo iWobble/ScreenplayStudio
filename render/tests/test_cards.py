@@ -71,3 +71,38 @@ def test_cards_are_part_of_the_film_and_move_everything_after_them(tmp_path):
     assert plan.shots[1].start == pytest.approx(2.0) and plan.duration == pytest.approx(plain.duration + 2.0 + 1.5)  # every beat after the title starts 2 s later
     build.render(m, tmp_path / "out.mp4", draft=True)
     assert ffmpeg.duration(tmp_path / "out.mp4") == pytest.approx(plan.duration, abs=0.2)
+
+
+# ── the pause where a scene ends ────────────────────────────────────────────────────────────────────────────────────────────────────────
+def test_a_pause_follows_a_shot_whose_next_shot_is_in_another_scene_and_nothing_else_does():
+    from storyrender import marvin_pull
+
+    scenes = ["deck", "deck", "cabin", "", "cabin", "cabin", "deck"]
+    assert marvin_pull.scene_breaks(scenes, 1.5) == [0.0, 1.5, 0.0, 0.0, 0.0, 1.5, 0.0]  # deck→cabin, then cabin→deck; a shot with no scene breaks nothing
+    assert marvin_pull.scene_breaks(scenes, 0) == marvin_pull.scene_breaks(scenes, None) == marvin_pull.scene_breaks(scenes, "") == [0.0] * 7  # none set: nothing, whatever the old default was
+    assert marvin_pull.scene_breaks([], 1) == [] and marvin_pull.scene_breaks(["a"], 1) == [0.0]
+
+
+def test_a_shots_pause_is_part_of_its_length_and_moves_the_next_shot():
+    from pathlib import Path
+
+    from storyrender.manifest import Line, Manifest, Shot
+
+    a, b = Shot("a", Path("a.png"), hold=2.0), Shot("b", Path("b.png"), hold=2.0, lines=[Line("x", None, 1.0)])
+    a.after = 1.5
+    plan = manifest.plan(Manifest("t", (360, 640), 30, [a, b]))
+    assert plan.shots[0].duration == pytest.approx(3.5) and plan.shots[1].start == pytest.approx(3.5)  # the hold plus the pause
+    assert plan.shots[1].lines[0].start == pytest.approx(3.5 + 0.3)  # a line after it keeps its lead-in from the new start
+
+
+@needs_ffmpeg
+def test_the_pause_is_quiet_picture_held_and_the_film_is_that_much_longer(tmp_path):
+    project = demo.make(tmp_path / "demo", size=(360, 640))
+    plain = manifest.plan(manifest.load(project, probe=ffmpeg.duration))
+    raw = json.loads(project.read_text())
+    raw["shots"][0]["after"] = 2.0
+    project.write_text(json.dumps(raw))
+    m = manifest.load(project, probe=ffmpeg.duration)
+    build.render(m, tmp_path / "out.mp4", draft=True)
+    assert manifest.plan(m).duration == pytest.approx(plain.duration + 2.0)
+    assert ffmpeg.duration(tmp_path / "out.mp4") == pytest.approx(plain.duration + 2.0, abs=0.2)
