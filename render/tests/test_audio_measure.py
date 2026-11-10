@@ -44,3 +44,22 @@ def test_a_file_that_is_not_sound_says_so(tmp_path):
 
     with pytest.raises(ffmpeg.FfmpegError):
         audio_measure.seconds(notes)
+
+
+def test_the_renders_probe_listens_to_a_recording_whose_header_has_no_length_even_when_it_is_named_mp3(tmp_path):
+    """The pull saves a take as .mp3 when it cannot tell: a browser recording (webm) then has no length in its header and the probe used to
+    stop the render with "has no duration"."""
+    streamed = _streamed_webm(tmp_path / "granny-advice-line-01-1.mp3", 2.0)
+    assert "duration" not in ffmpeg.probe(streamed).get("format", {})  # the header says nothing
+    assert ffmpeg.duration(streamed) == pytest.approx(2.0, abs=0.15)
+
+
+def test_the_probe_still_reads_a_header_length_when_there_is_one(tmp_path):
+    assert ffmpeg.duration(_tone(tmp_path / "t.mp3", 1.5, "-c:a", "libmp3lame")) == pytest.approx(1.5, abs=0.1)
+
+
+def test_a_file_that_is_not_sound_still_says_so(tmp_path):
+    junk = tmp_path / "x.mp3"
+    junk.write_bytes(b"not audio at all")
+    with pytest.raises(ffmpeg.FfmpegError):
+        ffmpeg.duration(junk)
