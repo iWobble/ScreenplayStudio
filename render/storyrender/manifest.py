@@ -74,6 +74,21 @@ class Ambience:
     fade_out: float = 0.0
 
 
+BLENDS = ("normal", "screen", "multiply", "overlay", "lighten", "addition")
+DUCKS = ("light", "strong")
+
+
+@dataclass
+class Overlay:
+    """A video laid over a shot's still, looped to the shot's length: rain, smoke, film grain. `normal` uses the video's own transparency (a WebM
+    or MOV with an alpha channel) and `opacity`; the other blends make an ordinary mp4 shot on black work (`screen` drops the black)."""
+
+    video: Path
+    blend: str = "normal"
+    opacity: float = 1.0
+    ref: str | None = None
+
+
 @dataclass
 class Shot:
     id: str
@@ -87,6 +102,9 @@ class Shot:
     gap: float = GAP
     tail: float = TAIL
     ambience: Ambience | None = None
+    overlay: Overlay | None = None
+    music_volume: float | None = None
+    """The music's level while this shot plays (0 = silence), when it differs from the story's; None keeps the story's."""
     chapter: str | None = None
     """The id of the chapter this shot belongs to (a story is cut into chapters; see `chapters.py`)."""
 
@@ -197,6 +215,17 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
                 audio_path(amb.get("audio") or "", f"{where} ambience"), float(amb.get("volume", 0.5)), bool(amb.get("muffled", False)), amb.get("id"),
                 fade_in=float(amb.get("fade_in") or 0), fade_out=float(amb.get("fade_out") or 0),
             )
+        if s.get("overlay"):
+            ov = s["overlay"]
+            blend = str(ov.get("blend") or "normal")
+            opacity = float(ov.get("opacity", 1.0))
+            if blend not in BLENDS or not 0 <= opacity <= 1:
+                raise ManifestError(f"{where} overlay: blend is one of {', '.join(BLENDS)} and opacity 0–1 (got {blend}, {opacity})")
+            shot.overlay = Overlay(audio_path(ov.get("video") or "", f"{where} overlay"), blend, opacity, ov.get("id"))
+        if s.get("music_volume") not in (None, ""):
+            shot.music_volume = float(s["music_volume"])
+            if not 0 <= shot.music_volume <= 1:
+                raise ManifestError(f"{where}: music_volume is 0–1 (got {shot.music_volume})")
         for j, ln in enumerate(s.get("lines") or [], 1):
             lw = f"{where} line {j}"
             start, end = 0.0, None
@@ -232,6 +261,8 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
     music = raw.get("music")
     if music:
         music = {**music, "audio": str(audio_path(music.get("audio") or "", "music")), "volume": float(music.get("volume", 0.12))}
+        if music.get("duck") not in (None, "") and music["duck"] not in DUCKS:
+            raise ManifestError(f"music: duck is {' or '.join(DUCKS)} (got {music['duck']})")
     size = tuple(raw.get("size") or DEFAULT_SIZE)
     if len(size) != 2 or size[0] * 16 != size[1] * 9:
         raise ManifestError(f"size must be 9:16 (got {size}); a Short is vertical")
