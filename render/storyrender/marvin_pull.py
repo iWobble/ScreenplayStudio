@@ -12,6 +12,8 @@ from pathlib import Path
 
 from marvin_worker import marvin_api
 
+from . import ffmpeg
+
 CREDENTIALS = Path.home() / ".marvin" / "credentials.json"
 
 
@@ -86,17 +88,36 @@ def beat_chooser(spec: str | None):
     return wants
 
 
-def pull(story: str, out: Path, *, creds: tuple[str, str] | None = None, beats: str | None = None) -> dict:
+PLACEHOLDER_SIZE = (1080, 1920)
+
+
+def _placeholder(path: Path, number: str, size: tuple[int, int] = PLACEHOLDER_SIZE) -> Path:
+    """A plain card standing in for a beat that has no still yet, so a draft can still be watched for timing, sound and overlays."""
+    label = f"Beat {number}".replace("'", "").replace(":", "").replace("\\", "")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"color=c=0x2b2b2b:s={size[0]}x{size[1]}",
+            "-vf", f"drawtext=text='{label}':fontcolor=white@0.85:fontsize=110:x=(w-text_w)/2:y=(h-text_h)/2-60,"
+            "drawtext=text='no still yet':fontcolor=white@0.55:fontsize=64:x=(w-text_w)/2:y=(h-text_h)/2+90",
+            "-frames:v", "1", str(path),
+        ]
+    )  # fmt: skip
+    return path
+
+
+def pull(story: str, out: Path, *, creds: tuple[str, str] | None = None, beats: str | None = None, placeholders: bool = False) -> dict:
     """Write `out/manifest.json` for the story's recorded lines. Returns what was found: the shots, and the lines still to record. `beats`
-    limits it to some beats (a quick look at one beat without the rest of the film): see beat_chooser."""
+    limits it to some beats (a quick look at one beat without the rest of the film): see beat_chooser. `placeholders` gives a beat with no
+    still a plain card (a draft): the beats that got one are named in `placeholders` of the result."""
     creds = creds or credentials()
     try:
-        return _pull(story, out, creds, beat_chooser(beats))
+        return _pull(story, out, creds, beat_chooser(beats), placeholders)
     except marvin_api.MarvinError as e:
         raise PullError(str(e)) from e
 
 
-def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None) -> dict:
+def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholders: bool = False) -> dict:
     rows = marvin_api.entries(creds)
     data = lambda e: e.get("dataJson") or e.get("data") or {}  # noqa: E731
     story_row = next((e for e in rows if e.get("slug") == story), None)
@@ -123,7 +144,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None) -> dict:
     sounds = {e["slug"]: e for e in marvin_api.query(creds, {"entries": sorted(wanted)}, limit=max(len(wanted), 1))} if wanted else {}
     taken: dict[str, Path] = {}  # an ambience's take is downloaded once, however many beats use it
     videos: dict[str, Path] = {}  # …and so is an overlay video
-    shots, missing = [], []
+    shots, missing, carded = [], [], []
     for beat in beats:
         number = str(data(beat).get("number"))
         spoken = []
@@ -163,6 +184,9 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None) -> dict:
         if data(beat).get("still"):
             still = _fetch_asset(creds, str(data(beat)["still"]), out / "stills" / f"b{number}", "png")
             shot["still"] = str(still.relative_to(out))
+        elif placeholders:
+            shot["still"] = str(_placeholder(out / "stills" / f"b{number}-placeholder.png", number).relative_to(out))
+            carded.append(number)
         shots.append(shot)
     if not shots:
         raise PullError(f"“{story}” has no recorded lines yet: record some with the screenplay-record-lines workflow")
@@ -172,7 +196,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None) -> dict:
     (out / "manifest.json").write_text(
         json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"music": music} if music else {}), **({"end_fade": end_fade} if end_fade else {})}, indent=2, ensure_ascii=False)
     )
-    return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing}
+    return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded}
 
 
 def spoken_words(d: dict, metadata: dict | None) -> list[dict]:
