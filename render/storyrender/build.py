@@ -6,12 +6,14 @@ the captions, adds the music bed under everything, normalises loudness and muxes
 caption file needs no path escaping.
 """
 
+import functools
+import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import captions, ffmpeg
-from .manifest import MAX_SHORT_SECONDS, Ambience, Manifest, Move, PlannedShot, Timeline, plan
+from .manifest import MAX_SHORT_SECONDS, Ambience, Manifest, Move, Overlay, PlannedShot, Timeline, plan
 
 SUPERSAMPLE = 2  # zoompan on a larger picture moves smoothly instead of in whole-pixel steps
 SAMPLE_RATE = 48000
@@ -38,14 +40,44 @@ def zoompan_filter(planned: PlannedShot, size: tuple[int, int], fps: int) -> str
     )
 
 
+BLEND_FILTERS = {"screen": "screen", "multiply": "multiply", "overlay": "overlay", "lighten": "lighten", "addition": "addition"}
+
+
+def overlay_filter(overlay: Overlay, size: tuple[int, int], fps: int) -> str:
+    """The filter graph part that lays the overlay video ([1:v]) over the still's clip ([base]) and leaves the result as [v]. The overlay is
+    cover-fitted to the frame. `normal` keeps its own transparency (and fades it by `opacity`); the other blends need no alpha at all."""
+    width, height = size
+    prepared = f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps={fps}"
+    if overlay.blend == "normal":
+        fade = f",colorchannelmixer=aa={overlay.opacity:.3f}" if overlay.opacity < 1 else ""
+        return f"{prepared},format=rgba{fade}[ov];[base]format=rgba[b];[b][ov]overlay=shortest=1:format=auto,format=yuv420p[v]"
+    mode = BLEND_FILTERS[overlay.blend]
+    return f"{prepared},format=gbrp[ov];[base]format=gbrp[b];[b][ov]blend=all_mode={mode}:all_opacity={overlay.opacity:.3f}:shortest=1,format=yuv420p[v]"
+
+
+@functools.lru_cache(maxsize=None)
+def _has_decoder(name: str) -> bool:
+    done = subprocess.run(["ffmpeg", "-hide_banner", "-decoders"], capture_output=True, text=True)
+    return any(line.split()[1:2] == [name] for line in done.stdout.splitlines())
+
+
+def _overlay_input(overlay: Overlay) -> list[str]:
+    """Input arguments for the overlay: looped without end (the clip's length decides), and a WebM read with the VP9 decoder that keeps its
+    transparency (ffmpeg's built-in one drops it)."""
+    keep_alpha = ["-c:v", "libvpx-vp9"] if overlay.video.suffix.lower() == ".webm" and _has_decoder("libvpx-vp9") else []
+    return ["-stream_loop", "-1", *keep_alpha, "-i", str(overlay.video)]
+
+
 def _clip(planned: PlannedShot, size, fps, out: Path, *, draft: bool) -> None:
-    ffmpeg.run(
-        [
-            "ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-framerate", str(fps), "-t", f"{planned.duration:.3f}",
-            "-i", str(planned.shot.still), "-vf", zoompan_filter(planned, size, fps), "-frames:v", str(max(2, round(planned.duration * fps))),
-            "-c:v", "libx264", "-preset", "ultrafast" if draft else "veryfast", "-crf", "20" if draft else "12", "-an", str(out),
-        ]
-    )  # fmt: skip
+    frames = str(max(2, round(planned.duration * fps)))
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-framerate", str(fps), "-t", f"{planned.duration:.3f}", "-i", str(planned.shot.still)]
+    if planned.shot.overlay is not None:
+        cmd += _overlay_input(planned.shot.overlay)
+        cmd += ["-filter_complex", f"[0:v]{zoompan_filter(planned, size, fps)}[base];{overlay_filter(planned.shot.overlay, size, fps)}", "-map", "[v]"]
+    else:
+        cmd += ["-vf", zoompan_filter(planned, size, fps)]
+    cmd += ["-frames:v", frames, "-c:v", "libx264", "-preset", "ultrafast" if draft else "veryfast", "-crf", "20" if draft else "12", "-an", str(out)]
+    ffmpeg.run(cmd)
 
 
 def _cut(line) -> str:
@@ -204,6 +236,30 @@ def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | N
     }
 
 
+MUSIC_RAMP = 0.5  # seconds a change of the music's level takes, so it eases rather than clicks
+DUCKING = {"light": (0.05, 3, 30, 450), "strong": (0.03, 8, 20, 600)}  # sidechain threshold, ratio, attack ms, release ms
+
+
+def music_level(timeline: Timeline, base: float, ramp: float = MUSIC_RAMP) -> str | None:
+    """The music's volume over the film as one ffmpeg expression, or None when no shot asks for a level of its own. A shot's `music_volume`
+    replaces the story's level while it plays (0 = silence); the level eases between shots over `ramp` seconds, centred on the cut, and a ramp
+    never outlasts the shorter shot beside it."""
+    spans = [(p.start, p.start + p.duration, p.shot.music_volume if p.shot.music_volume is not None else base) for p in timeline.shots]
+    runs: list[tuple[float, float, float]] = []
+    for begin, end, level in spans:  # neighbours at the same level are one run
+        if runs and abs(runs[-1][2] - level) < 1e-9:
+            runs[-1] = (runs[-1][0], end, level)
+        else:
+            runs.append((begin, end, level))
+    if len(runs) == 1 and abs(runs[0][2] - base) < 1e-9:
+        return None
+    expr = f"{runs[0][2]:.4f}"
+    for before, after in zip(runs, runs[1:], strict=False):
+        r = max(0.05, min(ramp, before[1] - before[0], after[1] - after[0]))
+        expr += f"+({after[2] - before[2]:.4f})*clip((t-{after[0] - r / 2:.4f})/{r:.4f},0,1)"
+    return expr
+
+
 def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, fps, *, draft: bool) -> None:
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", "video.mp4", "-i", "narration.wav"]
     audio = "[1:a]"
@@ -214,10 +270,20 @@ def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, 
         fade_in = float(manifest.music.get("fade_in") or 0)
         fade_at = max(0.0, timeline.duration - fade_out)
         rise = f"afade=t=in:st=0:d={min(fade_in, timeline.duration / 2):.3f}," if fade_in > 0 else ""
+        level = music_level(timeline, float(manifest.music["volume"]))
+        volume = f"volume='{level}':eval=frame" if level else f"volume={manifest.music['volume']}"
+        duck = DUCKING.get(str(manifest.music.get("duck") or ""))
+        bed = "[bed0]" if duck else "[bed]"
         chain.append(
-            f"[2:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,volume={manifest.music['volume']},{rise}afade=t=out:st={fade_at:.3f}:d={fade_out:g},atrim=0:{timeline.duration:.3f}[bed]"
+            f"[2:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,{volume},{rise}afade=t=out:st={fade_at:.3f}:d={fade_out:g},atrim=0:{timeline.duration:.3f}{bed}"
         )
-        chain.append("[1:a][bed]amix=inputs=2:normalize=0:duration=first[mix]")
+        if duck:  # the narration also keys the compressor that lowers the bed while someone speaks
+            threshold, ratio, attack, release = duck
+            chain.append("[1:a]asplit=2[key][talk]")
+            chain.append(f"[bed0][key]sidechaincompress=threshold={threshold}:ratio={ratio}:attack={attack}:release={release}[bed]")
+            chain.append("[talk][bed]amix=inputs=2:normalize=0:duration=first[mix]")
+        else:
+            chain.append("[1:a][bed]amix=inputs=2:normalize=0:duration=first[mix]")
         audio = "[mix]"
     if manifest.loudnorm:
         chain.append(f"{audio}loudnorm=I=-16:TP=-1.5:LRA=11[aout]")

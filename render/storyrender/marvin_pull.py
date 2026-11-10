@@ -27,7 +27,10 @@ def credentials(path: Path = CREDENTIALS) -> tuple[str, str]:
 
 
 def _extension(mime: str | None, fallback: str) -> str:
-    return {"audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}.get(
+    return {
+        "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp",
+        "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
+    }.get(
         (mime or "").split(";")[0].lower(), fallback
     )
 
@@ -73,12 +76,16 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
         by_beat.setdefault(str(data(line).get("beat")), []).append(line)
 
     chapters = chapter_rows(rows, story, data)
-    scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and "ambience" in data(e)}  # scenes that name an ambience
+    scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and ("ambience" in data(e) or "overlay" in data(e))}  # scenes that name an ambience or an overlay
     # Sounds belong to the library, not to a story: each is found by the slug a beat or scene names, whichever story made it.
     wanted = {str(item.get("sound")) for b in beats for item in (data(b).get("sounds") if isinstance(data(b).get("sounds"), list) else []) if isinstance(item, dict)}
     wanted |= {str(data(sc).get("ambience")) for sc in scenes.values() if data(sc).get("ambience")}
+    wanted |= {str(data(b).get("ambience")) for b in beats if data(b).get("ambience")}  # a beat's own bed, and the story's default
+    if data(story_row).get("ambience"):
+        wanted.add(str(data(story_row)["ambience"]))
     sounds = {e["slug"]: e for e in marvin_api.query(creds, {"entries": sorted(wanted)}, limit=max(len(wanted), 1))} if wanted else {}
     taken: dict[str, Path] = {}  # an ambience's take is downloaded once, however many beats use it
+    videos: dict[str, Path] = {}  # …and so is an overlay video
     shots, missing = [], []
     for beat in beats:
         number = str(data(beat).get("number"))
@@ -102,9 +109,14 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
                 shot[key] = float(data(beat)[field])
         if effects:
             shot["sfx"] = effects
-        bed = _ambience(creds, out, data(beat), scenes, sounds, data, taken, missing)
+        bed = _ambience(creds, out, data(beat), scenes, data(story_row), sounds, data, taken, missing)
         if bed:
             shot["ambience"] = bed
+        cover = _overlay(creds, out, data(beat), scenes, data(story_row), data, videos)
+        if cover:
+            shot["overlay"] = cover
+        if (level := _unit(data(beat).get("music_volume"))) is not None:
+            shot["music_volume"] = level  # the music's level for this beat only (0 = silence)
         if not spoken and data(beat).get("hold_seconds"):
             shot["hold"] = float(data(beat)["hold_seconds"])  # a sound-only beat lasts as long as its beat sheet window (a spoken one, as long as its audio)
         if data(beat).get("chapter"):
@@ -155,7 +167,14 @@ def music_of(creds, out: Path, story_data: dict, data) -> dict | None:
         return None
     file = _fetch_asset(creds, str(data(row)["audio"]), out / "audio" / "sounds" / name, "mp3")
     volume = data(row).get("volume")
-    return {"audio": str(file.relative_to(out)), "volume": float(volume if volume not in (None, "") else 0.12), "id": name, **fades_of(data(row))}
+    duck = str(story_data.get("music_ducking") or "").strip()  # lower the bed while someone speaks: light or strong
+    return {
+        "audio": str(file.relative_to(out)),
+        "volume": float(volume if volume not in (None, "") else 0.12),
+        "id": name,
+        **fades_of(data(row)),
+        **({"duck": duck} if duck in ("light", "strong") else {}),
+    }
 
 
 def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) -> list[dict]:
@@ -177,11 +196,42 @@ def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) 
     return effects
 
 
-def _ambience(creds, out: Path, beat: dict, scenes: dict, sounds: dict, data, taken: dict, missing: list) -> dict | None:
-    """The bed under a beat: its scene's ambience (a sound's take), at the scene's level unless the beat sets its own, muffled when the
-    scene is heard from inside. A scene with no ambience, or a sound with no take yet, gives none (the sound is named in `not_recorded`)."""
+def _unit(value) -> float | None:
+    """A level from a form field: a number from 0 to 1, or None when it is empty, not a number or out of range."""
+    try:
+        level = float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+    return level if level is not None and 0 <= level <= 1 else None
+
+
+def _overlay(creds, out: Path, beat: dict, scenes: dict, story_data: dict, data, taken: dict) -> dict | None:
+    """The video over a beat's still: the beat's own, else its scene's, else the story's. A level that sets its blend to "none" says no overlay
+    here, and the levels above it are not consulted (a quiet beat in a rainy scene)."""
     scene = scenes.get(str(beat.get("scene")))
-    name = str(data(scene).get("ambience") or "") if scene else ""
+    for owner in (beat, data(scene) if scene else {}, story_data):
+        blend = str(owner.get("overlay_blend") or "")
+        if blend == "none":
+            return None
+        asset = owner.get("overlay")
+        if not asset:
+            continue
+        key = str(asset)
+        if key not in taken:
+            taken[key] = _fetch_asset(creds, key, out / "video" / "overlays" / key[:12], "mp4")
+        opacity = _unit(owner.get("overlay_opacity"))
+        return {"video": str(taken[key].relative_to(out)), "blend": blend or "normal", "opacity": 1.0 if opacity is None else opacity, "id": key}
+    return None
+
+
+def _ambience(creds, out: Path, beat: dict, scenes: dict, story_data: dict, sounds: dict, data, taken: dict, missing: list) -> dict | None:
+    """The bed under a beat: its own ambience, else its scene's, else the story's default. At the level the beat sets, else the level where
+    the sound was named (the scene's, or the story's), else the sound's own; muffled when the scene is heard from inside. A beat with none, or
+    a sound with no take yet, gives no bed (the sound is named in `not_recorded`)."""
+    scene = scenes.get(str(beat.get("scene")))
+    own = str(beat.get("ambience") or "")
+    from_scene = str(data(scene).get("ambience") or "") if scene else ""
+    name = own or from_scene or str(story_data.get("ambience") or "")
     if not name:
         return None
     sound = sounds.get(name)
@@ -191,5 +241,11 @@ def _ambience(creds, out: Path, beat: dict, scenes: dict, sounds: dict, data, ta
         return None
     if name not in taken:
         taken[name] = _fetch_asset(creds, str(data(sound)["audio"]), out / "audio" / "sounds" / name, "mp3")
-    level = next((v for v in (beat.get("ambience_volume"), data(scene).get("ambience_volume"), data(sound).get("volume")) if v is not None), 0.5)
-    return {"id": name, "audio": str(taken[name].relative_to(out)), "volume": float(level), "muffled": bool(data(scene).get("ambience_muffled")), **fades_of(data(sound))}
+    if own:
+        named_level, muffled = None, False
+    elif from_scene:
+        named_level, muffled = data(scene).get("ambience_volume"), bool(data(scene).get("ambience_muffled"))
+    else:
+        named_level, muffled = story_data.get("ambience_volume"), False
+    level = next((v for v in (beat.get("ambience_volume"), named_level, data(sound).get("volume")) if v not in (None, "")), 0.5)
+    return {"id": name, "audio": str(taken[name].relative_to(out)), "volume": float(level), "muffled": muffled, **fades_of(data(sound))}
