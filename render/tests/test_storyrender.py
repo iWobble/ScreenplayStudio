@@ -66,10 +66,10 @@ def test_lines_in_a_shot_are_spaced_by_the_gap_and_the_end_hold_extends_the_last
     assert shot.duration == pytest.approx(0.3 + 1.0 + 0.25 + 2.0 + 0.35 + 1.5)
 
 
-def test_a_manifest_must_be_vertical_and_point_at_real_files(tmp_path):
+def test_a_manifest_must_be_a_known_shape_and_point_at_real_files(tmp_path):
     (tmp_path / "a.png").write_bytes(b"x")
     path = tmp_path / "m.json"
-    path.write_text(json.dumps({"size": [1920, 1080], "shots": [{"still": "a.png"}]}))
+    path.write_text(json.dumps({"size": [1080, 1200], "shots": [{"still": "a.png"}]}))
     with pytest.raises(manifest.ManifestError, match="9:16"):
         manifest.load(path, probe=lambda p: 1.0)
     path.write_text(json.dumps({"shots": [{"id": "s", "still": "missing.png"}]}))

@@ -12,7 +12,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import audio_convert, audio_measure, beat_export, beat_import, build, captions, chapters, ffmpeg, filmstrip, fountain, manifest, marvin_pull, script, voices
+from . import audio_convert, audio_measure, beat_export, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, script, voices
 
 
 def story_of(job: dict) -> str:
@@ -670,7 +670,9 @@ def render_video(job: dict, ctx: Context) -> dict:
             pass  # an old copy that cannot be trashed must not fail a video that was made
     if not only:  # a look at some beats makes no subtitle file of its own
         _keep_subtitles(ctx, story, name, title, captions.srt(manifest.plan(m)))
-    note = f"{made['measured_seconds']} s, {made['shots']} shots." + (f" Full-quality file: {kept}." if kept else "")
+    story_data = (next(iter(marvin_api.query(ctx.creds, {"entries": story}, limit=1)), None) or {}).get("dataJson") or {}
+    warning = None if only else formats.length_warning(made["measured_seconds"], story_data)  # past what the platform takes, in plain words
+    note = f"{made['measured_seconds']} s, {made['shots']} shots." + (f" Full-quality file: {kept}." if kept else "") + (f" {warning}" if warning else "")
     if pulled["not_recorded"]:
         note += f" Not recorded yet, so left out: {', '.join(pulled['not_recorded'])}."
-    return {"result": {"video": asset["id"], "url": asset.get("publicUrl"), "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" and not only else "draft" if draft else "preview", "kept": kept, **({"beats": only} if only else {})}, "log": note}
+    return {"result": {"video": asset["id"], "url": asset.get("publicUrl"), "seconds": made["measured_seconds"], "shots": made["shots"], "quality": "full" if quality == "full" and not only else "draft" if draft else "preview", "kept": kept, **({"beats": only} if only else {}), **({"warning": warning} if warning else {})}, "log": note}

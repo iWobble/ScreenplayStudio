@@ -157,6 +157,8 @@ def ass(timeline: Timeline, size: tuple[int, int], style: dict | None = None) ->
     given = style or {}
     kind = given.get("style") if given.get("style") in STYLES else "classic"
     alignment, margin_share = POSITIONS.get(str(given.get("position")), POSITIONS["bottom"])
+    if height < width * 1.7:  # not a tall Short: no strip at the bottom to keep clear of, so the text sits lower and closer to the edge
+        margin_share = {2: 0.10, 8: 0.08}.get(alignment, margin_share)
     share = SIZES.get(str(given.get("size")), SIZES["medium"])
     text_colour = given.get("colour") or ass_colour(given.get("color"), "#ffffff")
     lit = ass_colour(given.get("highlight"), DEFAULT_HIGHLIGHT)
