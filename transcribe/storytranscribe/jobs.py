@@ -15,7 +15,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import text
+from . import align, text
 
 MODEL = os.environ.get("WHISPER_MODEL", "small")
 """tiny, base, small, medium or large-v3: bigger is more exact and slower. `small` is about 4x real time on 10 CPU cores."""
@@ -104,3 +104,55 @@ def transcribe(job: dict, ctx: Context) -> dict:
     ctx.note(f"{made['segments']} segments")
     result = {"language": made["language"], "seconds": made["seconds"], "segments": made["segments"], "files": uploaded, "url": uploaded["paragraphs"]["url"]}
     return {"result": result, "log": f"{made['segments']} segments, {made['language']}, {made['seconds']} s of audio."}
+
+
+def heard_words(model, audio: Path, *, language: str | None = None, hotwords: str | None = None) -> tuple[list[dict], str]:
+    """Every word faster-whisper hears in `audio` with its own start and end ([{text, start, end}]), and the language."""
+    segments, info = model.transcribe(str(audio), language=language or None, hotwords=hotwords or None, vad_filter=True, beam_size=5, word_timestamps=True)
+    words = [{"text": str(w.word).strip(), "start": float(w.start), "end": float(w.end)} for s in segments for w in (getattr(s, "words", None) or []) if str(w.word).strip()]
+    return words, str(getattr(info, "language", "") or "")
+
+
+@job_kind(
+    "time-words",
+    description="Listen to the recording in a take and write when each word is spoken to the recording's metadata, so a caption follows the voice exactly (a take made by ElevenLabs has this already; an uploaded or recorded one does not). The words shown are the line's own written words: what is heard only gives their times",
+    inputs={
+        "entry": {"type": "string", "description": "the take's slug (or any entry with a recording in its audio field)"},
+        "field": {"type": "string", "required": False, "description": "the field holding the recording (audio by default)"},
+        "language": {"type": "string", "required": False, "description": "the spoken language as a code, e.g. en; empty to detect it"},
+        "model": {"type": "string", "required": False, "description": "tiny, base, small, medium or large-v3 (default small)"},
+    },
+    produces=[],
+    needs=["faster-whisper"],
+)
+def time_words(job: dict, ctx: Context) -> dict:
+    """A take's recording → the time of each word of its text, written into the recording's metadata as `words`."""
+    args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
+    slug = str(args.get("entry") or "").strip()
+    field = str(args.get("field") or "audio").strip()
+    if not slug:
+        raise JobError("this kind of job needs args.entry (the take's slug)")
+    row = next(iter(marvin_api.query(ctx.creds, {"entries": slug}, limit=1)), None)
+    if row is None:
+        raise JobError(f"no entry “{slug}”")
+    data = row.get("dataJson") or row.get("data") or {}
+    held = data.get(field)
+    if not held or not isinstance(held, str):
+        raise JobError(f"“{slug}” has nothing in “{field}”: record or upload a sound there first")
+    script = str(data.get("spoken") or data.get("text") or "").strip()
+    if not script and data.get("line"):  # a take says what its line says
+        line = next(iter(marvin_api.query(ctx.creds, {"entries": str(data["line"])}, limit=1)), None)
+        script = str(((line or {}).get("dataJson") or {}).get("text") or "").strip()
+    record = marvin_api.asset(ctx.creds, held)
+    ext = Path(str(record.get("originalFilename") or "audio.wav")).suffix or ".wav"
+    source = ctx.work / f"timing{ext}"
+    marvin_api.download_asset(ctx.creds, record.get("id") or held, source)
+    heard, language = heard_words(load_model(str(args.get("model") or MODEL)), source, language=str(args.get("language") or "") or None, hotwords=script or None)
+    words = align.script_times(script, heard)
+    if not words:
+        raise JobError(f"no speech was heard in “{record.get('name') or held}”")
+    merged = {**(record.get("metadataJson") or {}), "words": words, "words_from": "faster-whisper", "words_language": language}
+    marvin_api.request(ctx.creds, f"/api/platform/assets/{record.get('id') or held}", method="PATCH", data=json.dumps({"metadata": merged}).encode(), content_type="application/json")
+    note = f"{len(words)} words timed in {record.get('name') or held}" + ("" if script else " (heard, as the take has no written text)")
+    ctx.note(note)
+    return {"result": {"entry": slug, "asset": record.get("id") or held, "words": len(words), "language": language, "from_text": bool(script)}, "log": note + "."}

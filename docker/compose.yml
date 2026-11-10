@@ -28,7 +28,7 @@ services:
     container_name: desktop-transcriber
     environment:
       WORKER_NAME: desktop-transcriber
-      WORKER_KINDS: transcribe
+      WORKER_KINDS: transcribe,time-words
     volumes:
       - transcribe-models:/models   # the model is downloaded once
 

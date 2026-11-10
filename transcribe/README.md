@@ -1,7 +1,7 @@
 # storytranscribe
 
 A second Marvin worker, in its own container, that turns a recording into text with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the CPU. Free:
-no service, no key. It offers one kind of job, `transcribe`, and only reaches out to Marvin (like the render runner), so it can run anywhere.
+no service, no key. It offers two kinds of job, `transcribe` and `time-words` (the time of each word in a take, for exact captions), and only reaches out to Marvin (like the render runner), so it can run anywhere.
 
 ```
 docker build -f ../../MarvinWorker/docker/Dockerfile -t marvin-worker-base ../../MarvinWorker   # the base, once
