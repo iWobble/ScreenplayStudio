@@ -110,6 +110,8 @@ class Shot:
     ambience: Ambience | None = None
     overlay: Overlay | None = None
     music_volume: float | None = None
+    after: float = 0.0
+    """Seconds of quiet added after the shot (the picture held, no sound): the pause where a scene ends. It is part of the shot's length."""
     transition: str = "cut"
     """How the film gets into this shot from the one before: cut, fade (down to black and up) or dissolve (a cross-fade). Never changes a length."""
     transition_seconds: float = 0.0
@@ -224,6 +226,10 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             tail=float(s.get("tail", TAIL)),
             chapter=str(s["chapter"]) if s.get("chapter") else None,
         )
+        if s.get("after") not in (None, "", 0):
+            shot.after = float(s["after"])
+            if not 0 < shot.after <= MAX_TRANSITION * 2:
+                raise ManifestError(f"{where}: after is more than 0 and at most {MAX_TRANSITION * 2:g} seconds (got {shot.after:g})")
         kind = str(s.get("transition") or "cut")
         if kind not in TRANSITIONS:
             raise ManifestError(f"{where}: transition is {', '.join(TRANSITIONS)} (got {kind})")
@@ -336,7 +342,7 @@ def plan(manifest: Manifest) -> Timeline:
             cursor += line.duration + shot.gap
         spoken = cursor - shot.gap + shot.tail if shot.lines else 0.0
         sfx_end = max((fx.at + fx.duration for fx in shot.sfx), default=0.0)
-        duration = max(shot.hold, spoken, sfx_end)
+        duration = max(shot.hold, spoken, sfx_end) + shot.after
         if index == len(manifest.shots) - 1:
             duration += manifest.end_hold
         shots.append(PlannedShot(shot, clock, duration, lines))
