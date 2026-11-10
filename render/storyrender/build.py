@@ -43,16 +43,43 @@ def zoompan_filter(planned: PlannedShot, size: tuple[int, int], fps: int) -> str
 BLEND_FILTERS = {"screen": "screen", "multiply": "multiply", "overlay": "overlay", "lighten": "lighten", "addition": "addition"}
 
 
-def overlay_filter(overlay: Overlay, size: tuple[int, int], fps: int) -> str:
-    """The filter graph part that lays the overlay video ([1:v]) over the still's clip ([base]) and leaves the result as [v]. The overlay is
-    cover-fitted to the frame. `normal` keeps its own transparency (and fades it by `opacity`); the other blends need no alpha at all."""
+STILL_PICTURES = (".png", ".jpg", ".jpeg", ".webp")  # one picture, held for the whole shot
+ANIMATED_PICTURES = (".gif", ".apng")  # a short animation (typed-out text): played once and held on its last frame, unless asked to loop
+NEUTRAL = {"screen": "black", "lighten": "black", "addition": "black", "multiply": "white", "overlay": "0x808080"}  # what a blend leaves the picture as it was
+
+
+def plays_once(overlay: Overlay) -> bool:
+    """Whether the overlay plays through once and holds its last frame (an animated picture, by default) rather than looping (a video)."""
+    return overlay.play == "once" or (overlay.play == "" and overlay.video.suffix.lower() in ANIMATED_PICTURES)
+
+
+def overlay_filter(overlay: Overlay, size: tuple[int, int], fps: int, duration: float = 0.0) -> str:
+    """The filter graph part that lays the overlay ([1:v]) over the still's clip ([base]) and leaves the result as [v]. The overlay is cover-fitted
+    to the frame. `normal` keeps its own transparency (and fades it by `opacity`); the other blends need no alpha at all. It starts after `delay`
+    seconds and fades in and out over `fade` (to nothing for `normal`, to the colour the blend leaves alone for the others)."""
     width, height = size
+    once = plays_once(overlay) and overlay.video.suffix.lower() not in STILL_PICTURES
+    # a finite overlay that is done before the shot is: hold its last frame, and let the clip's own frame count end the picture
+    ends = ":shortest=0:eof_action=repeat" if once else ":shortest=1"
     prepared = f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps={fps}"
+    in_at, out_at = overlay.delay, max(overlay.delay, duration - overlay.fade)
     if overlay.blend == "normal":
-        fade = f",colorchannelmixer=aa={overlay.opacity:.3f}" if overlay.opacity < 1 else ""
-        return f"{prepared},format=rgba{fade}[ov];[base]format=rgba[b];[b][ov]overlay=shortest=1:format=auto,format=yuv420p[v]"
+        steps = [prepared, "format=rgba"]
+        if overlay.delay > 0:
+            steps.append(f"tpad=start_mode=add:start_duration={overlay.delay:.3f}:color=black@0")
+        if overlay.fade > 0 and duration > 0:
+            steps += [f"fade=t=in:st={in_at:.3f}:d={overlay.fade:.3f}:alpha=1", f"fade=t=out:st={out_at:.3f}:d={overlay.fade:.3f}:alpha=1"]
+        if overlay.opacity < 1:
+            steps.append(f"colorchannelmixer=aa={overlay.opacity:.3f}")
+        return f"{','.join(steps)}[ov];[base]format=rgba[b];[b][ov]overlay=format=auto{ends},format=yuv420p[v]"
+    neutral = NEUTRAL[overlay.blend]
+    steps = [prepared]
+    if overlay.delay > 0:
+        steps.append(f"tpad=start_mode=add:start_duration={overlay.delay:.3f}:color={neutral}")
+    if overlay.fade > 0 and duration > 0:
+        steps += [f"fade=t=in:st={in_at:.3f}:d={overlay.fade:.3f}:color={neutral}", f"fade=t=out:st={out_at:.3f}:d={overlay.fade:.3f}:color={neutral}"]
     mode = BLEND_FILTERS[overlay.blend]
-    return f"{prepared},format=gbrp[ov];[base]format=gbrp[b];[b][ov]blend=all_mode={mode}:all_opacity={overlay.opacity:.3f}:shortest=1,format=yuv420p[v]"
+    return f"{','.join(steps)},format=gbrp[ov];[base]format=gbrp[b];[b][ov]blend=all_mode={mode}:all_opacity={overlay.opacity:.3f}{ends},format=yuv420p[v]"
 
 
 @functools.lru_cache(maxsize=None)
@@ -61,11 +88,14 @@ def _has_decoder(name: str) -> bool:
     return any(line.split()[1:2] == [name] for line in done.stdout.splitlines())
 
 
-def _overlay_input(overlay: Overlay) -> list[str]:
-    """Input arguments for the overlay: looped without end (the clip's length decides), and a WebM read with the VP9 decoder that keeps its
-    transparency (ffmpeg's built-in one drops it)."""
-    keep_alpha = ["-c:v", "libvpx-vp9"] if overlay.video.suffix.lower() == ".webm" and _has_decoder("libvpx-vp9") else []
-    return ["-stream_loop", "-1", *keep_alpha, "-i", str(overlay.video)]
+def _overlay_input(overlay: Overlay, fps: int = 30) -> list[str]:
+    """Input arguments for the overlay: a still picture held without end; an animation or video looped without end (the clip's length decides) or,
+    to play once, left to finish; and a WebM read with the VP9 decoder that keeps its transparency (ffmpeg's built-in one drops it)."""
+    suffix = overlay.video.suffix.lower()
+    if suffix in STILL_PICTURES:
+        return ["-loop", "1", "-framerate", str(fps), "-i", str(overlay.video)]
+    keep_alpha = ["-c:v", "libvpx-vp9"] if suffix == ".webm" and _has_decoder("libvpx-vp9") else []
+    return [*([] if plays_once(overlay) else ["-stream_loop", "-1"]), *keep_alpha, "-i", str(overlay.video)]
 
 
 def clip_frames(planned: PlannedShot, fps: int) -> int:
@@ -119,8 +149,8 @@ def _clip(planned: PlannedShot, size, fps, out: Path, *, draft: bool, edge: Edge
     dips = _dips(edge, int(frames), fps) if edge else ""
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-framerate", str(fps), "-t", f"{planned.duration:.3f}", "-i", str(planned.shot.still)]
     if planned.shot.overlay is not None:
-        cmd += _overlay_input(planned.shot.overlay)
-        graph = f"[0:v]{zoompan_filter(planned, size, fps)}[base];{overlay_filter(planned.shot.overlay, size, fps)}"
+        cmd += _overlay_input(planned.shot.overlay, fps)
+        graph = f"[0:v]{zoompan_filter(planned, size, fps)}[base];{overlay_filter(planned.shot.overlay, size, fps, planned.duration)}"
         if dips:
             graph += f";[v]{dips}[vd]"
         cmd += ["-filter_complex", graph, "-map", "[vd]" if dips else "[v]"]
