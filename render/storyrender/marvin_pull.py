@@ -165,6 +165,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         for key, field in (("lead", "lead_seconds"), ("gap", "gap_seconds"), ("tail", "tail_seconds")):
             if data(beat).get(field) is not None:  # empty keeps the renderer's default
                 shot[key] = float(data(beat)[field])
+        shot.update(transition_of(data(beat), data(story_row)))
         if effects:
             shot["sfx"] = effects
         bed = _ambience(creds, out, data(beat), scenes, sounds, data, taken, missing, data(story_row))
@@ -271,6 +272,19 @@ def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) 
         volume = item.get("volume") if item.get("volume") is not None else d.get("volume")
         effects.append({"id": row["slug"], "audio": str(file.relative_to(out)), "at": float(item.get("at") or 0), "volume": float(volume if volume is not None else 0.6), **fades_of(d)})
     return effects
+
+
+TRANSITION_KINDS = ("cut", "fade", "dissolve")
+
+
+def transition_of(beat: dict, story: dict) -> dict:
+    """How the film gets into a beat from the one before: the beat's own `transition` / `transition_seconds`, else the story's, else a cut. Only a
+    real transition is returned (a cut is the default and needs no key); an unknown name is a cut."""
+    kind = str(beat.get("transition") or story.get("transition") or "cut").strip().lower()
+    if kind not in TRANSITION_KINDS or kind == "cut":
+        return {}
+    seconds = _positive(beat.get("transition_seconds")) or _positive(story.get("transition_seconds"))
+    return {"transition": kind, **({"transition_seconds": seconds} if seconds else {})}
 
 
 def story_ambience(creds, out: Path, story_data: dict, sounds: dict, data, taken: dict, missing: list) -> dict | None:

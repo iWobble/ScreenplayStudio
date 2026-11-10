@@ -68,14 +68,64 @@ def _overlay_input(overlay: Overlay) -> list[str]:
     return ["-stream_loop", "-1", *keep_alpha, "-i", str(overlay.video)]
 
 
-def _clip(planned: PlannedShot, size, fps, out: Path, *, draft: bool) -> None:
+def clip_frames(planned: PlannedShot, fps: int) -> int:
+    """How many frames a shot's clip has: what the clip, its trims and its transitions are all counted in, so a film's length never drifts."""
+    return max(2, round(planned.duration * fps))
+
+
+@dataclass
+class Edges:
+    """What a shot's two ends do, in frames: `dip_in` / `dip_out` frames of fade from and to black inside the clip; `blend_in` / `blend_out` frames
+    that a dissolve takes from this shot's two ends (the dissolve itself is a short segment of its own, see `_dissolve`)."""
+
+    dip_in: int = 0
+    dip_out: int = 0
+    blend_in: int = 0
+    blend_out: int = 0
+
+
+def edges_of(timeline: Timeline, fps: int) -> list[Edges]:
+    """Per shot, the effect of the transitions around it. A transition is *into* a shot, from the one before, so the first shot's is ignored, and
+    one never takes more than half of either shot. Cuts do nothing; a fade splits its time over the two shots; a dissolve takes half from each."""
+    shots = timeline.shots
+    edges = [Edges() for _ in shots]
+    for k in range(1, len(shots)):
+        shot = shots[k].shot
+        if shot.transition == "cut" or shot.transition_seconds <= 0:
+            continue
+        half = round(shot.transition_seconds * fps / 2)
+        half = min(half, clip_frames(shots[k - 1], fps) // 2, clip_frames(shots[k], fps) // 2)
+        if half < 1:
+            continue
+        if shot.transition == "fade":
+            edges[k - 1].dip_out, edges[k].dip_in = half, half
+        else:
+            edges[k - 1].blend_out, edges[k].blend_in = half, half
+    return edges
+
+
+def _dips(edge: Edges, frames: int, fps: int) -> str:
+    """The fade filters for a clip whose ends dip to black, or nothing."""
+    parts = []
+    if edge.dip_in:
+        parts.append(f"fade=t=in:st=0:d={edge.dip_in / fps:.4f}")
+    if edge.dip_out:
+        parts.append(f"fade=t=out:st={(frames - edge.dip_out) / fps:.4f}:d={edge.dip_out / fps:.4f}")
+    return ",".join(parts)
+
+
+def _clip(planned: PlannedShot, size, fps, out: Path, *, draft: bool, edge: Edges | None = None) -> None:
     frames = str(max(2, round(planned.duration * fps)))
+    dips = _dips(edge, int(frames), fps) if edge else ""
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-framerate", str(fps), "-t", f"{planned.duration:.3f}", "-i", str(planned.shot.still)]
     if planned.shot.overlay is not None:
         cmd += _overlay_input(planned.shot.overlay)
-        cmd += ["-filter_complex", f"[0:v]{zoompan_filter(planned, size, fps)}[base];{overlay_filter(planned.shot.overlay, size, fps)}", "-map", "[v]"]
+        graph = f"[0:v]{zoompan_filter(planned, size, fps)}[base];{overlay_filter(planned.shot.overlay, size, fps)}"
+        if dips:
+            graph += f";[v]{dips}[vd]"
+        cmd += ["-filter_complex", graph, "-map", "[vd]" if dips else "[v]"]
     else:
-        cmd += ["-vf", zoompan_filter(planned, size, fps)]
+        cmd += ["-vf", zoompan_filter(planned, size, fps) + (f",{dips}" if dips else "")]
     cmd += ["-frames:v", frames, "-c:v", "libx264", "-preset", "ultrafast" if draft else "veryfast", "-crf", "20" if draft else "12", "-an", str(out)]
     ffmpeg.run(cmd)
 
@@ -202,6 +252,48 @@ def _with_ambience(timeline: Timeline, narration: Path, end_fade: float | None =
     return mixed
 
 
+def _encode(draft: bool) -> list[str]:
+    return ["-c:v", "libx264", "-preset", "ultrafast" if draft else "veryfast", "-crf", "20" if draft else "12", "-pix_fmt", "yuv420p", "-an"]
+
+
+def _dissolve(before: Path, after: Path, before_frames: int, half: int, fps: int, out: Path, *, draft: bool) -> None:
+    """The cross-fade at a boundary, `2 × half` frames long: the last `half` frames of the shot before, held on its last frame for `half` more, mixed
+    into the first `half` frames of the shot after, preceded by `half` held on its first. It stands in for exactly those frames, so the film is no
+    longer or shorter. (A camera move eases to rest at both ends, so holding an end frame does not show.)"""
+    d = 2 * half / fps
+    graph = (
+        f"[0:v]trim=start_frame={before_frames - half},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop={half + 1}[a];"  # one frame over: xfade drops its last
+        f"[1:v]trim=end_frame={half},setpts=PTS-STARTPTS,tpad=start_mode=clone:start={half}:stop_mode=clone:stop=1[b];"
+        f"[a][b]xfade=transition=fade:duration={d:.4f}:offset=0,fps={fps}[v]"
+    )
+    ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(before), "-i", str(after), "-filter_complex", graph, "-map", "[v]", "-frames:v", str(2 * half), *_encode(draft), str(out)])
+
+
+def _body(clip: Path, frames: int, edge: Edges, out: Path, *, draft: bool) -> Path:
+    """A clip without the frames its dissolves took from its two ends (the clip itself when it lost none)."""
+    if not (edge.blend_in or edge.blend_out):
+        return clip
+    keep = f"trim=start_frame={edge.blend_in}:end_frame={frames - edge.blend_out},setpts=PTS-STARTPTS"
+    ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(clip), "-vf", keep, "-frames:v", str(frames - edge.blend_in - edge.blend_out), *_encode(draft), str(out)])
+    return out
+
+
+def _video_parts(clips: list[Path], timeline: Timeline, edges: list[Edges], work: Path, fps: int, *, draft: bool) -> list[Path]:
+    """The clips to join: as they are for cuts and dips, and with the dissolves cut in where there are any (their bodies, and a short segment of
+    cross-fade between each pair)."""
+    if not any(e.blend_in or e.blend_out for e in edges):
+        return clips
+    parts: list[Path] = []
+    for i, clip in enumerate(clips):
+        frames = clip_frames(timeline.shots[i], fps)
+        if i > 0 and edges[i].blend_in:
+            seg = work / f"dissolve{i:03d}.mp4"
+            _dissolve(clips[i - 1], clip, clip_frames(timeline.shots[i - 1], fps), edges[i].blend_in, fps, seg, draft=draft)
+            parts.append(seg)
+        parts.append(_body(clip, frames, edges[i], work / f"body{i:03d}.mp4", draft=draft))
+    return parts
+
+
 def _join(files: list[Path], out: Path, work: Path, *, kind: str) -> None:
     listing = work / f"{kind}.txt"
     listing.write_text("".join(f"file '{f}'\n" for f in files))
@@ -218,13 +310,14 @@ def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | N
         work = Path(keep) if keep else Path(tmp)
         work.mkdir(parents=True, exist_ok=True)
         clips, wavs = [], []
+        edges = edges_of(timeline, fps)  # how the transitions treat each shot's ends (all cuts: nothing)
         for i, planned in enumerate(timeline.shots):
             clip, wav = work / f"clip{i:03d}.mp4", work / f"narration{i:03d}.wav"
-            _clip(planned, size, fps, clip, draft=draft)
+            _clip(planned, size, fps, clip, draft=draft, edge=edges[i])
             _narration(planned, wav)
             clips.append(clip)
             wavs.append(wav)
-        _join(clips, work / "video.mp4", work, kind="video")
+        _join(_video_parts(clips, timeline, edges, work, fps, draft=draft), work / "video.mp4", work, kind="video")
         _join(wavs, work / "narration.wav", work, kind="audio")
         mixed = _with_ambience(timeline, work / "narration.wav", manifest.end_fade, manifest.ambience, manifest.start_fade)
         if mixed != work / "narration.wav":
