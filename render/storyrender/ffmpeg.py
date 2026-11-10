@@ -27,8 +27,14 @@ def probe(path: Path) -> dict:
 
 
 def duration(path: Path) -> float:
-    """Seconds of audio or video in a file — measured, never trusted from a manifest."""
+    """Seconds of audio or video in a file — measured, never trusted from a manifest. A browser's recording (webm) is written as it is made,
+    so its header has no length: that one is measured by listening to the whole file, however its name ends."""
     seconds = probe(path).get("format", {}).get("duration")
-    if seconds is None:
-        raise FfmpegError(f"{path} has no duration")
-    return float(seconds)
+    try:
+        if seconds not in (None, "N/A") and float(seconds) > 0:
+            return float(seconds)
+    except (TypeError, ValueError):
+        pass
+    from .audio_measure import decoded_seconds  # here, not at the top: audio_measure reads this module
+
+    return decoded_seconds(path)
