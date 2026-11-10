@@ -18,7 +18,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: render
         working-directory: ScreenplayStudio/render
-        run: uv run --with pytest --with screenplain==0.12.0 --with reportlab==5.1.0 --with-editable . --with-editable ../../MarvinWorker python -m pytest -q
+        run: uv run --with pytest --with screenplain==0.12.0 --with reportlab==5.1.0 --with pillow --with-editable . --with-editable ../../MarvinWorker python -m pytest -q
       - name: transcribe
         working-directory: ScreenplayStudio/transcribe
         run: uv run --with pytest --with-editable . --with-editable ../../MarvinWorker python -m pytest -q

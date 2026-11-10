@@ -90,3 +90,100 @@ def shots(story: dict, out: Path, size: tuple[int, int] = SIZE) -> tuple[dict | 
         still = make_still(card, out / "stills" / f"{kind}-card.png", size)
         made.append({"id": kind, "still": str(still.relative_to(out)), "hold": card["seconds"], "lines": []})
     return made[0], made[1]
+
+
+# --- the info card: a label, a title and a sentence (and a picture) over a dimmed beat -------------------------------------------------------
+# A beat's own `info_*` fields make one transparent picture the size of the frame: a dimmed backdrop, then the icon, the label, the title and the
+# sentence, in the middle of the picture (the captions live low, so the two never meet). It goes to the renderer as the beat's overlay, so it
+# comes in after `overlay_delay` and fades with `overlay_fade` like any picture overlay.
+
+INFO_DIM = 0.5
+INFO_DELAY = 0.6
+INFO_FADE = 0.35
+INFO_LABEL_COLOUR = (255, 200, 60)  # gold, as the label of a "REAL FACT" card
+INFO_TITLE_COLOUR = (255, 255, 255)
+INFO_TEXT_COLOUR = (232, 232, 232)
+INFO_FONTS = {
+    "bold": Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    "regular": Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+}
+
+
+def info_of(beat: dict) -> dict | None:
+    """The info card a beat asks for, or None when it has neither a title nor a sentence: {label, title, text, icon, dim}. `dim` is how dark the
+    backdrop is (0 to 1, default 0.5); `icon` is the id of a picture asset, or None."""
+    title, text = str(beat.get("info_title") or "").strip(), str(beat.get("info_text") or "").strip()
+    if not (title or text):
+        return None
+    try:
+        dim = min(1.0, max(0.0, float(beat.get("info_dim"))))
+    except (TypeError, ValueError):
+        dim = INFO_DIM
+    return {"label": str(beat.get("info_label") or "").strip(), "title": title, "text": text, "icon": str(beat.get("info_icon") or "").strip() or None, "dim": dim}
+
+
+def _font(kind: str, size: int):
+    from PIL import ImageFont
+
+    try:
+        return ImageFont.truetype(str(INFO_FONTS[kind]), size)
+    except OSError:  # a machine without the DejaVu fonts: Pillow's own, in the size asked
+        return ImageFont.load_default(size)
+
+
+def _wrapped(draw, text: str, font, width: int) -> list[str]:
+    """The text broken at spaces into lines no wider than `width` pixels (measured with the font), keeping the writer's own breaks."""
+    lines: list[str] = []
+    for para in text.splitlines() or [""]:
+        line = ""
+        for word in para.split():
+            trial = f"{line} {word}".strip()
+            if line and draw.textlength(trial, font=font) > width:
+                lines.append(line)
+                line = word
+            else:
+                line = trial
+        lines.append(line)
+    return lines
+
+
+def make_info(card: dict, path: Path, size: tuple[int, int] = SIZE, icon: Path | None = None) -> Path:
+    """Draw the info card as a transparent PNG the size of the frame: a dimmed backdrop, with the icon, label, title and sentence centred in the
+    middle of the picture."""
+    from PIL import Image, ImageDraw
+
+    width, height = size
+    image = Image.new("RGBA", size, (0, 0, 0, round(card["dim"] * 255)))
+    draw = ImageDraw.Draw(image)
+    unit = min(width, height * 9 / 16)  # type is sized against the narrow side, so a wide picture does not get giant text
+    box = round(min(width * 0.84, unit * 0.92))
+    label_font, title_font, text_font = _font("bold", round(unit * 0.036)), _font("bold", round(unit * 0.078)), _font("regular", round(unit * 0.044))
+    parts: list[tuple[str, object, tuple[int, int, int], list[str]]] = []
+    for kind, text, font, colour in (("label", card["label"].upper(), label_font, INFO_LABEL_COLOUR), ("title", card["title"], title_font, INFO_TITLE_COLOUR), ("text", card["text"], text_font, INFO_TEXT_COLOUR)):
+        if text:
+            parts.append((kind, font, colour, _wrapped(draw, text, font, box)))
+    gap = round(unit * 0.03)
+    step = {kind: round(font.size * 1.3) for kind, font, _, _ in parts}
+    badge = None
+    if icon is not None:
+        try:
+            badge = Image.open(icon).convert("RGBA")
+            side = round(unit * 0.2)
+            badge.thumbnail((side, side))
+        except OSError:
+            badge = None  # an icon that cannot be read leaves the card without one
+    total = sum(len(lines) * step[kind] for kind, _, _, lines in parts) + gap * max(0, len(parts) - 1) + ((badge.height + gap * 2) if badge else 0)
+    y = height * 0.42 - total / 2
+    if badge:
+        image.alpha_composite(badge, (round((width - badge.width) / 2), round(y)))
+        y += badge.height + gap * 2
+    for kind, font, colour, lines in parts:
+        for line in lines:
+            if line:
+                draw.text((width / 2, y + max(2, unit * 0.004)), line, font=font, fill=(0, 0, 0, 170), anchor="ma")  # a soft shadow keeps the text readable on a light still
+                draw.text((width / 2, y), line, font=font, fill=(*colour, 255), anchor="ma")
+            y += step[kind]
+        y += gap
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path)
+    return path
