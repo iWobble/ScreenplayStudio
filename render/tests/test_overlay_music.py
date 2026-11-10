@@ -173,20 +173,17 @@ def _sounds(**levels):
     return {name: {"dataJson": {"audio": f"asset-{name}", **({"volume": level} if level is not None else {})}} for name, level in levels.items()}
 
 
-def test_a_beats_ambience_comes_from_itself_else_its_scene_else_the_story(tmp_path, monkeypatch):
+def test_a_beats_ambience_comes_from_itself_else_its_scene_and_never_from_the_story(tmp_path, monkeypatch):
     monkeypatch.setattr(marvin_pull, "_fetch_asset", lambda creds, asset, dest, ext: tmp_path / "audio" / "sounds" / f"{asset}.mp3")
-    sounds = _sounds(wind=0.4, rain=None, hum=0.9)
+    sounds = _sounds(wind=0.4, rain=None)
     scenes = {"storm": {"dataJson": {"ambience": "rain", "ambience_volume": 0.7, "ambience_muffled": True}}}
-    story = {"ambience": "hum", "ambience_volume": 0.15}
-    pull = lambda beat: marvin_pull._ambience(("u", "t"), tmp_path, beat, scenes, story, sounds, DATA, {}, [])  # noqa: E731
+    pull = lambda beat: marvin_pull._ambience(("u", "t"), tmp_path, beat, scenes, sounds, DATA, {}, [])  # noqa: E731
     own = pull({"scene": "storm", "ambience": "wind"})
     assert (own["id"], own["volume"], own["muffled"]) == ("wind", 0.4, False)  # the beat's own: the sound's level, never muffled
     assert pull({"scene": "storm", "ambience": "wind", "ambience_volume": 0.1})["volume"] == 0.1  # the beat's level wins
     scene = pull({"scene": "storm"})
     assert (scene["id"], scene["volume"], scene["muffled"]) == ("rain", 0.7, True)
-    default = pull({"scene": "none"})
-    assert (default["id"], default["volume"], default["muffled"]) == ("hum", 0.15, False)  # the story's default, at its own level
-    assert pull({"scene": "none", "ambience_volume": 0.3})["volume"] == 0.3  # the beat's level applies to the default too
+    assert pull({"scene": "none"}) is None  # no beat or scene bed: the story's own bed is separate, it layers instead
 
 
 def test_ambience_without_a_take_gives_no_bed_and_is_named_once_as_not_recorded(tmp_path, monkeypatch):
@@ -194,10 +191,22 @@ def test_ambience_without_a_take_gives_no_bed_and_is_named_once_as_not_recorded(
     sounds = {"hum": {"dataJson": {"audio": None}}}
     missing: list = []
     for _ in range(2):
-        assert marvin_pull._ambience(("u", "t"), tmp_path, {}, {}, {"ambience": "hum"}, sounds, DATA, {}, missing) is None
-    assert marvin_pull._ambience(("u", "t"), tmp_path, {}, {}, {"ambience": "gone"}, sounds, DATA, {}, missing) is None
+        assert marvin_pull._ambience(("u", "t"), tmp_path, {"ambience": "hum"}, {}, sounds, DATA, {}, missing) is None
+    assert marvin_pull._ambience(("u", "t"), tmp_path, {"ambience": "gone"}, {}, sounds, DATA, {}, missing) is None
     assert missing == ["hum", "gone"]
-    assert marvin_pull._ambience(("u", "t"), tmp_path, {}, {}, {}, sounds, DATA, {}, missing) is None  # nothing named
+    assert marvin_pull._ambience(("u", "t"), tmp_path, {}, {}, sounds, DATA, {}, missing) is None  # nothing named
+
+
+def test_the_stories_own_ambience_is_one_bed_under_the_whole_film_at_its_level_else_the_sounds_else_half(tmp_path, monkeypatch):
+    monkeypatch.setattr(marvin_pull, "_fetch_asset", lambda creds, asset, dest, ext: tmp_path / "audio" / "sounds" / f"{asset}.mp3")
+    sounds = {**_sounds(hum=0.9, wind=None), "mute": {"dataJson": {"audio": None}}}
+    pull = lambda story, missing=None: marvin_pull.story_ambience(("u", "t"), tmp_path, story, sounds, DATA, {}, [] if missing is None else missing)  # noqa: E731
+    assert pull({"ambience": "hum", "ambience_volume": 0.15})["volume"] == 0.15  # the story's level
+    assert pull({"ambience": "hum"})["volume"] == 0.9  # else the sound's own
+    assert pull({"ambience": "wind"})["volume"] == 0.5  # else the default
+    assert pull({}) is None and pull({"ambience": " "}) is None
+    missing: list = []
+    assert pull({"ambience": "mute"}, missing) is None and missing == ["mute"]  # a sound with no take is named, not played
 
 
 def test_the_story_asks_for_ducking_only_with_a_known_strength(tmp_path, monkeypatch):
@@ -349,3 +358,34 @@ def test_ducking_lowers_the_bed_by_a_set_amount_while_someone_speaks_whatever_th
 def test_a_line_object_still_builds_without_the_new_fields():
     shot = Shot("a", Path("a.png"), hold=1.0, lines=[Line("x", None, 1.0)])
     assert shot.overlay is None and shot.music_volume is None
+
+
+# ── the story's ambience layers with a beat's ─────────────────────────────────────────────────────────────────────────────────────────
+def test_the_manifest_keeps_the_stories_own_ambience(tmp_path):
+    (tmp_path / "b.png").write_bytes(b"x")
+    (tmp_path / "hum.mp3").write_bytes(b"x")
+    (tmp_path / "m.json").write_text(json.dumps({"shots": [{"id": "b01", "still": "b.png", "hold": 2, "lines": []}], "ambience": {"audio": "hum.mp3", "volume": 0.3, "id": "hum", "fade_out": 1}}))
+    m = manifest.load(tmp_path / "m.json", probe=lambda _p: 1.0, need_stills=False)
+    assert (m.ambience.audio.name, m.ambience.volume, m.ambience.ref, m.ambience.fade_out, m.ambience.muffled) == ("hum.mp3", 0.3, "hum", 1.0, False)
+    (tmp_path / "n.json").write_text(json.dumps({"shots": [{"id": "b01", "still": "b.png", "hold": 2, "lines": []}]}))
+    assert manifest.load(tmp_path / "n.json", probe=lambda _p: 1.0, need_stills=False).ambience is None
+
+
+@needs_ffmpeg
+def test_a_beats_ambience_and_the_stories_play_together_the_stories_runs_through_the_rest(tmp_path):
+    project = demo.make(tmp_path / "demo", size=(360, 640))
+    folder = project.parent
+    _tone(folder / "story.mp3", 30.0, 1500)  # the story's bed
+    _tone(folder / "beat.mp3", 30.0, 2500)  # one beat's own bed
+    raw = json.loads(project.read_text())
+    raw["ambience"] = {"audio": "story.mp3", "volume": 0.8}
+    raw["shots"][1]["ambience"] = {"audio": "beat.mp3", "volume": 0.8}
+    project.write_text(json.dumps(raw))
+    m = manifest.load(project, probe=ffmpeg.duration)
+    build.render(m, tmp_path / "out.mp4", draft=True)
+    plan = manifest.plan(m)
+    mid, first = plan.shots[1], plan.shots[0]
+    window = lambda shot: (shot.start + 0.8, max(0.2, min(shot.duration - 1.4, 1.0)))  # noqa: E731 - clear of the crossfade at the cuts
+    assert _bed_db(tmp_path / "out.mp4", *window(mid), 1500) > -45 and _bed_db(tmp_path / "out.mp4", *window(mid), 2500) > -45  # both, in the beat
+    assert _bed_db(tmp_path / "out.mp4", *window(first), 1500) > -45  # the story's alone elsewhere
+    assert _bed_db(tmp_path / "out.mp4", *window(first), 2500) < _bed_db(tmp_path / "out.mp4", *window(mid), 2500) - 12  # and the beat's bed is not there
