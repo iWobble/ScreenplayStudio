@@ -131,8 +131,9 @@ def _pull(story: str, out: Path, creds: tuple[str, str]) -> dict:
         raise PullError(f"“{story}” has no recorded lines yet: record some with the screenplay-record-lines workflow")
     out.mkdir(parents=True, exist_ok=True)
     music = music_of(creds, out, data(story_row), data)
+    end_fade = _positive(data(story_row).get("end_fade_seconds"))  # every bed fades out over this long at the end of the film
     (out / "manifest.json").write_text(
-        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"music": music} if music else {})}, indent=2, ensure_ascii=False)
+        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"music": music} if music else {}), **({"end_fade": end_fade} if end_fade else {})}, indent=2, ensure_ascii=False)
     )
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing}
 
@@ -194,6 +195,15 @@ def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) 
         volume = item.get("volume") if item.get("volume") is not None else d.get("volume")
         effects.append({"id": row["slug"], "audio": str(file.relative_to(out)), "at": float(item.get("at") or 0), "volume": float(volume if volume is not None else 0.6), **fades_of(d)})
     return effects
+
+
+def _positive(value) -> float | None:
+    """A length of time from a form field: a number above 0, or None when it is empty, not a number or not above 0."""
+    try:
+        seconds = float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds is not None and seconds > 0 else None
 
 
 def _unit(value) -> float | None:
