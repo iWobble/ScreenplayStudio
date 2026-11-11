@@ -354,3 +354,58 @@ def test_a_chapter_made_before_chapters_held_their_text_is_given_it(marvin):
     filled = {p[0]: p[1]["dataJson"]["fountain"] for p in fake.patched if p[0].startswith("id-s-chapter-")}
     assert set(filled) == {"id-s-chapter-01", "id-s-chapter-02"} and filled["id-s-chapter-01"].startswith("# 01 One")
     assert set(_chapter_texts(fake)) == {"s-chapter-03"}  # the one that was missing is made with its text
+
+
+# --- rules read from the Fountain spec and from screenplay-tools' parser, found with a real file ---------------------------------------------
+
+PIRATES = '''Title: THE DEVIL'S SHOALS
+Credit: Written by
+Author: AI Collaborator
+Source: Original Story
+Draft date: November 2026
+Format: Short Screenplay
+
+TITLE CARD: "Dead men tell no tales."
+
+EXT. THE DEVIL'S SHOALS - NIGHT
+
+A violent thunderstorm rages.
+
+CHET
+(shouting over the storm)
+The hull is groaning, Captain!
+
+VALERIE (CONT'D)
+(sneers)
+Drop anchor in a graveyard, boy?
+'''
+
+
+def test_a_title_page_may_hold_keys_of_its_own_and_is_not_made_into_a_picture():
+    els = fountain.parse(PIRATES)
+    assert els[0] == {"t": "action", "text": 'TITLE CARD: "Dead men tell no tales."'}  # the title page is gone; the writer's own first line is not
+    plan = fountain.cut(els)
+    assert not any("Credit" in b["picture"] or "Written by" in b["picture"] for _c, _n, b in plan.rows())
+
+
+def test_a_first_line_that_only_looks_like_a_key_is_action_not_a_title_page():
+    els = fountain.parse('TITLE CARD: "Dead men tell no tales."\n\nEXT. SHOALS - NIGHT\n\nWaves.\n')
+    assert els[0]["t"] == "action" and "TITLE CARD" in els[0]["text"]
+
+
+def test_a_note_never_closed_ends_at_the_blank_line_and_cannot_swallow_the_script():
+    text = "INT. PORCH - DAY\n\nGranny rocks. [[never closed\n\nGRANNY\nHello, dear.\n\nINT. KITCHEN - NIGHT\n\nTea. [[fine note]]\n"
+    els = fountain.parse(text)
+    assert [(e["t"], e.get("name") or e.get("text")) for e in els] == [
+        ("scene", "INT. PORCH - DAY"), ("action", "Granny rocks."), ("dialogue", "GRANNY"), ("scene", "INT. KITCHEN - NIGHT"), ("action", "Tea."),
+    ]
+
+
+def test_a_note_over_several_lines_is_still_the_writers_and_dropped():
+    els = fountain.parse("INT. PORCH - DAY\n\nGranny rocks. [[a note\nover two lines]] She hums.\n")
+    assert els[1]["text"] == "Granny rocks.  She hums."
+
+
+def test_contd_is_not_an_extension_and_the_name_stays_the_name():
+    els = [e for e in fountain.parse(PIRATES) if e["t"] == "dialogue"]
+    assert [(e["name"], e["ext"]) for e in els] == [("CHET", ""), ("VALERIE", "")]

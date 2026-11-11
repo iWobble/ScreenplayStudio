@@ -29,12 +29,14 @@ LINES_PER_PAGE = 55
 PICTURE_CHARS = 420
 
 _BONEYARD = re.compile(r"/\*.*?\*/", re.S)
-_NOTE = re.compile(r"\[\[.*?\]\]", re.S)
+_NOTE = re.compile(r"\[\[(?:(?!\]\]|\n[ \t]*\n).)*(?:\]\]|(?=\n[ \t]*\n)|\Z)", re.S)  # a note ends at its `]]`, or at a blank line: one never closed cannot swallow what follows
 _SCENE = re.compile(r"^(?:INT|EXT|EST|INT\.?/EXT|INT/EXT|I/E)(?:\.|\s)", re.I)
 _SCENE_NUMBER = re.compile(r"\s+#[\w.-]+#\s*$")
 _TRANSITION = re.compile(r"^(?:[A-Z0-9 .'\-]+ TO:|FADE (?:IN|OUT)[.:]?|FADE TO BLACK[.:]?|CUT TO BLACK[.:]?|SMASH CUT TO BLACK[.:]?)$")
 _SECTION = re.compile(r"^(#{1,6})\s*(.*?)\s*$")
 _TITLE_KEY = re.compile(r"^\s*(title|credit|author|authors|source|notes|draft date|date|contact|copyright|revision)\s*:", re.I)
+_ANY_KEY = re.compile(r"^\s*[A-Za-z][A-Za-z0-9 ]*?\s*:")  # any key will do after the first: the title page may hold keys of its own (`Format: Short Screenplay`)
+_CONTD = re.compile(r"\s*\(\s*CONT[’']D\s*\)", re.I)
 _EXTENSION = re.compile(r"\s*\(([^)]*)\)\s*$")
 _LEADING_NUMBER = re.compile(r"^(?:chapter|part|sequence|act|scene)?\s*(\d{1,3})\b\s*[-–—:.]?\s*(.*)$", re.I)
 
@@ -90,7 +92,7 @@ def _is_transition(s: str) -> bool:
 
 
 def _cue_name(s: str) -> str:
-    return _EXTENSION.sub("", s.lstrip("@").rstrip("^").strip()).strip()
+    return _EXTENSION.sub("", _CONTD.sub("", s).lstrip("@").rstrip("^").strip()).strip()
 
 
 def _is_character(s: str) -> bool:
@@ -122,7 +124,7 @@ def _block_elements(block: list[str]) -> list[dict]:
     if len(block) == 1 and _is_transition(first):
         return [{"t": "transition", "text": first.lstrip(">").strip()}]
     if len(block) >= 2 and _is_character(first):
-        ext = _EXTENSION.search(first.lstrip("@").rstrip("^").strip())
+        ext = _EXTENSION.search(_CONTD.sub("", first).lstrip("@").rstrip("^").strip())
         paren, speech = [], []
         for ln in block[1:]:
             s = ln.strip()
@@ -138,8 +140,8 @@ def parse(text: str, *, lines: bool = False) -> list[dict]:
     """The screenplay's elements in order: {t: scene|action|dialogue|transition|section, ...}. A title page, page breaks and synopses are left out.
     With `lines`, each element also says the line (counting from 0) of the text it starts on."""
     blocks = _blocks_at(_clean(text))
-    if blocks and all(_TITLE_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
-        blocks = blocks[1:]
+    if blocks and all(_ANY_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
+        blocks = blocks[1:]  # a title page: it starts with a key Fountain knows, and every line is a key or the rest of one
     out: list[dict] = []
     for start, block in blocks:
         for el in _block_elements(block):
