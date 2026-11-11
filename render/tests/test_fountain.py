@@ -1007,3 +1007,11 @@ def test_the_complete_export_keeps_every_detail_and_reads_back_as_the_same_beats
     plan = fountain.cut(fountain.parse(text, lines=True), text=text)
     assert [(len(c.beats), c.lines()) for c in plan.chapters] == [(2, 1)]
     assert plan.characters and plan.places and "galley" in plan.places
+
+
+def test_a_hold_note_on_a_beat_sets_its_hold_and_a_hold_already_set_is_kept():
+    text = ".THE GALLEY\n\nA pot.\n\n[[Beat 01. Hold: 6s. Focus: the pot.]]\n\n===\n\nA hand.\n\n[[Hold: 2.5s]]\n\n===\n\nA cook.\n"
+    plan = fountain.cut(fountain.parse(text, lines=True), text=text)
+    imp = {"beats": [("b1", "t", {"number": "01"}), ("b2", "t", {"number": "02", "hold_seconds": 9}), ("b3", "t", {"number": "03"})], "lines": []}
+    fountain.attach_source(imp, plan, "s")
+    assert [d.get("hold_seconds") for _s, _t, d in imp["beats"]] == [6.0, 9, None]
