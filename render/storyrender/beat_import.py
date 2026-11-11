@@ -20,7 +20,7 @@ import re
 
 from . import beats
 
-_NUMBERED = re.compile(r"^\s*(?:[-*+]\s*)?(?:\*\*)?(\d{1,3}[a-z]?)(?:\*\*)?\s*(?:—|–|-|\.|:|\))\s*(.+?)\s*$", re.IGNORECASE)
+_NUMBERED = re.compile(r"^\s*(?:[-*+]\s*)?(?:\*\*)?(\d{1,3}[a-z]*)(?:\*\*)?\s*(?:—|–|-|\.|:|\))\s*(.+?)\s*$", re.IGNORECASE)
 _STARTS_WITH_SPEAKER = re.compile(r"^[A-Z][A-Za-z]+:\s")
 _SPEAKER = re.compile(r"^\s*(?:[-*+]\s*)?[A-Z][A-Za-z]+:\s+\S")
 _NO_SPEECH = re.compile(r"^no speech\.?$", re.IGNORECASE)
@@ -31,7 +31,7 @@ _NOT_SPOKEN = re.compile(r"^\(?\s*(?:no (?:speech|narration|dialogue|voice)\b|si
 
 def beat_number(raw: str) -> str:
     """`4` -> `04`, `04A` -> `04a`: the form beats are numbered in, so they sort and match."""
-    m = re.fullmatch(r"(\d+)([a-z]?)", raw.strip().lower())
+    m = re.fullmatch(r"(\d+)([a-z]*)", raw.strip().lower())
     return f"{int(m.group(1)):02d}{m.group(2)}" if m else raw.strip().lower()
 
 

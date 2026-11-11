@@ -19,7 +19,7 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from . import beat_import, beats
+from . import beat_import, beats, numbering
 
 LINE_SEP = "¶"
 """Between two speakers in an audio cell: the importer reads a name after it as the next speaker, whatever the words before it end in."""
@@ -622,6 +622,32 @@ def characters(elements: list[dict], names: dict[str, str]) -> list[dict]:
     return out
 
 
+VOICE_ONLY = re.compile(r"narrat|announcer|^voice$", re.I)
+"""A speaker with no body in the picture: a narrator, an announcer, a bare VOICE."""
+
+
+def cast_of(beat: dict, characters: list[dict]) -> list[str]:
+    """The handles of the characters in a beat's picture: those who speak in it, in the order they first speak, then those its action names (by name or
+    cue, whole words), in the order they come. A narrator or announcer is a voice, not someone in frame, so is never in the cast."""
+    seen: list[str] = []
+    spoke = [str(ln.get("speaker") or "").lower() for ln in beat.get("lines") or []]
+    text = str(beat.get("picture") or "")
+    named: list[tuple[int, str]] = []
+    for c in characters:
+        handle = str(c["handle"]).lower()
+        if VOICE_ONLY.search(str(c.get("cue") or c.get("name") or handle)):
+            continue
+        if handle in spoke:
+            continue
+        hits = [m.start() for word in {c.get("name"), c.get("cue"), handle} if word for m in re.finditer(rf"\b{re.escape(str(word))}\b", text, re.I)]
+        if hits:
+            named.append((min(hits), handle))
+    for handle in spoke:
+        if handle and handle not in seen and any(str(c["handle"]).lower() == handle and not VOICE_ONLY.search(str(c.get("cue") or c.get("name") or handle)) for c in characters):
+            seen.append(handle)
+    return seen + [h for _i, h in sorted(named)]
+
+
 _TIME_WORDS = re.compile(r"\b(?:day|night|dawn|dusk|evening|morning|afternoon|sunset|sunrise|twilight|noon|midnight|continuous|later|same|moments?|minutes|hours|days)\b", re.I)
 _HEADING_KIND = re.compile(r"^(INT\.?/EXT\.?|EXT\.?/INT\.?|I/E\.?|INT\.?|EXT\.?|EST\.?)\s+", re.I)
 _SCENE_NO = re.compile(r"\s*#[^#]+#\s*$")
@@ -709,6 +735,8 @@ def sound_cues(beat: dict, avoid: "set[str]") -> list[dict]:
         if said and said.lower() not in seen:
             seen.add(said.lower())
             cues.append({"kind": "effect", "title": _short(said, 3), "prompt": said, "at": float(at.group(1)) if at else 0.0})
+    if seen:  # the writer named this beat's sounds: what the words might suggest (a loud word, THE BARNACLE'S REVENGE) is not added to them
+        return cues
     for sentence in sentences:
         found = []
         m = _SOUND_OF.search(sentence)
@@ -753,17 +781,6 @@ def _sameness(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
-def _after(number: str) -> str:
-    """The number a beat inserted after `number` takes: 1002 -> 1002a, 1002a -> 1002b."""
-    m = re.fullmatch(r"(\d+)([a-z]?)", number)
-    if not m:
-        raise ValueError(f"beat number “{number}” cannot be followed by an inserted beat")
-    digits, letter = m.groups()
-    if letter == "z":
-        raise ValueError(f"more than 26 beats were inserted after beat {digits}: add a `#` section line or number the story again")
-    return digits + (chr(ord(letter) + 1) if letter else "a")
-
-
 def align(plan: Plan, existing: dict[str, str]) -> "dict | None":
     """Fit a revised Fountain to the beats already made from it, by what they say and not by where they stand. `existing` is each made beat's number and
     its own piece of the Fountain. A beat whose words are unchanged keeps its number (and with it its picture, recording and sounds); one reworded keeps it
@@ -773,10 +790,9 @@ def align(plan: Plan, existing: dict[str, str]) -> "dict | None":
     if not existing or not plan.chapters or any(not b.get("fountain") for c in plan.chapters for b in c.beats):
         return None
     found = {"same": 0, "reworded": 0, "new": [], "removed": []}
-    key = lambda n: (int(re.match(r"\d+", n).group()), n[-1] if n[-1:].isalpha() else "")  # noqa: E731
     for chapter in plan.chapters:
-        mine = [n for n in existing if re.fullmatch(r"\d+[a-z]?", n) and (plan.single or int(re.match(r"\d+", n).group()) // 1000 == chapter.number)]
-        old = sorted(mine, key=key)
+        mine = [n for n in existing if re.fullmatch(r"\d+[a-z]*", n) and (plan.single or int(re.match(r"\d+", n).group()) // 1000 == chapter.number)]
+        old = sorted(mine, key=numbering.order_key)
         old_text = [_sameness(existing[n]) for n in old]
         new_text = [_sameness(b["fountain"]) for b in chapter.beats]
         taken: dict[int, str] = {}  # position of a new beat (0-based) -> the number it keeps
@@ -803,9 +819,9 @@ def align(plan: Plan, existing: dict[str, str]) -> "dict | None":
             if j in taken:
                 number = taken[j]
             else:
-                number = _after(previous)
+                number = numbering.after(previous)
                 while number in used:
-                    number = _after(number)
+                    number = numbering.after(number)
                 used.add(number)
                 found["new"].append(number)
             plan.renumber[(chapter.number, j + 1)] = number

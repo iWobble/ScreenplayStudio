@@ -21,6 +21,7 @@ import subprocess
 from pathlib import Path
 
 from . import fountain as fountain_mod
+from . import numbering
 
 NARRATOR = "narrator"
 
@@ -216,7 +217,7 @@ def pull_records(story: str, creds: tuple[str, str]) -> dict:
     story_row = next((e for e in rows if e.get("slug") == story), None)
     if story_row is None:
         raise LookupError(f"no story “{story}” in this workspace")
-    beats = sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-beat-") and _data(e).get("story") == story), key=lambda e: str(_data(e).get("number")))
+    beats = sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-beat-") and _data(e).get("story") == story), key=lambda e: numbering.order_key(_data(e).get("number")))
     lines: dict[str, list[dict]] = {}
     for line in sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-line-") and "-take-" not in e["slug"] and _data(e).get("story") == story), key=lambda e: e["slug"]):
         lines.setdefault(str(_data(line).get("beat")), []).append(line)

@@ -6,7 +6,7 @@ import re
 import pytest
 
 from marvin_worker.jobs import Context, JobError
-from storyrender import beat_import, beats, fountain, jobs
+from storyrender import beat_import, beats, fountain, jobs, numbering
 from tests.test_beat_import import FakeMarvin
 
 GRANNY = """Title: Granny Advice
@@ -1076,6 +1076,24 @@ def test_a_beat_inserted_in_the_middle_is_numbered_after_the_beat_before_it_and_
     assert two["new"] == ["02a", "02b"]
 
 
+def test_more_than_26_beats_inserted_in_one_place_carry_on_aa_ab_and_still_play_in_order():
+    _plan, made = _pieces(REVISED)
+    many = "".join(f"===\n\nBeat {i} of the long insertion, with words of its own.\n\n" for i in range(30))
+    plan, _ = _pieces(REVISED.replace("===\n\nA hand.", many + "===\n\nA hand."))
+    found = fountain.align(plan, made)
+    letters = [n[2:] for n in found["new"]]
+    assert letters[:3] == ["a", "b", "c"] and letters[25:28] == ["z", "aa", "ab"] and len(found["new"]) == 30
+    numbers = [n for _c, n, _b in plan.rows()]
+    assert sorted(numbers, key=numbering.order_key) == numbers  # z comes before aa, and the old beats keep their places
+    assert numbers[0:2] == ["01", "02"] and numbers[-2:] == ["03", "04"]
+
+
+def test_beat_numbers_count_on_like_spreadsheet_columns_and_sort_by_length_first():
+    assert [numbering.after(n) for n in ("02", "02a", "02y", "02z", "02az", "02zz")] == ["02a", "02b", "02z", "02aa", "02ba", "02aaa"]
+    shuffled = ["3001", "3000b", "3000aa", "3000z", "3000", "3000a"]
+    assert sorted(shuffled, key=numbering.order_key) == ["3000", "3000a", "3000b", "3000z", "3000aa", "3001"]
+
+
 def test_a_beat_inserted_at_the_start_comes_before_the_first():
     _plan, made = _pieces(REVISED)
     plan, _ = _pieces(".THE GALLEY\n\nA wide shot of the sea.\n\n===\n\nA pot on a table.\n\n===\n\nA cook enters.\n\nCOOK\nHello.\n\n===\n\nA hand.\n\n===\n\nThe lid.\n")
@@ -1219,3 +1237,49 @@ def test_the_breakdown_lists_the_applied_revisions():
         {"slug": "r2", "title": "R2", "dataJson": {"number": 2, "applied_at": "2026-11-12", "note": "A longer cabin scene", "same": 15, "reworded": 0, "new_beats": "1004a, 1004b", "removed": 1}}]}
     page = script.breakdown_html(script.breakdown(records))
     assert "Revisions" in page and "Narration in act one" in page and "1004a, 1004b" in page and "Revision 2, 12 November 2026" in page
+
+
+# --- who is in a beat's picture ----------------------------------------------------------------------------------------------------------
+
+def test_the_cast_of_a_beat_is_who_speaks_in_it_then_who_its_action_names_and_never_a_narrator():
+    people = [{"handle": "Valerie", "cue": "VALERIE", "name": "Valerie"}, {"handle": "Chet", "cue": "CHET", "name": "Chet"}, {"handle": "Narrator", "cue": "NARRATOR (V.O.)", "name": "Narrator"}]
+    beat = {"picture": "Chet looks up while the narrator speaks. Valerie waits.", "lines": [{"speaker": "Narrator"}]}
+    assert fountain.cast_of(beat, people) == ["chet", "valerie"]  # named, in the order the action names them; the narrator is a voice
+    assert fountain.cast_of({"picture": "Rain.", "lines": [{"speaker": "Valerie"}, {"speaker": "Chet"}, {"speaker": "Valerie"}]}, people) == ["valerie", "chet"]
+    assert fountain.cast_of({"picture": "Chetwynd Hall at dusk.", "lines": []}, people) == []  # whole words only
+
+
+def test_new_beats_are_cast_from_who_speaks_and_who_the_action_names(casting):
+    fake, ctx = casting(CAST_TEXT)
+    run(ctx)
+    beats = {m["slug"]: m["dataJson"] for m in fake.made if m["entryTypeId"] == "T-beat"}
+    first = beats["s-beat-01"]
+    assert first["cast"].split(",")[:2] == ["s-valerie", "s-chet"] and "s-hand" in first["cast"].split(",")
+    assert "references" not in first  # nobody has a master picture yet: the cast is set and a later import adds the pictures
+
+
+def test_running_the_import_again_adds_the_masters_of_the_cast_and_keeps_what_was_set(casting):
+    first, ctx = casting(CAST_TEXT)
+    run(ctx)
+    beats = {m["slug"]: {"id": f"id-{m['slug']}", "slug": m["slug"], "title": m["title"], "dataJson": dict(m["dataJson"])} for m in first.made if m["entryTypeId"] == "T-beat"}
+    beats["s-beat-01"]["dataJson"].pop("cast")
+    mine = next(b for slug, b in beats.items() if slug != "s-beat-01")
+    mine["dataJson"]["cast"] = "s-chet"  # set by hand: left as it is
+    mine["dataJson"]["references"] = "a-place-picture"  # a picture of the place: kept, and the master follows it
+    again, ctx2 = casting(CAST_TEXT)
+    again.records = dict(beats)
+    for who, master in (("valerie", "m-val"), ("chet", "m-chet")):
+        again.on_hand["cast-member"][f"s-{who}"] = {"id": f"c-{who}", "slug": f"s-{who}", "title": who, "dataJson": {"story": "s", "speaker": who, "master": master}}
+    run(ctx2)
+    put = {p[0]: p[1]["dataJson"] for p in again.patched if p[0] != "e0"}
+    one = put["id-s-beat-01"]
+    assert one["cast"].split(",")[:2] == ["s-valerie", "s-chet"] and one["references"].split(",") == ["m-val", "m-chet"]
+    if mine["slug"] in {b["slug"] for b in beats.values()} and f"id-{mine['slug']}" in put:
+        assert put[f"id-{mine['slug']}"]["cast"] == "s-chet" and put[f"id-{mine['slug']}"]["references"] == "a-place-picture"
+
+
+def test_a_beat_whose_writer_named_its_sounds_gets_only_those():
+    beat = {"picture": "Lightning reveals THE BARNACLE'S REVENGE. The ship LURCHES.", "place": "EXT. SEA - NIGHT", "sung": [], "fountain": "x\n[[Sound: timber grinding against rock at 0s.]]\n"}
+    assert [c["prompt"] for c in fountain.sound_cues(beat, set())] == ["timber grinding against rock"]
+    unnamed = {**beat, "fountain": "x"}
+    assert "Lurches" in [c["title"] for c in fountain.sound_cues(unnamed, set())]  # nobody named a sound: the words are read for one
