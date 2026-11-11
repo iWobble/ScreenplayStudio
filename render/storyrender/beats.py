@@ -1,4 +1,4 @@
-"""Beat sheet (Markdown table) → the records a story is made of: beats, spoken lines, sound cues and a skeleton manifest.
+"""Beat sheet (Markdown table) → beats, spoken lines and sound cues. The Fountain import writes its cut as such a table and reads it back with this (`import_beats`).
 
     | 08 | 42–48s | Narrator: He picked up the onion. Cook: How many bowls? Captain: Everyone. | Cabin two-shot … |
 
@@ -7,7 +7,6 @@ speak; a beat with no speech is a held image.
 """
 
 import re
-from pathlib import Path
 
 _ROW = re.compile(r"^\|\s*(\d+[a-z]?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*(.*?)\s*\|\s*$")
 _TIME = re.compile(r"(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)\s*s")
@@ -56,34 +55,3 @@ def parse(markdown: str) -> list[dict]:
             }
         )
     return beats
-
-
-def speech_lines(beats: list[dict]) -> list[dict]:
-    """The lines to record, in story order: [{id, beat, speaker, text, characters}] — what the speech-line records hold.
-    `characters` is what recording it spends on a per-character plan, so an approval can say what it is approving."""
-    return [
-        {"id": f"b{b['beat']}-{n}", "beat": b["beat"], "speaker": ln["speaker"], "text": ln["text"], "characters": len(ln["text"])}
-        for b in beats
-        for n, ln in enumerate(b["lines"], 1)
-    ]
-
-
-def skeleton_manifest(beats: list[dict], title: str, *, stills: str = "stills", audio: str = "audio", ext: str = "mp3") -> dict:
-    """A manifest with every beat's still and line paths filled in by convention (`stills/b04.png`, `audio/b04-1.mp3`), ready
-    for the pictures and the recorded lines to be dropped in. Holds come from the sheet's provisional times."""
-    shots = []
-    for b in beats:
-        shots.append(
-            {
-                "id": f"b{b['beat']}",
-                "still": f"{stills}/b{b['beat']}.png",
-                "hold": b["hold"],
-                "lines": [{"speaker": ln["speaker"], "text": ln["text"], "audio": f"{audio}/b{b['beat']}-{n}.{ext}"} for n, ln in enumerate(b["lines"], 1)],
-                **({"sfx_notes": [s["text"] for s in b["sounds"]]} if b["sounds"] else {}),
-            }
-        )
-    return {"title": title, "size": [1080, 1920], "fps": 30, "shots": shots}
-
-
-def load(path: Path) -> list[dict]:
-    return parse(path.read_text())
