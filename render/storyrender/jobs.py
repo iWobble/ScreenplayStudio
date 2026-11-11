@@ -394,6 +394,26 @@ def _cast_for(story: str, beat: dict, characters: list[dict], people: dict, data
 MAX_BEFORE_CHARS = 200_000  # a revision keeps the text it replaced up to this size (a long script is kept in its file)
 
 
+def _setting_from(fplan) -> str:
+    """Where a story is set, when its title page does not say: the first sentence of the first chapter's synopsis (`= The ship strikes the reef.`), else its first place with the
+    time of day. Short and plain: the picture workflows read it as the story's setting, and it is the person's to rewrite."""
+    first = next((c.summary for c in fplan.chapters if c.summary), "")
+    if first:
+        return re.split(r"(?<=[.!?])\s+", first.strip())[0]
+    place = next(iter(fplan.places.values()), None)
+    if not place:
+        return ""
+    where = " and ".join(place["kinds"])
+    return f"{place['name']}" + (f" ({where})" if where else "") + (f", {', '.join(place['times'])}" if place["times"] else "")
+
+
+def _story_gaps(story_data: dict) -> list[str]:
+    """What a story still lacks that the picture workflows read, in words a person can act on."""
+    asked = (("world", "no World: choose one, its rules and style decide how every picture looks"), ("setting", "no Setting: say where and when it happens (a `Setting:` line on the title page, or the Setting field)"),
+             ("premise", "no Premise: one or two sentences saying what the story is about (a `Premise:` line on the title page, or the Premise field)"))
+    return [why for key, why in asked if not str(story_data.get(key) or "").strip()]
+
+
 def _made_for_a_beat(story: str, slug: str) -> bool:
     """A Sound the import made for one beat's own words (`story-sound-1002-1`), as against a bed, a score or one that was uploaded."""
     return bool(re.fullmatch(rf"{re.escape(story)}-sound-\d+[a-z]*-\d+", slug))
@@ -821,12 +841,20 @@ def import_beats(job: dict, ctx: Context) -> dict:
         "split_report": report,
     }
     changed = plan["beats"] or plan["lines"] or plan["chapters"] or plan["updates"] or plan["trash"]
-    if not dry:  # the title page is the story's credits; a field already filled in is the person's and is kept
-        meta = fountain.title_page(screenplay)
-        for key in ("credit", "author", "source", "draft_date", "contact", "copyright"):
-            if meta.get(key) and not str(story_data.get(key) or "").strip():
-                story_data[key] = meta[key]
-        other = "\n".join(f"{k}: {v}" for k, v in meta.items() if k not in ("title", "credit", "author", "source", "draft_date", "contact", "copyright"))
+    meta = fountain.title_page(screenplay)
+    credits = ("credit", "author", "source", "draft_date", "contact", "copyright", "setting", "premise")  # the title page is the story's credits; a field already filled in is the person's and is kept
+    filled = {k: meta[k] for k in credits if meta.get(k) and not str(story_data.get(k) or "").strip()}
+    if not str(story_data.get("setting") or "").strip() and "setting" not in filled and (said := _setting_from(fplan)):
+        filled["setting"] = said  # nothing said where it is set: the first scene's synopsis, else its place; the person's own words replace it
+    gaps = _story_gaps({**story_data, **filled})
+    if gaps:
+        note += "\n\nThe story still lacks: " + "; ".join(gaps) + "."
+    if filled.get("setting") and not meta.get("setting"):
+        note += f"\n\nSetting taken from the screenplay: “{filled['setting'][:160]}”."
+    result["story_gaps"] = gaps
+    if not dry:
+        story_data.update(filled)
+        other = "\n".join(f"{k}: {v}" for k, v in meta.items() if k not in ("title", *credits))
         if other and not str(story_data.get("title_page_other") or "").strip():
             story_data["title_page_other"] = other
         if any(t == "sound" and r[0] == f"{story}-score" for t, r in extra) and not dry and not str(story_data.get("music") or "").strip():
