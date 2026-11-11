@@ -13,7 +13,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import audio_convert, audio_measure, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, script, voices
+from . import audio_convert, audio_measure, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, ready, script, voices
 
 
 def story_of(job: dict) -> str:
@@ -542,6 +542,36 @@ def _revision_of(ctx: Context, job: dict) -> tuple[str, dict, str, dict]:
 def _patch_entry(ctx: Context, row: dict, data: dict) -> None:
     body = json.dumps({"title": row.get("title"), "slug": row.get("slug"), "dataJson": data}).encode()
     marvin_api.request(ctx.creds, f"/api/platform/entries/{row['id']}", method="PATCH", data=body, content_type="application/json")
+
+
+@job_kind(
+    "check-ready",
+    description="Say whether a story is ready to have pictures and voices made, and change nothing but the story's Readiness note: what stops a picture or a recording (no World, no actor, no voice, a voice ElevenLabs has no id for) and what is worth a look (no costume, no set dressing, sounds with no length). It makes no picture, calls no AI and spends nothing",
+    inputs={"story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"}},
+    produces=[],
+)
+def check_ready(job: dict, ctx: Context) -> dict:
+    story = story_of(job)
+    rows = marvin_api.query(ctx.creds, {"entries": story}, limit=1)
+    if not rows:
+        raise JobError(f"no story “{story}” in this workspace")
+    story_row = rows[0]
+    row = lambda e: {**(e.get("dataJson") or {}), "slug": e.get("slug"), "title": e.get("title")}  # noqa: E731
+    of_story = lambda kind: [row(e) for e in _all(ctx.creds, {"entry_type": kind, "data": {"story": story}})]  # noqa: E731
+    everywhere = lambda kind: {str(e.get("slug")): row(e) for e in _all(ctx.creds, {"entry_type": kind})}  # noqa: E731
+    characters, beats, lines = of_story("cast-member"), of_story("beat"), of_story("speech-line")
+    scenes, sounds = of_story("scene"), of_story("sound")
+    found = ready.check(
+        row(story_row), worlds=set(everywhere("world")), characters=characters, actors=everywhere("actor"), voices=everywhere("voice"),
+        beats=beats, lines=lines, scenes=scenes, sounds=sounds,
+    )
+    counts = {"Characters": len(characters), "beats": len(beats), "lines": len(lines), "scenes": len(scenes), "sounds": len(sounds)}
+    when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    text, fixes, looks = ready.report(found, counts, when)
+    data = dict(story_row.get("dataJson") or {})
+    data["readiness"] = text
+    _patch_entry(ctx, story_row, data)
+    return {"result": {"story": story, "fix": fixes, "look": looks}, "log": text}
 
 
 @job_kind(
