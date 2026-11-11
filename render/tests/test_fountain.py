@@ -354,3 +354,259 @@ def test_a_chapter_made_before_chapters_held_their_text_is_given_it(marvin):
     filled = {p[0]: p[1]["dataJson"]["fountain"] for p in fake.patched if p[0].startswith("id-s-chapter-")}
     assert set(filled) == {"id-s-chapter-01", "id-s-chapter-02"} and filled["id-s-chapter-01"].startswith("# 01 One")
     assert set(_chapter_texts(fake)) == {"s-chapter-03"}  # the one that was missing is made with its text
+
+
+# --- rules read from the Fountain spec and from screenplay-tools' parser, found with a real file ---------------------------------------------
+
+PIRATES = '''Title: THE DEVIL'S SHOALS
+Credit: Written by
+Author: AI Collaborator
+Source: Original Story
+Draft date: November 2026
+Format: Short Screenplay
+
+TITLE CARD: "Dead men tell no tales."
+
+EXT. THE DEVIL'S SHOALS - NIGHT
+
+A violent thunderstorm rages.
+
+CHET
+(shouting over the storm)
+The hull is groaning, Captain!
+
+VALERIE (CONT'D)
+(sneers)
+Drop anchor in a graveyard, boy?
+'''
+
+
+def test_a_title_page_may_hold_keys_of_its_own_and_is_not_made_into_a_picture():
+    els = fountain.parse(PIRATES)
+    assert els[0] == {"t": "action", "text": 'TITLE CARD: "Dead men tell no tales."'}  # the title page is gone; the writer's own first line is not
+    plan = fountain.cut(els)
+    assert not any("Credit" in b["picture"] or "Written by" in b["picture"] for _c, _n, b in plan.rows())
+
+
+def test_a_first_line_that_only_looks_like_a_key_is_action_not_a_title_page():
+    els = fountain.parse('TITLE CARD: "Dead men tell no tales."\n\nEXT. SHOALS - NIGHT\n\nWaves.\n')
+    assert els[0]["t"] == "action" and "TITLE CARD" in els[0]["text"]
+
+
+def test_a_note_never_closed_ends_at_the_blank_line_and_cannot_swallow_the_script():
+    text = "INT. PORCH - DAY\n\nGranny rocks. [[never closed\n\nGRANNY\nHello, dear.\n\nINT. KITCHEN - NIGHT\n\nTea. [[fine note]]\n"
+    els = fountain.parse(text)
+    assert [(e["t"], e.get("name") or e.get("text")) for e in els] == [
+        ("scene", "INT. PORCH - DAY"), ("action", "Granny rocks."), ("dialogue", "GRANNY"), ("scene", "INT. KITCHEN - NIGHT"), ("action", "Tea."),
+    ]
+
+
+def test_a_note_over_several_lines_is_still_the_writers_and_dropped():
+    els = fountain.parse("INT. PORCH - DAY\n\nGranny rocks. [[a note\nover two lines]] She hums.\n")
+    assert els[1]["text"] == "Granny rocks.  She hums."
+
+
+def test_contd_is_not_an_extension_and_the_name_stays_the_name():
+    els = [e for e in fountain.parse(PIRATES) if e["t"] == "dialogue"]
+    assert [(e["name"], e["ext"]) for e in els] == [("CHET", ""), ("VALERIE", "")]
+
+
+def test_fountain_handed_over_in_a_code_fence_reads_as_if_it_were_not():
+    fenced = "```fountain\n" + PIRATES + "```\n"
+    assert fountain.parse(fenced) == fountain.parse(PIRATES)
+    plan = fountain.cut(fountain.parse(fenced))
+    assert fountain.chapter_texts(fenced, plan) == fountain.chapter_texts(PIRATES, fountain.cut(fountain.parse(PIRATES)))
+
+
+def test_a_fence_in_the_middle_of_the_script_is_left_alone():
+    text = "INT. PORCH - DAY\n\n```\nnot a fence round the whole\n\nGranny rocks.\n"
+    assert any("```" in e.get("text", "") for e in fountain.parse(text))
+
+
+DUAL = """INT. DECK - NIGHT
+
+CHET
+Captain, look down.
+
+VALERIE
+What now?
+
+CHET^
+(screaming)
+They're here!
+VALERIE^
+(laughing)
+Looks like we're joining the fleet!
+
+CHET
+BREAKER AHEAD!
+"""
+
+
+def test_two_speakers_run_together_with_no_blank_line_between_them_are_two_speeches():
+    speeches = [(e["name"], e["text"], e["paren"]) for e in fountain.parse(DUAL) if e["t"] == "dialogue"]
+    assert speeches == [
+        ("CHET", "Captain, look down.", []), ("VALERIE", "What now?", []),
+        ("CHET", "They're here!", ["screaming"]), ("VALERIE", "Looks like we're joining the fleet!", ["laughing"]),
+        ("CHET", "BREAKER AHEAD!", []),
+    ]
+
+
+def test_a_shouted_line_that_is_not_a_known_speaker_stays_part_of_the_speech():
+    text = "INT. DECK - NIGHT\n\nCHET\nLook!\nBREAKER AHEAD!\nHold on.\n\nVALERIE\nAye.\n"
+    chet = [e for e in fountain.parse(text) if e["t"] == "dialogue" and e["name"] == "CHET"]
+    assert len(chet) == 1 and chet[0]["text"] == "Look! BREAKER AHEAD! Hold on."
+
+
+def test_the_marks_of_bold_italic_and_underline_do_not_reach_the_words():
+    els = fountain.parse("INT. DECK - NIGHT\n\nJagged, *black* rocks and **tattered** sails, ***both***, _underlined_.\n\nCHET\nIt's *so* big, and 2 * 3 * 4 stays, snake_case too.\n")
+    assert els[1]["text"] == "Jagged, black rocks and tattered sails, both, underlined."
+    assert els[2]["text"] == "It's so big, and 2 * 3 * 4 stays, snake_case too."
+
+
+# --- every element of the Fountain spec in one script: what the reader must make of each -----------------------------------------------------
+
+ALL_ELEMENTS = """Title: All Elements
+Credit: Written by
+Author: Test
+Contact:
+    Agent: Someone
+    123 Street
+
+[[A note
+over two lines]]
+
+/* a boneyard
+over two lines */
+
+# ACT ONE
+
+= A synopsis of the act.
+
+## The porch
+
+= Another synopsis.
+
+EXT. PORCH - DUSK #1#
+
+Granny rocks. *Italic*, **bold**, ***both***, _underline_. [[inline note]]
+
+!SHOUT IN ACTION, FORCED
+
+.A FORCED HEADING
+
+INT. KITCHEN - NIGHT
+
+GRANNY (V.O.)
+(softly)
+Never go to bed angry.
+
+@McDUFF
+A forced character cue.
+
+BOB
+I'm here.
+
+ANN
+Wait for me.
+
+> CENTERED <
+
+~Willy wanna go home
+~Willy wanna go home
+
+CUT TO:
+
+> FADE OUT.
+
+===
+
+# ACT TWO
+
+INT. HALL - DAY
+
+BRICK
+Screw retirement.
+
+STEEL ^
+Screw retirement.
+
+GRANNY (CONT'D)
+Done.
+
+THE END
+"""
+
+
+def test_every_element_of_the_fountain_spec_is_read_as_the_spec_says():
+    def show(e):
+        if e["t"] == "dialogue":
+            return ("dialogue", e["name"], e["ext"], e["paren"], e["text"])
+        return (e["t"], e.get("title") or e["text"]) if e["t"] != "section" else ("section", e["depth"], e["title"])
+
+    assert [show(e) for e in fountain.parse(ALL_ELEMENTS)] == [
+        ("section", 1, "ACT ONE"),  # a section; the synopsis under it and the page break are the writer's, and the title page, notes and boneyard are dropped
+        ("section", 2, "The porch"),
+        ("scene", "EXT. PORCH - DUSK"),  # its scene number (#1#) is not part of the place
+        ("action", "Granny rocks. Italic, bold, both, underline."),  # emphasis marks and the inline note are gone
+        ("action", "SHOUT IN ACTION, FORCED"),  # `!` forces action
+        ("scene", "A FORCED HEADING"),  # `.` forces a scene heading
+        ("scene", "INT. KITCHEN - NIGHT"),
+        ("dialogue", "GRANNY", "V.O.", ["softly"], "Never go to bed angry."),  # an extension, a parenthetical
+        ("dialogue", "McDUFF", "", [], "A forced character cue."),  # `@` forces a cue (mixed case)
+        ("dialogue", "BOB", "", [], "I'm here."),
+        ("dialogue", "ANN", "", [], "Wait for me."),
+        ("action", "CENTERED"),  # `> text <` is centred action
+        ("lyrics", "Willy wanna go home Willy wanna go home"),  # lyrics (`~`) are the words, without the mark
+        ("transition", "CUT TO:"),
+        ("transition", "FADE OUT."),  # `>` forces a transition
+        ("section", 1, "ACT TWO"),
+        ("scene", "INT. HALL - DAY"),
+        ("dialogue", "BRICK", "", [], "Screw retirement."),
+        ("dialogue", "STEEL", "", [], "Screw retirement."),  # the second speaker of a dual dialogue (`^`) is a speech like any other
+        ("dialogue", "GRANNY", "", [], "Done."),  # (CONT'D) is not an extension
+        ("action", "THE END"),
+    ]
+
+
+def test_a_synopsis_right_under_a_scene_heading_is_the_writers_and_is_not_in_the_beat():
+    text = "EXT. SHOALS - NIGHT\n= The brigantine fights a losing battle.\n\nA violent storm rages.\n\n.THE DECK - NIGHT\n= Introduce the environment.\n\nLightning flashes.\n"
+    els = fountain.parse(text)
+    assert [(e["t"], e["text"]) for e in els] == [("scene", "EXT. SHOALS - NIGHT"), ("action", "A violent storm rages."), ("scene", "THE DECK - NIGHT"), ("action", "Lightning flashes.")]
+    assert not any("=" in b["picture"] for _c, _n, b in fountain.cut(els).rows())
+
+
+def test_centred_text_written_with_empty_markers_round_it_is_just_the_words():
+    els = fountain.parse("INT. DECK - NIGHT\n\n> <\n**THE DEVIL'S SHOALS**\n> <\n\nWaves.\n")
+    assert [e["text"] for e in els if e["t"] == "action"] == ["THE DEVIL'S SHOALS", "Waves."]
+    assert [e["text"] for e in fountain.parse("INT. DECK - NIGHT\n\n> THE END <\n") if e["t"] == "action"] == ["THE END"]
+
+
+SONG = "INT. PORCH - DUSK\n\nGranny rocks.\n\n~Row, row, row your boat\n~Gently down the stream\n\nGRANNY\nListen to this.\n~Merrily, merrily\n~Life is but a dream\n\nThe dog howls.\n"
+
+
+def test_lyrics_are_not_described_in_the_picture_and_a_sung_line_of_a_speech_has_no_mark():
+    els = fountain.parse(SONG)
+    assert [(e["t"], e.get("text")) for e in els if e["t"] in ("lyrics", "dialogue")] == [("lyrics", "Row, row, row your boat Gently down the stream"), ("dialogue", "Listen to this. Merrily, merrily Life is but a dream")]
+    plan = fountain.cut(els)
+    assert not any("Row, row" in b["picture"] for _c, _n, b in plan.rows())
+
+
+def test_a_sung_line_travels_with_its_beat_as_a_sound_note_and_the_cut_still_loses_nothing():
+    plan = fountain.cut(fountain.parse(SONG))
+    assert fountain.check(plan) == []
+    kind, rows = beat_import.parse_any(plan.sheet())
+    first = rows[0]
+    assert "Row, row, row your boat" in beat_import.notes_of(first) and "Sound:" in beat_import.notes_of(first)
+    assert [l["text"] for r in rows for l in r["lines"]] == ["Listen to this. Merrily, merrily Life is but a dream"]
+
+
+def test_a_sound_note_is_read_once_from_a_cell_written_with_pilcrows():
+    plan = fountain.cut(fountain.parse(SONG))
+    notes = [beat_import.notes_of(r) for r in beat_import.parse_any(plan.sheet())[1]]
+    assert notes[0] == "Sound: sung: Row, row, row your boat Gently down the stream"
+
+
+def test_an_escaped_mark_is_the_plain_character():
+    els = fountain.parse("INT. X - DAY\n\nTwo \\*stars\\* here, _under_ and snake\\_case.\n")
+    assert els[1]["text"] == "Two *stars* here, under and snake_case."

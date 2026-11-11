@@ -29,12 +29,14 @@ LINES_PER_PAGE = 55
 PICTURE_CHARS = 420
 
 _BONEYARD = re.compile(r"/\*.*?\*/", re.S)
-_NOTE = re.compile(r"\[\[.*?\]\]", re.S)
+_NOTE = re.compile(r"\[\[(?:(?!\]\]|\n[ \t]*\n).)*(?:\]\]|(?=\n[ \t]*\n)|\Z)", re.S)  # a note ends at its `]]`, or at a blank line: one never closed cannot swallow what follows
 _SCENE = re.compile(r"^(?:INT|EXT|EST|INT\.?/EXT|INT/EXT|I/E)(?:\.|\s)", re.I)
 _SCENE_NUMBER = re.compile(r"\s+#[\w.-]+#\s*$")
 _TRANSITION = re.compile(r"^(?:[A-Z0-9 .'\-]+ TO:|FADE (?:IN|OUT)[.:]?|FADE TO BLACK[.:]?|CUT TO BLACK[.:]?|SMASH CUT TO BLACK[.:]?)$")
 _SECTION = re.compile(r"^(#{1,6})\s*(.*?)\s*$")
 _TITLE_KEY = re.compile(r"^\s*(title|credit|author|authors|source|notes|draft date|date|contact|copyright|revision)\s*:", re.I)
+_ANY_KEY = re.compile(r"^\s*[A-Za-z][A-Za-z0-9 ]*?\s*:")  # any key will do after the first: the title page may hold keys of its own (`Format: Short Screenplay`)
+_CONTD = re.compile(r"\s*\(\s*CONT[’']D\s*\)", re.I)
 _EXTENSION = re.compile(r"\s*\(([^)]*)\)\s*$")
 _LEADING_NUMBER = re.compile(r"^(?:chapter|part|sequence|act|scene)?\s*(\d{1,3})\b\s*[-–—:.]?\s*(.*)$", re.I)
 
@@ -51,9 +53,22 @@ def _words(text: str) -> int:
 # --- reading ------------------------------------------------------------------------------------------------------------------------
 
 
-def _clean(text: str) -> str:
+_FENCE = re.compile(r"^\s*```[A-Za-z]*\s*$")
+
+
+def _normal(text: str) -> str:
+    """The text with plain line breaks, no byte order mark, and no code fence round it: an AI (or a chat window) hands Fountain over wrapped in ```."""
     text = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("﻿")
-    return _NOTE.sub("", _BONEYARD.sub("", text))  # a boneyard and a note are the writer's, not the story's
+    lines = text.split("\n")
+    first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
+    last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
+    if first is not None and last is not None and first < last and _FENCE.match(lines[first]) and _FENCE.match(lines[last]):
+        lines = lines[:first] + lines[first + 1 : last] + lines[last + 1 :]
+    return "\n".join(lines)
+
+
+def _clean(text: str) -> str:
+    return _NOTE.sub("", _BONEYARD.sub("", _normal(text)))  # a boneyard and a note are the writer's, not the story's
 
 
 def _blocks_at(text: str) -> list[tuple[int, list[str]]]:
@@ -90,7 +105,7 @@ def _is_transition(s: str) -> bool:
 
 
 def _cue_name(s: str) -> str:
-    return _EXTENSION.sub("", s.lstrip("@").rstrip("^").strip()).strip()
+    return _EXTENSION.sub("", _CONTD.sub("", s).lstrip("@").rstrip("^").strip()).strip()
 
 
 def _is_character(s: str) -> bool:
@@ -103,7 +118,42 @@ def _is_character(s: str) -> bool:
     return bool(re.search(r"[A-Z]", name)) and name == name.upper() and not name.endswith(".") or (bool(re.search(r"[A-Z]", name)) and name == name.upper() and len(name.split()) <= 4)
 
 
+_EMPHASIS = (
+    re.compile(r"\*\*\*(\S(?:.*?\S)?)\*\*\*"),
+    re.compile(r"\*\*(\S(?:.*?\S)?)\*\*"),
+    re.compile(r"(?<![\w*])\*(?![\s*])(.+?)(?<![\s*])\*(?![\w*])"),
+    re.compile(r"(?<!\w)_(?![\s_])(.+?)(?<![\s_])_(?!\w)"),
+)
+
+
+def _plain(text: str) -> str:
+    """The words without Fountain's emphasis marks (`*italic*`, `**bold**`, `_underline_`): a picture prompt or a caption must not show them."""
+    text = text.replace("\\*", "\x00a").replace("\\_", "\x00u")  # an escaped mark is a plain character: set it aside while the marks come off
+    for pattern in _EMPHASIS:
+        text = pattern.sub(r"\1", text)
+    return text.replace("\x00a", "*").replace("\x00u", "_")
+
+
+def _plain_elements(els: list[dict]) -> list[dict]:
+    for el in els:
+        if el["t"] == "action":
+            el["text"] = _plain(el["text"])
+        elif el["t"] == "dialogue":
+            el["text"] = _plain(el["text"])
+            el["paren"] = [_plain(x) for x in el["paren"]]
+    return els
+
+
+_SYNOPSIS_LINE = re.compile(r"^=(?!=)")
+_EMPTY_CENTRE = re.compile(r"^>\s*<$")
+
+
 def _block_elements(block: list[str]) -> list[dict]:
+    # A synopsis (`= text`) is the writer's note even when it sits right under a scene heading, and a centred block an AI wrote as `> <`, the text,
+    # `> <` has empty markers round the words: neither belongs in a beat's picture.
+    block = [ln for ln in block if not _SYNOPSIS_LINE.match(ln.strip()) and not _EMPTY_CENTRE.match(ln.strip())]
+    if not block:
+        return []
     first = block[0].strip()
     if first.startswith("==="):
         return []
@@ -122,13 +172,15 @@ def _block_elements(block: list[str]) -> list[dict]:
     if len(block) == 1 and _is_transition(first):
         return [{"t": "transition", "text": first.lstrip(">").strip()}]
     if len(block) >= 2 and _is_character(first):
-        ext = _EXTENSION.search(first.lstrip("@").rstrip("^").strip())
+        ext = _EXTENSION.search(_CONTD.sub("", first).lstrip("@").rstrip("^").strip())
         paren, speech = [], []
         for ln in block[1:]:
             s = ln.strip()
-            (paren if s.startswith("(") and s.endswith(")") else speech).append(s.strip("()") if s.startswith("(") and s.endswith(")") else s)
+            (paren if s.startswith("(") and s.endswith(")") else speech).append(s.strip("()") if s.startswith("(") and s.endswith(")") else s.lstrip("~").strip())  # a sung line of a speech is the words, not the mark
         if speech:
             return [{"t": "dialogue", "name": _cue_name(first), "ext": (ext.group(1) if ext else ""), "paren": paren, "text": " ".join(speech).strip()}]
+    if all(ln.strip().startswith("~") for ln in block):  # lyrics: words that are sung, not described and not (yet) anyone's line
+        return [{"t": "lyrics", "text": " ".join(ln.strip().lstrip("~").strip() for ln in block).strip()}]
     text_ = " ".join(ln.strip().lstrip("!~") for ln in block).strip()
     text_ = re.sub(r"^>\s*(.*?)\s*<$", r"\1", text_)  # centred text is action
     return [{"t": "action", "text": text_}] if text_ else []
@@ -138,13 +190,28 @@ def parse(text: str, *, lines: bool = False) -> list[dict]:
     """The screenplay's elements in order: {t: scene|action|dialogue|transition|section, ...}. A title page, page breaks and synopses are left out.
     With `lines`, each element also says the line (counting from 0) of the text it starts on."""
     blocks = _blocks_at(_clean(text))
-    if blocks and all(_TITLE_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
-        blocks = blocks[1:]
+    if blocks and all(_ANY_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
+        blocks = blocks[1:]  # a title page: it starts with a key Fountain knows, and every line is a key or the rest of one
+    known = {_cue_name(block[0]) for _start, block in blocks if len(block) >= 2 and _is_character(block[0])}
     out: list[dict] = []
     for start, block in blocks:
-        for el in _block_elements(block):
-            out.append({**el, "line": start} if lines else el)
+        for at, piece in _split_cues(start, block, known):
+            for el in _plain_elements(_block_elements(piece)):
+                out.append({**el, "line": at} if lines else el)
     return out
+
+
+def _split_cues(start: int, block: list[str], known: set[str]) -> list[tuple[int, list[str]]]:
+    """A speech block cut where another speaker's cue appears inside it. Writers (and AIs) leave out the blank line between two speakers of a
+    dual dialogue; a line is taken for a cue only when it is a name already used as a cue elsewhere and something follows it, so a shouted line
+    of dialogue stays dialogue."""
+    if len(block) < 3 or not _is_character(block[0]):
+        return [(start, block)]
+    for i in range(2, len(block) - 1):
+        line = block[i].strip()
+        if _is_character(line) and _cue_name(line) in known:
+            return [(start, block[:i]), *_split_cues(start + i, block[i:], known)]
+    return [(start, block)]
 
 
 # --- speakers -----------------------------------------------------------------------------------------------------------------------
@@ -178,7 +245,7 @@ def _lines_of(el: dict) -> int:
     t = el["t"]
     if t == "scene":
         return 2
-    if t == "action":
+    if t in ("action", "lyrics"):
         return math.ceil(len(el["text"]) / 60) + 1
     if t == "dialogue":
         return math.ceil(len(el["text"]) / 35) + 2 + len(el["paren"])
@@ -336,6 +403,8 @@ class Plan:
                 out += ["| Beat | Time | Audio | Single still / composition |", "| --- | --- | --- | --- |"]
             for i, b in enumerate(ch.beats, 1):
                 audio = f" {LINE_SEP} ".join(f"{ln['speaker']}: {cell(ln['text'])}" for ln in b["lines"]) or "No speech."
+                if b.get("sung"):  # sung words are a cue for the sound library (a song, a hummed tune), kept with the beat as a note
+                    audio += f" {LINE_SEP} Sound: sung: " + cell(" / ".join(b["sung"]))
                 out.append(f"| {self.number(ch, i)} | — | {audio} | {cell(b['picture'])} |")
             out.append("")
         return "\n".join(out).rstrip() + "\n"
@@ -371,7 +440,7 @@ def _beats_for(scenes: list[Scene], names: dict[str, str]) -> list[dict]:
         for el in scene.elements:
             t = el["t"]
             if t == "scene":
-                cur = {"picture": el["text"], "lines": [], "notes": []}
+                cur = {"picture": el["text"], "lines": [], "notes": [], "sung": []}
                 out.append(cur)
                 fresh_scene = True
             elif t == "action":
@@ -380,15 +449,15 @@ def _beats_for(scenes: list[Scene], names: dict[str, str]) -> list[dict]:
                     joined = f"{cur['picture']}. {el['text']}" if fresh_scene else f"{cur['picture']} {el['text']}"
                     cur["picture"] = joined
                 else:
-                    cur = {"picture": el["text"], "lines": [], "notes": []}
+                    cur = {"picture": el["text"], "lines": [], "notes": [], "sung": []}
                     out.append(cur)
                 fresh_scene = False
             elif t == "dialogue":
                 if cur is None:
-                    cur = {"picture": scene.heading or "Continues", "lines": [], "notes": []}
+                    cur = {"picture": scene.heading or "Continues", "lines": [], "notes": [], "sung": []}
                     out.append(cur)
                 if len(cur["lines"]) >= LINES_PER_BEAT:
-                    cur = {"picture": f"(continued) {cur['picture'][:80]}", "lines": [], "notes": []}
+                    cur = {"picture": f"(continued) {cur['picture'][:80]}", "lines": [], "notes": [], "sung": []}
                     out.append(cur)
                 who = names.get(el["name"], el["name"].capitalize())
                 cur["lines"].append({"speaker": who, "text": el["text"]})
@@ -396,6 +465,11 @@ def _beats_for(scenes: list[Scene], names: dict[str, str]) -> list[dict]:
                 if note:
                     cur["notes"].append(f"{who} ({note})")
                 fresh_scene = False
+            elif t == "lyrics":
+                if cur is None:
+                    cur = {"picture": scene.heading or "Continues", "lines": [], "notes": [], "sung": []}
+                    out.append(cur)
+                cur["sung"].append(el["text"])
             elif t == "transition":
                 cur = None
     for b in out:
@@ -479,7 +553,7 @@ def chapter_texts(text: str, plan: Plan) -> "dict[int, str] | None":
     """Each chapter's own slice of the Fountain text, as the writer wrote it (notes, boneyard and layout kept): from the section or scene heading that
     starts the chapter to the one that starts the next. The title page is not in any slice. Chapter numbers are the keys.
     None when the text cannot be matched to the chapters the plan found, scene heading for scene heading: better no slice than a wrong one."""
-    norm = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("﻿")
+    norm = _normal(text)
     scenes = _scenes(parse(_blank_comments(norm), lines=True))
     if [s.heading for s in scenes] != [s.heading for ch in plan.chapters for s in ch.scenes]:
         return None

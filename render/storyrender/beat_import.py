@@ -72,10 +72,11 @@ def notes_of(row: dict) -> str:
     """What a row's Audio cell says that is not speech: the words before the first speaker (`No speech. Hold on the smile.`), any direction that
     was dropped from the lines, and the `Sound:` cues. A bare `No speech.` is nothing (it is what an empty beat is written as)."""
     cell = row.get("audio_cell") or ""
-    first = beats._LABEL.search(cell)
+    first = (beats._LABEL_FENCED if "¶" in cell else beats._LABEL).search(cell)  # a cell the Fountain import wrote divides its speakers with ¶
     lead = cell[: first.start()].strip() if first else cell.strip()
     parts = [lead, *row.get("dropped", []), *[f"Sound: {s['text']}" for s in row.get("sounds", [])]]
     text = " ".join(p.strip() for p in parts if p and p.strip())
+    text = re.sub(r"^no speech\.?\s*¶?\s*(?=\S)", "", text, flags=re.IGNORECASE)  # a bare `No speech.` in front of a cue is only the empty beat's placeholder
     return "" if _NO_SPEECH.match(text) else text
 
 
