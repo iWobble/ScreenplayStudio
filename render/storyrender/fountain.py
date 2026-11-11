@@ -560,7 +560,8 @@ def _piece(lines: list[str], start: int, stop: int) -> str:
 
 
 _NAMEWORD = r"""(?:[A-Z][A-Z0-9'’.\-]*|"[^"]+"|“[^”]+”)"""
-_INTRO = re.compile(rf"({_NAMEWORD}(?:\s+{_NAMEWORD})*)\s*\(((?:early |mid-?|late )?\d{{1,3}}s?)\)")  # `CAPTAIN VALERIE "THE VULTURE" VANE (40s)`
+_AGE_WORDS = r"(?:early |mid-?|late )?\d{1,3}s?"
+_INTRO = re.compile(rf"({_NAMEWORD}(?:\s+{_NAMEWORD})*)\s*(?:\(({_AGE_WORDS})\)|,\s*({_AGE_WORDS})(?=\s*[,.]))")  # `CAPTAIN VALERIE "THE VULTURE" VANE (40s)` or `CHET, 20s, clutches a logbook`
 _HOLD_NOTE = re.compile(r"\bHold:\s*(\d+(?:\.\d+)?)\s*s\b")
 _SENTENCES = re.compile(r"(?<=[.!?])\s+")
 _FEMALE = re.compile(r"\b(?:she|herself|woman|girl|lady|madam)\b", re.I)  # who a sentence is about, not whom it is done to: `frowns at her` says nothing of the one who frowns
@@ -599,7 +600,7 @@ def _introduction(text: str, cue: str, others_cues: "list[str] | None" = None) -
         she, he = len(_FEMALE.findall(said)), len(_MALE.findall(said))
         if not she and not he:
             she, he = len(_FEMALE_POSSESSIVE.findall(said)), len(_MALE_POSSESSIVE.findall(said))
-        return {"name": " ".join(words), "age": m.group(2), "sex": "female" if she > he else "male" if he > she else "", "description": said}
+        return {"name": " ".join(words), "age": m.group(2) or m.group(3), "sex": "female" if she > he else "male" if he > she else "", "description": said}
     return None
 
 

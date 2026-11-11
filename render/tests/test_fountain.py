@@ -1321,3 +1321,48 @@ def test_an_edit_apply_keeps_the_text_it_replaced_and_trashes_nothing(revising):
     fake.entries_by_slug["rev-1"]["dataJson"]["base_digest"] = next(p[1]["dataJson"]["base_digest"] for p in fake.patched if p[0] == "rev1")
     jobs.apply_revision(_job({"revision": "rev-1"}), ctx)
     assert fake.deleted == [] and [p[1]["dataJson"] for p in fake.patched if p[0] == "rev1"][-1]["before"] == CAST_TEXT
+
+
+# --- the story's setting and premise --------------------------------------------------------------------------------------------------
+
+def test_setting_and_premise_come_from_the_title_page_and_a_filled_in_one_is_kept(marvin):
+    said = DEVILS.replace("Title: THE DEVIL'S SHOALS\n", "Title: THE DEVIL'S SHOALS\nSetting: A brigantine in a night storm.\nPremise: A captain and her cabin boy are wrecked.\n", 1)
+    assert said != DEVILS
+    fake, ctx = marvin(said)
+    run(ctx, chapter_pages="0.1")
+    story = fake.patched[-1][1]["dataJson"]
+    assert story["setting"] == "A brigantine in a night storm." and story["premise"] == "A captain and her cabin boy are wrecked."
+    assert "setting" not in story.get("title_page_other", "") and "premise" not in story.get("title_page_other", "")
+    fake2, ctx2 = marvin(said)
+    fake2.story["dataJson"]["setting"] = "Mine."
+    run(ctx2, chapter_pages="0.1")
+    assert fake2.patched[-1][1]["dataJson"]["setting"] == "Mine."
+
+
+def test_with_no_setting_line_the_first_synopsis_stands_in_and_what_is_still_missing_is_named(marvin):
+    fake, ctx = marvin(DEVILS)
+    done = run(ctx, chapter_pages="0.1")
+    story = fake.patched[-1][1]["dataJson"]
+    assert story["setting"] == "The wreck of a pirate ship." and not story.get("premise")  # a premise is never made up
+    assert any(g.startswith("no Premise") for g in done["result"]["story_gaps"]) and any(g.startswith("no World") for g in done["result"]["story_gaps"])
+    assert not any(g.startswith("no Setting") for g in done["result"]["story_gaps"])
+    assert "The story still lacks:" in done["log"] and "Setting taken from the screenplay" in done["log"]
+
+
+def test_a_preview_names_the_gaps_and_writes_no_setting(marvin):
+    fake, ctx = marvin(DEVILS)
+    done = run(ctx, chapter_pages="0.1", dry_run="yes")
+    assert "The story still lacks:" in done["log"]
+    assert not any("setting" in (p[1].get("dataJson") or {}) for p in fake.patched)
+
+
+def test_a_screenplay_with_no_synopsis_is_set_where_its_first_place_is():
+    plan = fountain.cut(fountain.parse(CAST_TEXT.replace("= The ship breaks up.\n", "")))
+    assert jobs._setting_from(plan) == "The Reef (exterior), Night, Dawn"
+
+
+def test_a_character_is_introduced_by_a_comma_age_as_well_as_a_bracketed_one():
+    text = "INT. CABIN - NIGHT\n\nCAPTAIN VALERIE \"THE VULTURE\" VANE, 40s, braces herself over a chart. A clouded eye beneath a soaked tricorn.\n\nCHET, 20s, clutches a waterlogged logbook.\n\nCHET\nWe have to drop anchor!\n\nVALERIE\nWe push through.\n"
+    who = {c["handle"]: c for c in fountain.cut(fountain.parse(text)).characters}
+    assert (who["Valerie"]["age"], who["Valerie"]["sex"]) == ("40s", "female") and "clouded eye" in who["Valerie"]["description"]
+    assert who["Chet"]["age"] == "20s" and "logbook" in who["Chet"]["description"]
