@@ -74,3 +74,14 @@ def test_keeping_what_was_made_is_one_approval_that_only_touches_the_made_ones()
         assert {"field": "status", "op": "eq", "value": status} in next(a for a in acts if a.get("kind") == "collect")["query"]["where"]
         assert next(a for a in acts if a.get("id") == "keep")["choices"] == ["Keep all", "Leave them"]
         assert next(a for a in acts if a.get("kind") == "repeat")["when"]["value"] == "Keep all"
+
+
+def test_the_story_timeline_lets_a_made_still_be_kept_or_redone_in_place():
+    for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]:
+        if b.get("slug") == "story-timeline":
+            assert b["payload"]["spine"]["review"] == {"ready": ["made"], "keep": "approved", "redo": "redo"}
+            break
+    else:
+        raise AssertionError("story-timeline")
+    requeue = json.dumps(_flow("screenplay-requeue-redo"))
+    assert '"redo"' in requeue  # the status the Redo button writes is the one the requeue workflow acts on
