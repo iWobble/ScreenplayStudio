@@ -399,6 +399,9 @@ class Plan:
     source: dict
     single: bool
     front: str = ""  # what is written before the first beat, as written: the title page, and anything the story does not make a beat of
+    characters: list = field(default_factory=list)  # who the screenplay introduces (see `characters`)
+    places: dict = field(default_factory=dict)  # place slug -> the place the scene headings name (see `places_of`)
+    ambience: dict = field(default_factory=dict)  # place slug -> the bed its beats' action asks for (see `ambience_of`)
 
     def number(self, chapter: Chapter, i: int) -> str:
         return f"{i:02d}" if self.single else str(chapter.number * 1000 + i)
@@ -471,9 +474,12 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
     carry.setdefault("held_at", None)
     held: list[str] = carry["held"]  # transition lines written since the last beat: they belong to the one that comes next
     scene_first = [True]
+    here = [""]  # the heading of the scene being read: a beat is in that place
 
     def start(picture: str, at: "int | None" = None, scene_start: "int | None" = None) -> dict:
         beat: dict = {"picture": picture, "lines": [], "notes": [], "sung": []}
+        if here[0]:
+            beat["place"] = here[0]
         if at is not None:  # where the beat starts in the text: a section or transition written just above it starts it
             for earlier in (carry["held_at"], scene_start if scene_first[0] else None):
                 at = at if earlier is None else min(at, earlier)
@@ -495,11 +501,13 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
         cur = None
         fresh_scene = True
         scene_first[0] = True
+        here[0] = scene.heading
         for el in scene.elements:
             t = el["t"]
             ln = el.get("line")
             sc = scene.start if ln is not None else None
             if t == "scene":
+                here[0] = el["text"]
                 cur = start(el["text"], ln, sc)
                 fresh_scene = True
             elif t == "action":
@@ -539,6 +547,175 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
 def _piece(lines: list[str], start: int, stop: int) -> str:
     text = "\n".join(lines[start:stop]).strip("\n")
     return text + "\n" if text else ""
+
+
+# --- characters and places ----------------------------------------------------------------------------------------------------------
+
+
+_NAMEWORD = r"""(?:[A-Z][A-Z0-9'’.\-]*|"[^"]+"|“[^”]+”)"""
+_INTRO = re.compile(rf"({_NAMEWORD}(?:\s+{_NAMEWORD})*)\s*\(((?:early |mid-?|late )?\d{{1,3}}s?)\)")  # `CAPTAIN VALERIE "THE VULTURE" VANE (40s)`
+_SENTENCES = re.compile(r"(?<=[.!?])\s+")
+_FEMALE = re.compile(r"\b(?:she|herself|woman|girl|lady|madam)\b", re.I)  # who a sentence is about, not whom it is done to: `frowns at her` says nothing of the one who frowns
+_MALE = re.compile(r"\b(?:he|himself|man|boy|gentleman|lad)\b", re.I)
+_FEMALE_POSSESSIVE = re.compile(r"\b(?:her|hers)\b", re.I)
+_MALE_POSSESSIVE = re.compile(r"\b(?:his|him)\b", re.I)
+_PRONOUN_FIRST = re.compile(r"^(?:she|he|her|his|their|they)\b", re.I)
+_ARTICLES = {"A", "AN", "THE", "AND", "OR", "IN", "ON", "AT", "WITH"}
+
+
+def _introduction(text: str, cue: str, others_cues: "list[str] | None" = None) -> "dict | None":
+    """How an action paragraph introduces the character who speaks as `cue`: `NAME (age), what they are and wear.` Their name as written, the age, the
+    sentence that introduces them and the sentences after it that go on about them (those that begin with she, he, her, his or their)."""
+    others_cues = others_cues or []
+    want = {w for w in re.sub(r"[^A-Z0-9 ]", " ", cue.upper()).split() if w}
+    want_lower = {w.lower() for w in want}
+    for m in _INTRO.finditer(text):
+        words = m.group(1).split()
+        while words and words[0] in _ARTICLES:
+            words = words[1:]
+        plain = {w for w in re.sub(r"[^A-Z0-9 ]", " ", " ".join(words).upper()).split() if w}
+        if not want or not want <= plain:
+            continue
+        sentences = _SENTENCES.split(text)
+        at = next((i for i, snt in enumerate(sentences) if m.group(0) in snt), 0)
+        others = [w for c in others_cues if c != cue for w in re.sub(r"[^A-Za-z ]", " ", c).split() if w.lower() not in want_lower]
+        if others and re.search(r"\b(?:" + "|".join(map(re.escape, others)) + r")\b", text, re.I):  # a paragraph that also names someone else: only the sentences that go on about this one
+            taken = [sentences[at]]
+            for nxt in sentences[at + 1 :]:
+                if not _PRONOUN_FIRST.match(nxt):
+                    break
+                taken.append(nxt)
+        else:  # a paragraph about this one alone: all of it from where they come in
+            taken = sentences[at:]
+        said = " ".join(taken)
+        she, he = len(_FEMALE.findall(said)), len(_MALE.findall(said))
+        if not she and not he:
+            she, he = len(_FEMALE_POSSESSIVE.findall(said)), len(_MALE_POSSESSIVE.findall(said))
+        return {"name": " ".join(words), "age": m.group(2), "sex": "female" if she > he else "male" if he > she else "", "description": said}
+    return None
+
+
+def _nice(name: str) -> str:
+    """`CAPTAIN VALERIE "THE VULTURE" VANE` -> `Captain Valerie "The Vulture" Vane`; `BARNACLE'S` -> `Barnacle's`."""
+    return re.sub(r"[A-Za-z][A-Za-z']*", lambda m: m.group(0).capitalize(), name)
+
+
+def characters(elements: list[dict], names: dict[str, str]) -> list[dict]:
+    """A character for each speaker: the cue as written, the one-word handle the speech lines use, and what the screenplay says of them where it
+    introduces them (`CHET (20s), a young, terrified cabin boy`): name, age, sex (only when the pronouns or a word like boy or woman say it) and the
+    sentences that describe them, as written. A speaker the screenplay never introduces still gets a character, with only the name."""
+    actions = [e["text"] for e in elements if e["t"] == "action"]
+    out = []
+    for cue, handle in sorted(names.items(), key=lambda kv: kv[1]):
+        found = next((i for i in (_introduction(a, cue, list(names)) for a in actions) if i), None)
+        out.append({"cue": cue, "handle": handle, **(found or {"name": _nice(cue), "age": "", "sex": "", "description": ""})})
+    for c in out:
+        c["name"] = _nice(c["name"])
+    return out
+
+
+_TIME_WORDS = re.compile(r"\b(?:day|night|dawn|dusk|evening|morning|afternoon|sunset|sunrise|twilight|noon|midnight|continuous|later|same|moments?|minutes|hours|days)\b", re.I)
+_HEADING_KIND = re.compile(r"^(INT\.?/EXT\.?|EXT\.?/INT\.?|I/E\.?|INT\.?|EXT\.?|EST\.?)\s+", re.I)
+_SCENE_NO = re.compile(r"\s*#[^#]+#\s*$")
+
+
+def place_of(heading: str) -> "dict | None":
+    """`INT. CAPTAIN'S CABIN - NIGHT #2#` -> the place (`Captain's Cabin`), whether it is inside or outside, and the time written after it (`Night`).
+    The same place under another time of day is the same place."""
+    h = _SCENE_NO.sub("", heading or "").strip().lstrip(".").strip()
+    if not h:
+        return None
+    kind = ""
+    m = _HEADING_KIND.match(h)
+    if m:
+        k = m.group(1).upper().replace(".", "")
+        kind = "interior" if k == "INT" else "exterior" if k in ("EXT", "EST") else "both"
+        h = h[m.end() :]
+    parts = [p.strip() for p in re.split(r"\s+[-–—]\s+", h) if p.strip()]
+    time = ""
+    if len(parts) > 1 and _TIME_WORDS.search(parts[-1]):
+        time = parts.pop().capitalize()
+    name = _nice(" - ".join(parts).replace("’", "'"))
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower().replace("'", "")).strip("-")
+    return {"slug": slug, "name": name, "kind": kind, "time": time} if slug else None
+
+
+def places_of(scenes: list[Scene]) -> dict[str, dict]:
+    """The places a screenplay's scene headings name, once each, with whether each is inside or outside and the times of day it is seen at."""
+    out: dict[str, dict] = {}
+    for sc in scenes:
+        headings = [sc.heading] + [e["text"] for e in sc.elements if e["t"] == "scene" and e["text"] != sc.heading]
+        for h in headings:
+            p = place_of(h)
+            if not p:
+                continue
+            rec = out.setdefault(p["slug"], {"name": p["name"], "kinds": [], "times": []})
+            if p["kind"] and p["kind"] not in rec["kinds"]:
+                rec["kinds"].append(p["kind"])
+            if p["time"] and not re.search(r"later|continuous|same", p["time"], re.I) and p["time"] not in rec["times"]:
+                rec["times"].append(p["time"])
+    return out
+
+
+# --- sounds ---------------------------------------------------------------------------------------------------------------------------
+
+_SOUND_OF = re.compile(r"\bsounds? of ([^.,;!?]+)", re.I)  # `The sound of wood splintering echoes from deep below.`
+_A_SOUND = re.compile(r"\b(?:an?|the) ((?:[A-Za-z-]+ ){0,2}[A-Za-z-]+) sound\b")  # `a splashing sound nearby`
+_LOUD = re.compile(r"\b[A-Z]{4,}\b")  # `a deafening CRUNCH`
+_SINGING = re.compile(r"\b(?:melody|song|tune|hum|humming|sing|sings|singing|chant|lullaby)\b", re.I)
+_WEATHER = re.compile(r"\b(?:rain|rains|thunder\w*|storm\w*|waves?|wind|surf|lapping|crickets|cicadas|rustl\w+)(?![-\w])", re.I)  # not `rain-soaked`
+
+
+def _sentences(text: str) -> list[str]:
+    return [x for x in _SENTENCES.split(text) if x.strip()]
+
+
+def _short(text: str, words: int = 4) -> str:
+    return " ".join(re.sub(r"[^A-Za-z' -]", "", text).split()[:words]).strip().capitalize()
+
+
+def sound_cues(beat: dict, avoid: "set[str]") -> list[dict]:
+    """The sounds a beat's own words call for, as placeholders for a Sound each: sung words (`~` lyrics) as music; `the sound of X`, `a X sound` and
+    a loud word in capitals (`CRUNCH`) as effects. Each keeps the sentence it came from as its prompt. Names, places and the scene heading are not sounds;
+    nothing here is made or paid for: a Sound is a draft until someone uploads a recording or asks for one to be generated."""
+    cues: list[dict] = []
+    picture = (beat.get("picture") or "").split(" Delivery:")[0]
+    here = beat.get("place", "")
+    if here:
+        picture = picture.replace(here, "", 1)
+    picture = re.sub(r"^[\s.]+", "", picture)
+    sentences = _sentences(picture)
+    if beat.get("sung"):
+        about = next((x for x in sentences if _SINGING.search(x)), "")
+        cues.append({"kind": "music", "title": "Sung: " + _short(beat["sung"][0]), "prompt": "Sung, as written: " + " / ".join(beat["sung"]) + (f". {about}" if about else "")})
+    seen: set[str] = set()
+    for sentence in sentences:
+        found = []
+        m = _SOUND_OF.search(sentence)
+        if m:
+            found.append(_short(m.group(1), 2))
+        m = _A_SOUND.search(sentence)
+        if m and m.group(1).lower() not in ("the", "a", "an"):
+            found.append(_short(m.group(1) + " sound", 3))
+        first_lower = next((i for i, c in enumerate(sentence) if c.islower()), None)
+        if first_lower is not None:  # capitals before the first lower case letter are a heading or a title, not a sound
+            found += [_short(w, 1) for w in _LOUD.findall(sentence[first_lower:]) if w not in avoid]
+        for title in found:
+            if title and title.lower() not in seen:
+                seen.add(title.lower())
+                cues.append({"kind": "effect", "title": title, "prompt": sentence.strip()})
+    return cues
+
+
+def ambience_of(beats: list[dict], name: str) -> "dict | None":
+    """The bed under a place: what its beats' action says of the weather and water (rain, thunder, waves, wind), as one placeholder for an ambience Sound."""
+    said: list[str] = []
+    for b in beats:
+        picture = re.sub(r"^[\s.]+", "", (b.get("picture") or "").split(" Delivery:")[0].replace(b.get("place", ""), "", 1) if b.get("place") else (b.get("picture") or ""))
+        said += [x for x in _sentences(picture) if _WEATHER.search(x) and x not in said]
+    if not said:
+        return None
+    return {"kind": "ambience", "title": f"{name} ambience", "prompt": f"Ambience for {name}: " + " ".join(said[:3])}
 
 
 def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: float = MAX_CHAPTER_PAGES, text: "str | None" = None) -> Plan:
@@ -599,7 +776,22 @@ def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: f
                 if ln.get("at") is not None:
                     ln["fountain"] = _piece(all_lines, ln["at"], ln.get("end") or stop)
         front = _piece(all_lines, 0, flat[0]["at"]) if flat else ""
-    return Plan(chapters, {r: h for r, h in names.items()}, warnings, source, single, front)
+    plan = Plan(chapters, {r: h for r, h in names.items()}, warnings, source, single, front)
+    plan.characters = characters(elements, names)
+    plan.places = places_of(scenes)
+    avoid = {w for c in plan.characters for w in re.sub(r"[^A-Z0-9 ]", " ", f"{c['name']} {c['cue']}".upper()).split()}
+    avoid |= {w for p in plan.places.values() for w in re.sub(r"[^A-Z0-9 ]", " ", p["name"].upper()).split()}
+    by_place: dict[str, list[dict]] = {}
+    for ch in chapters:
+        for b in ch.beats:
+            b["sounds"] = sound_cues(b, avoid)
+            if place_of(b.get("place", "")):
+                by_place.setdefault(place_of(b["place"])["slug"], []).append(b)
+    for key, beats_here in by_place.items():
+        bed = ambience_of(beats_here, plan.places[key]["name"])
+        if bed:
+            plan.ambience[key] = bed
+    return plan
 
 
 def check(plan: Plan) -> list[str]:
@@ -685,6 +877,11 @@ def attach_source(imp: dict, plan: Plan, story: str) -> None:
         for key in ("fountain", "transition", "transition_text"):
             if beat and beat.get(key):
                 data[key] = beat[key]
+        place = place_of(beat.get("place", "")) if beat else None
+        if place:
+            data["scene"] = f"{story}-{place['slug']}"
+        if beat and beat.get("sounds"):
+            data["sounds"] = [{"sound": f"{story}-sound-{data.get('number')}-{i}", "at": 0} for i, _c in enumerate(beat["sounds"], 1)]
     for slug, _title, data in imp["lines"]:
         m = re.search(r"-line-(.+)-(\d+)$", slug)
         beat = by_number.get(m.group(1)) if m else None

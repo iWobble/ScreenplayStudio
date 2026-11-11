@@ -772,3 +772,181 @@ def test_a_title_page_field_the_person_filled_in_is_kept_and_a_preview_writes_no
     fake2, ctx2 = marvin(DEVILS)
     run(ctx2, source="fountain", dry_run="yes", chapter_pages="0.1")
     assert "author" not in fake2.patched[-1][1]["dataJson"] and "fountain_front" not in fake2.patched[-1][1]["dataJson"]
+
+
+# --- the characters and places a screenplay implies -------------------------------------------------------------------------------------
+
+CAST_TEXT = """# ONE
+
+EXT. THE REEF - NIGHT #1#
+= The ship breaks up.
+
+CAPTAIN VALERIE "THE VULTURE" VANE (40s) stands at the wheel. She wears a tricorn hat. One eye is clouded over. She jams a compass into her belt.
+
+In the corner sits CHET (20s), a young, terrified cabin boy clutching a logbook.
+
+VALERIE
+Hold her straight!
+
+CHET
+The hull is groaning!
+
+OLD HAND
+Aye.
+
+INT. CAPTAIN'S CABIN - NIGHT
+
+Lamps swing.
+
+EXT. THE REEF - DAWN
+
+Calm.
+"""
+
+
+def test_a_character_is_made_for_each_speaker_with_what_the_screenplay_says_of_them():
+    plan = fountain.cut(fountain.parse(CAST_TEXT))
+    who = {c["handle"]: c for c in plan.characters}
+    assert set(who) == {"Valerie", "Chet", "Hand"}
+    v = who["Valerie"]
+    assert (v["name"], v["age"], v["sex"]) == ('Captain Valerie "The Vulture" Vane', "40s", "female")
+    assert "One eye is clouded over" in v["description"] and "compass" in v["description"]  # all of the paragraph about her alone
+    assert (who["Chet"]["age"], who["Chet"]["sex"]) == ("20s", "male") and "cabin boy" in who["Chet"]["description"]
+    assert who["Hand"] == {"cue": "OLD HAND", "handle": "Hand", "name": "Old Hand", "age": "", "sex": "", "description": ""}  # never introduced: only the name
+
+
+def test_a_paragraph_that_names_two_people_gives_each_only_their_own_sentences():
+    text = "INT. ROOM - DAY\n\nANN (30s) smiles. She waves. BOB (40s) frowns at her. He leaves.\n\nANN\nHi.\n\nBOB\nBye.\n"
+    who = {c["handle"]: c for c in fountain.cut(fountain.parse(text)).characters}
+    assert who["Ann"]["sex"] == "female" and who["Ann"]["description"] == "ANN (30s) smiles. She waves."
+    assert who["Bob"]["sex"] == "male" and "frowns" in who["Bob"]["description"]
+
+
+def test_a_place_is_once_whatever_the_time_of_day_and_beats_know_theirs():
+    plan = fountain.cut(fountain.parse(CAST_TEXT))
+    assert list(plan.places) == ["the-reef", "captains-cabin"]
+    assert plan.places["the-reef"] == {"name": "The Reef", "kinds": ["exterior"], "times": ["Night", "Dawn"]}
+    assert plan.places["captains-cabin"]["kinds"] == ["interior"]
+    assert fountain.place_of(".THE BARNACLE'S REVENGE - DECK - NIGHT") == {"slug": "the-barnacles-revenge-deck", "name": "The Barnacle's Revenge - Deck", "kind": "", "time": "Night"}
+    assert fountain.place_of("INT. HOLD - CONTINUOUS #4#")["time"] == "Continuous"
+    assert {b["place"] for _c, _n, b in plan.rows()} == {"EXT. THE REEF - NIGHT", "INT. CAPTAIN'S CABIN - NIGHT", "EXT. THE REEF - DAWN"}
+
+
+class CastingMarvin(FakeMarvin):
+    """FakeMarvin that also knows Characters and Scenes, and keeps the ones already there apart from lines."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.on_hand = {"cast-member": {}, "scene": {}, "sound": {}}
+
+    def query(self, creds, spec, limit=100):
+        if "entries" not in spec and spec["entry_type"] in self.on_hand:
+            return list(self.on_hand[spec["entry_type"]].values())
+        return super().query(creds, spec, limit)
+
+    def request(self, creds, path, **kw):
+        if path == "/api/platform/entry-types":
+            types = json.loads(super().request(creds, path, **kw))
+            return json.dumps(types + [{"slug": "cast-member", "id": "T-cast"}, {"slug": "scene", "id": "T-scene"}, {"slug": "sound", "id": "T-sound"}]).encode()
+        return super().request(creds, path, **kw)
+
+
+@pytest.fixture
+def casting(monkeypatch, tmp_path):
+    def make(screenplay):
+        fake = CastingMarvin("", {})
+        fake.story["dataJson"]["screenplay"] = screenplay
+        monkeypatch.setattr(jobs.marvin_api, "query", fake.query)
+        monkeypatch.setattr(jobs.marvin_api, "request", fake.request)
+        return fake, Context(creds=("http://m", "tok"), work=tmp_path, name="import-beats-1")
+
+    return make
+
+
+def test_the_import_makes_the_characters_and_scenes_and_puts_each_beat_in_its_scene(casting):
+    fake, ctx = casting(CAST_TEXT)
+    done = run(ctx)
+    by = {m["slug"]: m for m in fake.made}
+    valerie = by["s-valerie"]["dataJson"]
+    assert by["s-valerie"]["entryTypeId"] == "T-cast" and by["s-valerie"]["title"] == 'Captain Valerie "The Vulture" Vane'
+    assert valerie["speaker"] == "valerie" and valerie["story"] == "s" and valerie["status"] == "draft" and "actor" not in valerie
+    assert valerie["role"].startswith("Woman, 40s. CAPTAIN VALERIE") and by["s-chet"]["dataJson"]["role"].startswith("Man, 20s.")
+    assert by["s-hand"]["dataJson"]["role"] == ""  # not introduced: nothing is made up
+    reef, cabin = by["s-the-reef"]["dataJson"], by["s-captains-cabin"]["dataJson"]
+    assert by["s-the-reef"]["entryTypeId"] == "T-scene" and reef["place"] == "The Reef (exterior)" and reef["look"] == "Night, Dawn" and "ambience_muffled" not in reef
+    assert cabin["ambience_muffled"] is True
+    beats = {m["slug"]: m["dataJson"] for m in fake.made if m["entryTypeId"] == "T-beat"}
+    assert {d["scene"] for d in beats.values()} == {"s-the-reef", "s-captains-cabin"}
+    assert sorted(done["result"]["characters_made"]) == ["s-chet", "s-hand", "s-valerie"] and sorted(done["result"]["scenes_made"]) == ["s-captains-cabin", "s-the-reef"]
+    assert "3 characters" in done["log"] and "2 scenes" in done["log"]
+
+
+def test_a_second_import_leaves_the_characters_and_scenes_that_are_there(casting):
+    fake, ctx = casting(CAST_TEXT)
+    fake.on_hand["cast-member"]["s-valerie"] = {"id": "c1", "slug": "s-valerie", "title": "Vale", "dataJson": {"story": "s", "speaker": "valerie", "actor": "nell"}}
+    fake.on_hand["scene"]["s-the-reef"] = {"id": "sc1", "slug": "s-the-reef", "title": "Reef", "dataJson": {"story": "s"}}
+    done = run(ctx)
+    assert done["result"]["characters_made"] == ["s-chet", "s-hand"] and done["result"]["scenes_made"] == ["s-captains-cabin"]
+    assert fake.patched == [p for p in fake.patched if p[0] == "e0"]  # nothing that exists is rewritten
+
+
+def test_a_preview_makes_none_of_them_but_says_so(casting):
+    fake, ctx = casting(CAST_TEXT)
+    done = run(ctx, dry_run="yes")
+    assert fake.made == [] and "3 characters" in done["log"] and len(done["result"]["scenes_made"]) == 2
+
+
+def test_running_the_import_again_makes_the_scenes_and_puts_earlier_beats_in_them(casting):
+    first, ctx = casting(CAST_TEXT)
+    run(ctx)
+    beats = {m["slug"]: {"id": f"id-{m['slug']}", "slug": m["slug"], "title": m["title"], "dataJson": {k: v for k, v in m["dataJson"].items() if k != "scene"}} for m in first.made if m["entryTypeId"] == "T-beat"}
+    again, ctx2 = casting(CAST_TEXT)
+    again.records = dict(beats)
+    again.on_hand["scene"]["s-the-reef"] = {"id": "sc1", "slug": "s-the-reef", "title": "Reef", "dataJson": {"story": "s", "look": "mine"}}
+    done = run(ctx2)
+    assert done["result"]["beats_put_in_scenes"] == len(beats) and done["result"]["scenes_made"] == ["s-captains-cabin"]
+    put = {p[0]: p[1]["dataJson"]["scene"] for p in again.patched if p[0] != "e0"}
+    assert set(put.values()) == {"s-the-reef", "s-captains-cabin"} and len(put) == len(beats)
+
+
+SOUND_TEXT = """INT. CABIN - NIGHT
+
+Rain lashes the window. The sound of wood splintering echoes below. A deafening CRUNCH shakes the room. She wears a rain-soaked hat.
+
+ANN
+Hold on!
+
+EXT. DECK - DAY
+
+From somewhere, a ghostly low melody drifts.
+
+~ Yo ho, yo ho
+~ A pirate's life
+
+Then, a splashing sound nearby.
+"""
+
+
+def test_a_beats_own_words_call_for_sounds_and_a_place_for_its_bed():
+    plan = fountain.cut(fountain.parse(SOUND_TEXT))
+    cues = {n: [(c["kind"], c["title"]) for c in b["sounds"]] for _c, n, b in plan.rows()}
+    first = next(iter(cues.values()))
+    assert ("effect", "Wood splintering") in first and ("effect", "Crunch") in first
+    assert not any("Cabin" in t or "Night" in t for _k, t in first)  # the scene heading is not a sound
+    music = [c for _c, _n, b in plan.rows() for c in b["sounds"] if c["kind"] == "music"]
+    assert len(music) == 1 and "Yo ho, yo ho A pirate's life" in music[0]["prompt"] and "ghostly low melody" in music[0]["prompt"]
+    assert any(c["title"] == "Splashing sound" for _c, _n, b in plan.rows() for c in b["sounds"])
+    assert list(plan.ambience) == ["cabin"] and "Rain lashes the window" in plan.ambience["cabin"]["prompt"] and "rain-soaked" not in plan.ambience["cabin"]["prompt"]
+
+
+def test_the_import_makes_a_sound_to_fill_in_for_each_and_places_it_on_its_beat(casting):
+    fake, ctx = casting(SOUND_TEXT)
+    done = run(ctx)
+    sounds = {m["slug"]: m for m in fake.made if m["entryTypeId"] == "T-sound"}
+    assert "s-ambience-cabin" in sounds and sounds["s-ambience-cabin"]["dataJson"]["kind"] == "ambience" and sounds["s-ambience-cabin"]["dataJson"]["loop"] is True
+    assert all(m["dataJson"]["status"] == "draft" and m["dataJson"]["story"] == "s" and m["dataJson"]["source"] == "generated" for m in sounds.values())  # nothing is queued: nothing is spent
+    scenes = {m["slug"]: m["dataJson"] for m in fake.made if m["entryTypeId"] == "T-scene"}
+    assert scenes["s-cabin"]["ambience"] == "s-ambience-cabin"
+    placed = [d["sounds"] for m in fake.made if m["entryTypeId"] == "T-beat" for d in [m["dataJson"]] if d.get("sounds")]
+    assert placed and all(p["sound"] in sounds and p["at"] == 0 for group in placed for p in group)
+    assert len(done["result"]["sounds_made"]) == len(sounds)
