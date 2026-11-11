@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import beats, build, demo, ffmpeg, manifest, marvin_pull, youtube
+from . import build, demo, ffmpeg, manifest, marvin_pull, youtube
 
 
 def _load(path: str) -> manifest.Manifest:
