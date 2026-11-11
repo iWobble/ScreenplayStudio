@@ -1,6 +1,7 @@
 """The media kinds of job: what the Storyworld worker image adds to the generic base (`marvin-worker-base`). The image names this
 module in WORKER_JOB_MODULES, so importing it registers them. Each is `(job, ctx) -> fields for the job's record`."""
 
+import hashlib
 import json
 import os
 import re
@@ -186,7 +187,7 @@ def make_script(job: dict, ctx: Context) -> dict:
     text = script.fountain_as_written(records) if version == "written" else script.fountain_complete(records) if version == "complete" else None
     if version == "written" and text is None:
         ctx.note("this story's beats hold no Fountain text of their own (it was not made from Fountain): made the production script instead")
-    made = script.render(text or script.fountain(records), ctx.work / "script", story)
+    made = script.render(script.stamp_revision(text or script.fountain(records), records["story"]), ctx.work / "script", story)
     made["breakdown"] = ctx.work / "script" / f"{story}-breakdown.html"
     made["breakdown"].write_text(script.breakdown_html(script.breakdown(records)), encoding="utf-8")
     assets = {
@@ -418,11 +419,123 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
     return out
 
 
+def _revision_text(ctx: Context, slug: str, row: dict) -> str:
+    """The Fountain a revision record holds: its `proposed` text, else the file in its `file` field (up to the same 20 MB a story's file may be)."""
+    d = row.get("dataJson") or {}
+    text, asset = str(d.get("proposed") or ""), str(d.get("file") or "").strip()
+    if text.strip() and asset:
+        raise JobError(f"the revision {slug} has both text and a file: keep one")
+    if text.strip():
+        return text
+    if asset:
+        file = ctx.work / "revision.txt"
+        marvin_api.download_asset(ctx.creds, asset, file)
+        if file.stat().st_size > MAX_FOUNTAIN_BYTES:
+            raise JobError(f"the revision's file is {file.stat().st_size // 1_000_000} MB: that is not a screenplay (20 MB at most)")
+        return file.read_text(encoding="utf-8", errors="replace")
+    raise JobError(f"the revision {slug} holds no Fountain: paste it in Proposed Fountain or upload a file")
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _story_text_now(ctx: Context, story: str, story_data: dict) -> str:
+    """The Fountain the story holds now ("" when it has none yet): what a revision is compared with, and what it must still match when it is applied."""
+    try:
+        return _fountain_text(ctx, story, story_data)[0]
+    except JobError:
+        return ""
+
+
+def _revision_of(ctx: Context, job: dict) -> tuple[str, dict, str, dict]:
+    slug = str((job.get("args") or {}).get("revision") or "").strip()
+    rows = marvin_api.query(ctx.creds, {"entries": slug}, limit=1) if slug else []
+    if not rows:
+        raise JobError(f"no revision “{slug}” in this workspace")
+    story = str((rows[0].get("dataJson") or {}).get("story") or "").strip()
+    story_rows = marvin_api.query(ctx.creds, {"entries": story}, limit=1) if story else []
+    if not story_rows:
+        raise JobError(f"the revision {slug} names no story that exists (its Story field says “{story}”)")
+    return slug, rows[0], story, story_rows[0]
+
+
+def _patch_entry(ctx: Context, row: dict, data: dict) -> None:
+    body = json.dumps({"title": row.get("title"), "slug": row.get("slug"), "dataJson": data}).encode()
+    marvin_api.request(ctx.creds, f"/api/platform/entries/{row['id']}", method="PATCH", data=body, content_type="application/json")
+
+
+@job_kind(
+    "check-revision",
+    description="Say what a revision would do to its story, and change nothing: the Fountain the revision holds is fitted to the beats already made by what they say, and the revision record is given the result (beats unchanged, reworded, new with their numbers, gone; lines to record; pictures to make) and the digest of the story's text it was compared with",
+    inputs={"revision": {"type": "string", "description": "the revision record's slug"}},
+    produces=[],
+)
+def check_revision(job: dict, ctx: Context) -> dict:
+    slug, rev, story, story_row = _revision_of(ctx, job)
+    if (rev.get("dataJson") or {}).get("status") not in (None, "", "draft"):
+        raise JobError(f"the revision {slug} is already {(rev.get('dataJson') or {}).get('status')}: only a draft can be checked")
+    ran = import_beats({"job": job["job"], "args": {"story": story, "revision": slug, "mode": "refresh"}}, ctx)
+    res, found = ran["result"], ran["result"].get("revision") or {}
+    data = dict(rev.get("dataJson") or {})
+    data.update(
+        {
+            "base_digest": _digest(_story_text_now(ctx, story, story_row.get("dataJson") or {})),
+            "report": ran["log"],
+            "same": found.get("same", 0),
+            "reworded": found.get("reworded", 0),
+            "removed": len(found.get("removed") or []),
+            "new_beats": ", ".join(found.get("new") or []),
+            "beats_to_make": len(res.get("beats_made") or []) if isinstance(res.get("beats_made"), list) else res.get("beats_made", 0),
+            "lines_to_record": res.get("lines_made", 0),
+            "checked": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+    )
+    _patch_entry(ctx, rev, data)
+    return {"result": {"revision": slug, "story": story, **{k: data[k] for k in ("same", "reworded", "removed", "new_beats", "beats_to_make", "lines_to_record")}}, "log": ran["log"]}
+
+
+@job_kind(
+    "apply-revision",
+    description="Make a checked revision the story's Fountain and bring it in: the story's text becomes the revision's (its number and date are set, and shown on the printed script), the beats already made are fitted to it by what they say (new beats numbered after the beat before, nothing already made lost), and the revision is marked applied. Refuses when the story's text changed after the revision was checked",
+    inputs={"revision": {"type": "string", "description": "the revision record's slug"}},
+    produces=[],
+)
+def apply_revision(job: dict, ctx: Context) -> dict:
+    slug, rev, story, story_row = _revision_of(ctx, job)
+    rd, sd = dict(rev.get("dataJson") or {}), dict(story_row.get("dataJson") or {})
+    if rd.get("status") not in (None, "", "draft"):
+        raise JobError(f"the revision {slug} is already {rd.get('status')}")
+    if not str(rd.get("base_digest") or "").strip():
+        raise JobError(f"the revision {slug} has not been checked yet: run “Screenplay: check a revision” first, so you see what it would do")
+    if _digest(_story_text_now(ctx, story, sd)) != rd["base_digest"]:
+        raise JobError(f"the story's Fountain changed after the revision {slug} was checked: check it again, so the comparison is about what is there now")
+    new_text = _revision_text(ctx, slug, rev)
+    before = {k: sd.get(k) for k in ("fountain", "fountain_file", "revision", "revision_date")}
+    number, today = int(sd.get("revision") or 0) + 1, datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if str(rd.get("proposed") or "").strip():
+        sd.update({"fountain": new_text, "fountain_file": None})
+    else:
+        sd.update({"fountain": "", "fountain_file": str(rd["file"])})
+    sd.update({"revision": number, "revision_date": today})
+    _patch_entry(ctx, story_row, sd)
+    try:
+        ran = import_beats({"job": job["job"], "args": {"story": story, "mode": "refresh"}}, ctx)
+    except Exception:
+        _patch_entry(ctx, story_row, {**dict(story_row.get("dataJson") or {}), **before})  # the story keeps the text it had: nothing was half applied
+        raise
+    rd.update({"status": "applied", "number": number, "applied_at": today})
+    _patch_entry(ctx, rev, rd)
+    ctx.note(f"revision {number} applied to {story}")
+    return {"result": {"revision": slug, "story": story, "number": number, "import": ran["result"].get("revision")}, "log": ran["log"]}
+
+
 @job_kind(
     "import-beats",
     description="Read a story's Fountain (its `fountain` text, or the file in `fountain_file`) and make what it implies, with no AI: the chapters, beats and spoken lines (each holding its own part of the text), a Character for each speaker, a Scene for each place, and a draft Sound for each sound the words call for. Makes what is missing and leaves what is there alone; `dry_run` only says what it would make",
     inputs={
         "story": {"type": "string", "description": "the story entry's slug, e.g. devils-due-one-small-boat"},
+        "revision": {"type": "string", "required": False, "description": "a revision record's slug: read the Fountain that revision holds instead of the story's own and say what bringing it in would do. Always a preview: nothing is written to the story"},
         "part": {"type": "string", "required": False, "description": "which chapters to make, so a long script is brought in a piece at a time: all (default), 3, 2-4, or 1,3,5. Anything in Marvin outside these chapters is left alone, whatever the mode"},
         "chapter_pages": {"type": "string", "required": False, "description": "when the Fountain has no `#` section lines: about how many pages a chapter should be (default 12); a chapter always ends between two scenes"},
         "dry_run": {"type": "string", "required": False, "description": "yes: say what would be made or changed, write nothing"},
@@ -439,7 +552,14 @@ def import_beats(job: dict, ctx: Context) -> dict:
     story_row = rows_of_story[0]
     story_data = dict(story_row.get("dataJson") or {})
     report, parts, part_text = "", None, ""
-    screenplay, fountain_where = _fountain_text(ctx, story, story_data)
+    revision_slug = str(args.get("revision") or "").strip()
+    if revision_slug:  # checking a proposed revision: its text stands in for the story's, and nothing is written to the story
+        rows_of_revision = marvin_api.query(ctx.creds, {"entries": revision_slug}, limit=1)
+        if not rows_of_revision:
+            raise JobError(f"no revision “{revision_slug}” in this workspace")
+        screenplay, fountain_where = _revision_text(ctx, revision_slug, rows_of_revision[0]), f"the revision {revision_slug}"
+    else:
+        screenplay, fountain_where = _fountain_text(ctx, story, story_data)
     part_text = args.get("part") or story_data.get("import_part")  # asked for in the run, else what the story says to bring in
     parts = parse_part(part_text)
     try:
@@ -503,7 +623,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
         chapters_have = {k: v for k, v in chapters_have.items() if _chapter_of(story, k) in parts}
     refresh = str(args.get("mode") or "").strip().lower() == "refresh"
     plan = beat_import.import_plan(story, rows, have, refresh=refresh, chapters=chapters_have)
-    dry = _yes(args.get("dry_run"))
+    dry = _yes(args.get("dry_run")) or bool(revision_slug)
     fill: list[tuple[dict, dict]] = []  # chapters that already exist but hold none of the Fountain text or summary yet, with what they should hold
     fountain.attach_source(plan, fplan, story)  # every beat and line made holds its own piece of the text, and the transition written before it
     chapter_summaries = {c.number: c.summary for c in fplan.chapters if c.summary}
@@ -633,6 +753,8 @@ def import_beats(job: dict, ctx: Context) -> dict:
             story_data["music"] = f"{story}-score"  # the placeholder is the story's music until a recording or a generated take replaces it, or it is deleted
         if fplan.front.strip() and not str(story_data.get("fountain_front") or "").strip():
             story_data["fountain_front"] = fplan.front  # what the writer put before the first beat, as written: the export writes it back first
+    if revision_slug:  # a check says what it found and leaves the story as it is
+        return {"result": result, "log": (report + "\n\n" + note) if report else note}
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     story_data["split_plan"] = f"{stamp} · {'preview' if dry else 'import'}, chapters {part_text or 'all'}\n\n{report}\n\n{note}"  # kept on the story, where a wizard step (or the person) reads it before and after importing
     bits = [f"+{len(plan['beats'])} beats, +{len(plan['lines'])} lines" + (f", +{len(plan['chapters'])} chapters" if plan["chapters"] else "")]
