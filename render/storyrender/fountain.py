@@ -663,6 +663,7 @@ def places_of(scenes: list[Scene]) -> dict[str, dict]:
 
 # --- sounds ---------------------------------------------------------------------------------------------------------------------------
 
+_SOUND_NOTE = re.compile(r"^Sound:\s*(.+)$", re.S | re.I)  # `[[Sound: a pot lid clanks at 1.5s.]]`
 _SOUND_OF = re.compile(r"\bsounds? of ([^.,;!?]+)", re.I)  # `The sound of wood splintering echoes from deep below.`
 _A_SOUND = re.compile(r"\b(?:an?|the) ((?:[A-Za-z-]+ ){0,2}[A-Za-z-]+) sound\b")  # `a splashing sound nearby`
 _LOUD = re.compile(r"\b[A-Z]{4,}\b")  # `a deafening CRUNCH`
@@ -693,6 +694,17 @@ def sound_cues(beat: dict, avoid: "set[str]") -> list[dict]:
         about = next((x for x in sentences if _SINGING.search(x)), "")
         cues.append({"kind": "music", "title": "Sung: " + _short(beat["sung"][0]), "prompt": "Sung, as written: " + " / ".join(beat["sung"]) + (f". {about}" if about else "")})
     seen: set[str] = set()
+    for note in re.findall(r"\[\[(.*?)\]\]", beat.get("fountain") or "", re.S):  # a note that says `Sound: …` is the writer's own cue: the clearest there is
+        m = _SOUND_NOTE.match(note.strip())
+        if not m:
+            continue
+        said = m.group(1).strip().rstrip(".")
+        at = re.search(r"\s+at\s+(\d+(?:\.\d+)?)\s*s$", said)
+        if at:
+            said = said[: at.start()].rstrip(". ")
+        if said and said.lower() not in seen:
+            seen.add(said.lower())
+            cues.append({"kind": "effect", "title": _short(said, 3), "prompt": said, "at": float(at.group(1)) if at else 0.0})
     for sentence in sentences:
         found = []
         m = _SOUND_OF.search(sentence)
@@ -888,7 +900,7 @@ def attach_source(imp: dict, plan: Plan, story: str) -> None:
         if held and not data.get("hold_seconds"):  # a note on the beat (`[[Hold: 6s.]]`) says how long its picture stays when nobody speaks
             data["hold_seconds"] = float(held.group(1))
         if beat and beat.get("sounds"):
-            data["sounds"] = [{"sound": f"{story}-sound-{data.get('number')}-{i}", "at": 0} for i, _c in enumerate(beat["sounds"], 1)]
+            data["sounds"] = [{"sound": f"{story}-sound-{data.get('number')}-{i}", "at": c.get("at", 0)} for i, c in enumerate(beat["sounds"], 1)]
     for slug, _title, data in imp["lines"]:
         m = re.search(r"-line-(.+)-(\d+)$", slug)
         beat = by_number.get(m.group(1)) if m else None

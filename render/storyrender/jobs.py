@@ -511,7 +511,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
         if place and not str(data.get("scene") or "").strip():
             add["scene"] = f"{story}-{place['slug']}"
         if beat.get("sounds") and not data.get("sounds"):
-            add["sounds"] = [{"sound": f"{story}-sound-{number}-{i}", "at": 0} for i, _c in enumerate(beat["sounds"], 1)]
+            add["sounds"] = [{"sound": f"{story}-sound-{number}-{i}", "at": c.get("at", 0)} for i, c in enumerate(beat["sounds"], 1)]
         if rec and add:
             link.append((rec, add))
     extra = _implied(ctx, story, story_row, fplan, plan, link)
