@@ -47,3 +47,30 @@ def test_an_actors_new_voice_reaches_the_characters_who_play_them_unless_given_a
     assert people["query"] == {"entry_type": "cast-member", "data": {"actor": "${entry.slug}"}}
     give = json.dumps(next(a for a in flow["actions"] if a.get("id") == "follow")["steps"])
     assert "${event.before.data.voice}" in give and "shorter_than" in give  # only a voice that was empty or the actor's old one is replaced
+
+
+def _flow(slug: str) -> dict:
+    return json.loads(workflow(slug))
+
+
+def test_a_batch_approval_covers_every_still_and_sound_so_the_single_workflow_asks_nothing_more_and_uses_the_flag_up():
+    for single in ("screenplay-take-still", "screenplay-take-sound"):
+        acts = _flow(single)["actions"]
+        assert acts[0]["data"] == {"spend_approved": "used"} and acts[0]["when"]["value"] == "yes"  # used up first: a later redo asks again
+        asked = [a for a in acts if a.get("kind") == "approval"]
+        assert {a["id"] for a in asked} == {"spend", "keep"}
+        assert all(a["when"] == {"field": "entry.data.spend_approved", "op": "neq", "value": "yes"} for a in asked)
+    for batch, noun in (("screenplay-make-stills", "beat"), ("screenplay-make-sounds", "sound")):
+        acts = _flow(batch)["actions"]
+        assert len([a for a in acts if a.get("kind") == "approval" and a["id"] == "spend"]) == 1
+        queue = next(a for a in acts if a.get("kind") == "repeat")
+        assert queue["steps"][0]["data"] == {"status": "queued", "spend_approved": "yes"}
+        assert next(a for a in acts if a.get("kind") == "collect")["query"]["entry_type"] == noun
+
+
+def test_keeping_what_was_made_is_one_approval_that_only_touches_the_made_ones():
+    for keep, status in (("screenplay-keep-stills", "made"), ("screenplay-keep-sounds", "recorded")):
+        acts = _flow(keep)["actions"]
+        assert {"field": "status", "op": "eq", "value": status} in next(a for a in acts if a.get("kind") == "collect")["query"]["where"]
+        assert next(a for a in acts if a.get("id") == "keep")["choices"] == ["Keep all", "Leave them"]
+        assert next(a for a in acts if a.get("kind") == "repeat")["when"]["value"] == "Keep all"
