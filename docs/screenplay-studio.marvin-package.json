@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "105",
+  "version": "106",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -6806,6 +6806,7 @@
               "open": true,
               "title": "Consider an actor",
               "fields": [
+                "role",
                 "actor",
                 "fit",
                 "state"
@@ -6820,7 +6821,10 @@
               },
               "file": {
                 "field": "screen_test",
-                "accept": "image/*"
+                "accept": "image/*",
+                "label": "Screen test (optional)",
+                "help": "The actor dressed as the character, if you have one. Add a picture and use “Add with a screen test”; without one, use “Add to the shortlist”.",
+                "hint": "One picture."
               },
               "buttons": [
                 {
@@ -6841,7 +6845,8 @@
             },
             "name": {
               "from": "role",
-              "noun": "casting"
+              "noun": "casting",
+              "placeholder": "Leave empty to name it after the role"
             },
             "added": "Added to the shortlist.",
             "empty": "Nobody considered yet. Pick an actor below."
