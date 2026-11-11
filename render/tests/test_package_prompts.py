@@ -37,3 +37,13 @@ def test_a_still_never_draws_people_who_are_only_in_a_reference_picture():
 def test_a_cover_and_an_actor_sheet_copy_the_style_only():
     assert "do NOT copy its characters, objects or setting" in workflow("screenplay-make-cover")
     assert "Never realistic" in workflow("screenplay-make-actor-sheet")
+
+
+def test_an_actors_new_voice_reaches_the_characters_who_play_them_unless_given_another_on_purpose():
+    flow = json.loads(workflow("screenplay-actor-voice-reaches-characters"))
+    assert flow["trigger"]["event"] == "entry_updated"
+    assert {"field": "entry.data.voice", "op": "changed"} in flow["conditions"]
+    people = next(a for a in flow["actions"] if a.get("id") == "people")
+    assert people["query"] == {"entry_type": "cast-member", "data": {"actor": "${entry.slug}"}}
+    give = json.dumps(next(a for a in flow["actions"] if a.get("id") == "follow")["steps"])
+    assert "${event.before.data.voice}" in give and "shorter_than" in give  # only a voice that was empty or the actor's old one is replaced
