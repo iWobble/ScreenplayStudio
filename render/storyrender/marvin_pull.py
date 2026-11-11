@@ -20,6 +20,8 @@ CREDENTIALS = Path.home() / ".marvin" / "credentials.json"
 class PullError(RuntimeError):
     pass
 
+DEFAULT_HOLD = 4.0  # seconds a beat with a picture and no words or sound plays, the default the Timeline draws it at
+
 
 def credentials(path: Path = CREDENTIALS) -> tuple[str, str]:
     try:
@@ -145,7 +147,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     taken: dict[str, Path] = {}  # an ambience's take is downloaded once, however many beats use it
     videos: dict[str, Path] = {}  # …and so is an overlay video
     size = formats.size_of(data(story_row)) or PLACEHOLDER_SIZE  # the picture shape the story asked for: the cards and placeholder cards are made to fit it
-    shots, missing, carded = [], [], []
+    shots, missing, carded, skipped = [], [], [], []
     scenes_of: list[str] = []  # the scene of each shot made, for the pause where a scene ends
     for beat in beats:
         number = str(data(beat).get("number"))
@@ -161,8 +163,10 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
                 entry["words"] = words
             spoken.append(entry)
         effects = _sound_effects(creds, out, data(beat).get("sounds"), sounds, data, missing)
-        if not spoken and not effects and not data(beat).get("hold_seconds"):
-            continue  # nothing to hear and no time asked for; a held beat (the closing smile) is a silent shot, and stays
+        has_still = bool(data(beat).get("still"))
+        if not spoken and not effects and not data(beat).get("hold_seconds") and not has_still:
+            skipped.append(number)
+            continue  # nothing to hear, no time asked for and no picture: there is nothing to show. A beat with a picture always plays (below), a held one too
         shot: dict = {"id": f"b{number}", "lines": spoken}
         for key, field in (("lead", "lead_seconds"), ("gap", "gap_seconds"), ("tail", "tail_seconds")):
             if data(beat).get(field) is not None:  # empty keeps the renderer's default
@@ -178,8 +182,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             shot["overlay"] = cover
         if (level := _unit(data(beat).get("music_volume"))) is not None:
             shot["music_volume"] = level  # the music's level for this beat only (0 = silence)
-        if not spoken and data(beat).get("hold_seconds"):
-            shot["hold"] = float(data(beat)["hold_seconds"])  # a sound-only beat lasts as long as its beat sheet window (a spoken one, as long as its audio)
+        if not spoken and (data(beat).get("hold_seconds") or has_still):
+            shot["hold"] = float(data(beat).get("hold_seconds") or DEFAULT_HOLD)  # a sound-only or silent beat lasts its hold, else the default the Timeline also draws it at (a spoken one, as long as its audio)
         if data(beat).get("chapter"):
             shot["chapter"] = str(data(beat)["chapter"])  # the chapter's slug, as the chapter list below names it
         if isinstance(data(beat).get("move"), dict):
@@ -208,7 +212,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     (out / "manifest.json").write_text(
         json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"size": list(size)} if formats.size_of(data(story_row)) else {}), **({"loudness": level} if (level := formats.loudness_of(data(story_row))) else {}), **({"caption": caption} if (caption := caption_of(data(story_row), speaker_colours(rows, story, data))) else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {})}, indent=2, ensure_ascii=False)
     )
-    return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded}
+    return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded, "skipped": skipped}
 
 
 def spoken_words(d: dict, metadata: dict | None) -> list[dict]:

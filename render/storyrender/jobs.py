@@ -228,6 +228,8 @@ def make_filmstrip(job: dict, ctx: Context) -> dict:
     story, name = story_of(job), job["job"]
     pulled = marvin_pull.pull(story, ctx.work / "story", creds=ctx.creds)
     ctx.note(f"pulled {pulled['shots']} shots, {pulled['lines']} recorded lines")
+    if pulled.get("skipped"):
+        ctx.note(f"left out, because they have no words, no sound, no hold and no picture: beat {', '.join(pulled['skipped'])}")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)  # stills are needed: a beat with none is named, not skipped
     made = filmstrip.make(m, ctx.work / "filmstrip")
     ctx.note(f"mixed the sound and built the page: {made['seconds']} s, {made['shots']} shots")

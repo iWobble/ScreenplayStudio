@@ -240,3 +240,24 @@ def test_pull_passes_a_beats_camera_move_and_keeps_a_silent_held_beat(marvin, tm
     assert "b05" not in shots
     assert shots["b04"]["hold"] == 4 and shots["b04"]["lines"] == [] and shots["b04"]["move"]["to"]["zoom"] == 1.8
     assert "move" not in shots["b01"]  # a beat with no move keeps the render's default
+
+
+def test_a_beat_with_a_picture_and_nothing_else_plays_for_the_default_hold_and_a_beat_with_nothing_is_named_as_left_out(marvin, tmp_path, monkeypatch):
+    def fake_fetch(creds, asset_id, dest_stem, ext):
+        dest = Path(str(dest_stem) + ".png")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"png")
+        return dest
+
+    monkeypatch.setattr(marvin_pull, "_fetch_asset", fake_fetch)
+    rows = [dict(r) for r in _ROWS]
+    rows.append({"slug": f"{S}-beat-06", "dataJson": {"story": S, "number": "06", "still": "asset-6"}})  # a quiet establishing shot: a picture, no words, no sound, no hold set
+    rows.append({"slug": f"{S}-beat-07", "dataJson": {"story": S, "number": "07"}})  # nothing at all
+    _FakeMarvin.rows = rows
+    try:
+        result = marvin_pull.pull("the-last-onion", tmp_path, creds=(marvin, "tok"))
+    finally:
+        _FakeMarvin.rows = _ROWS
+    shots = {s["id"]: s for s in json.loads((tmp_path / "manifest.json").read_text())["shots"]}
+    assert shots["b06"]["hold"] == marvin_pull.DEFAULT_HOLD == 4.0 and shots["b06"]["lines"] == []
+    assert "b07" not in shots and "07" in result["skipped"] and "06" not in result["skipped"]
