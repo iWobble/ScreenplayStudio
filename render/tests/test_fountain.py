@@ -1110,3 +1110,112 @@ def test_a_revised_import_adds_only_the_new_beat_and_keeps_the_numbers_of_the_re
     assert new_beats and all(re.search(r"-beat-\d+[a-z]$", s) for s in new_beats)
     assert not any(p for p in again.patched if p[0] in {r["id"] for s, r in made.items() if "-beat-" in s} and p[1]["dataJson"].get("number") != made[[k for k, v in made.items() if v["id"] == p[0]][0]]["dataJson"].get("number"))
     assert [e for e in again.deleted] == []  # nothing is trashed: the old beats are all still in the text
+
+
+# --- revision drafts: check what a revision would do, then apply it ---------------------------------------------------------------------
+
+
+class RevisionMarvin(CastingMarvin):
+    """CastingMarvin that also serves the revision records by slug."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.entries_by_slug = {}
+
+    def query(self, creds, spec, limit=100):
+        if "entries" in spec and spec["entries"] in self.entries_by_slug:
+            return [self.entries_by_slug[spec["entries"]]]
+        return super().query(creds, spec, limit)
+
+    def request(self, creds, path, **kw):
+        out = super().request(creds, path, **kw)
+        if kw.get("method") == "PATCH" and path.endswith("/e0"):  # a real server keeps what it is sent: the import that follows an apply reads the new text
+            self.story["dataJson"] = json.loads(kw["data"])["dataJson"]
+        return out
+
+
+@pytest.fixture
+def revising(monkeypatch, tmp_path):
+    def make(text, proposed):
+        first = CastingMarvin("", {})
+        first.story["dataJson"]["fountain"] = text
+        monkeypatch.setattr(jobs.marvin_api, "query", first.query)
+        monkeypatch.setattr(jobs.marvin_api, "request", first.request)
+        ctx = Context(creds=("http://m", "tok"), work=tmp_path, name="import-beats-1")
+        run(ctx)
+        fake = RevisionMarvin("", {})
+        fake.story["dataJson"].update({"fountain": text})
+        fake.records = {m["slug"]: {"id": f"id-{m['slug']}", "slug": m["slug"], "title": m["title"], "dataJson": dict(m["dataJson"])} for m in first.made if m["entryTypeId"] in ("T-beat", "T-line")}
+        fake.entries_by_slug["rev-1"] = {"id": "rev1", "slug": "rev-1", "title": "Revision A", "dataJson": {"story": "s", "proposed": proposed, "status": "draft", "note": "More narration"}}
+        monkeypatch.setattr(jobs.marvin_api, "query", fake.query)
+        monkeypatch.setattr(jobs.marvin_api, "request", fake.request)
+        return fake, ctx
+
+    return make
+
+
+NEW_TEXT = CAST_TEXT.replace("INT. CAPTAIN'S CABIN - NIGHT\n\nLamps swing.", "NARRATOR\nForty days at sea.\n\n===\n\nThe lamps are all that is left of the daylight.\n\n===\n\nINT. CAPTAIN'S CABIN - NIGHT\n\nLamps swing.")
+
+
+def _job(kind_args):
+    return {"job": "j", "args": kind_args}
+
+
+def test_a_check_says_what_a_revision_would_do_and_writes_only_to_the_revision(revising):
+    fake, ctx = revising(CAST_TEXT, NEW_TEXT)
+    done = jobs.check_revision(_job({"revision": "rev-1"}), ctx)
+    assert done["result"]["new_beats"] and done["result"]["same"] >= 2
+    patched = {p[0]: p[1]["dataJson"] for p in fake.patched}
+    assert set(patched) == {"rev1"}  # the story was not touched
+    assert patched["rev1"]["base_digest"] and "Revision of what was brought in before" in patched["rev1"]["report"] and patched["rev1"]["checked"]
+    assert fake.made == []  # and nothing was made
+
+
+def test_applying_a_checked_revision_sets_the_text_numbers_it_and_brings_it_in(revising):
+    fake, ctx = revising(CAST_TEXT, NEW_TEXT)
+    jobs.check_revision(_job({"revision": "rev-1"}), ctx)
+    fake.entries_by_slug["rev-1"]["dataJson"]["base_digest"] = next(p[1]["dataJson"]["base_digest"] for p in fake.patched if p[0] == "rev1")
+    done = jobs.apply_revision(_job({"revision": "rev-1"}), ctx)
+    assert done["result"]["number"] == 1
+    story_patches = [p[1]["dataJson"] for p in fake.patched if p[0] == "e0"]
+    assert story_patches[0]["fountain"] == NEW_TEXT and story_patches[0]["revision"] == 1 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", story_patches[0]["revision_date"])
+    applied = [p[1]["dataJson"] for p in fake.patched if p[0] == "rev1"][-1]
+    assert applied["status"] == "applied" and applied["number"] == 1 and applied["applied_at"]
+    assert any(re.search(r"-beat-\d+[a-z]$", m["slug"]) for m in fake.made if m["entryTypeId"] == "T-beat")
+
+
+def test_an_unchecked_revision_and_a_stale_one_are_refused(revising):
+    fake, ctx = revising(CAST_TEXT, NEW_TEXT)
+    with pytest.raises(JobError, match="has not been checked"):
+        jobs.apply_revision(_job({"revision": "rev-1"}), ctx)
+    jobs.check_revision(_job({"revision": "rev-1"}), ctx)
+    fake.entries_by_slug["rev-1"]["dataJson"]["base_digest"] = next(p[1]["dataJson"]["base_digest"] for p in fake.patched if p[0] == "rev1")
+    fake.story["dataJson"]["fountain"] = CAST_TEXT + "\nEXT. A NEW PLACE - DAY\n\nSomething else.\n"  # the story's own text moved on after the check
+    with pytest.raises(JobError, match="changed after"):
+        jobs.apply_revision(_job({"revision": "rev-1"}), ctx)
+    assert not any(p[0] == "e0" for p in fake.patched)
+
+
+def test_the_revision_is_printed_on_the_title_page_of_every_export():
+    from storyrender import script
+
+    story = {"dataJson": {"revision": 3, "revision_date": "2026-11-11"}}
+    assert script.revision_text(3, "2026-11-11") == "Revision 3, 11 November 2026" and script.revision_text(None, None) == ""
+    plain = script.stamp_revision("Title: X\nCredit: Written by\n\nINT. A - DAY\n", story)
+    assert plain.startswith("Title: X\nCredit: Written by\nDraft date: Revision 3, 11 November 2026\n\nINT. A")
+    old = script.stamp_revision("Title: X\nDraft date: November 2026\n\nINT. A - DAY\n", story)
+    assert "Draft date: Revision 3, 11 November 2026 (first draft: November 2026)" in old
+    assert script.stamp_revision("Title: X\n\nINT. A\n", {"dataJson": {}}) == "Title: X\n\nINT. A\n"  # no revision, no change
+    assert script.stamp_revision("INT. A - DAY\n\nA man.\n", story) == "INT. A - DAY\n\nA man.\n"  # no title page to put it on
+    cover = script.with_title_page("<html><title>Screenplay</title><body></body></html>", old)
+    assert "Revision 3, 11 November 2026" in cover and "<title>X: script</title>" in cover
+
+
+def test_the_breakdown_lists_the_applied_revisions():
+    from storyrender import script
+
+    records = {"story": {"slug": "s", "title": "S", "dataJson": {"revision": 2, "revision_date": "2026-11-12"}}, "beats": [], "lines": {}, "revisions": [
+        {"slug": "r1", "title": "R1", "dataJson": {"number": 1, "applied_at": "2026-11-11", "note": "Narration in act one", "same": 14, "reworded": 1, "new_beats": "1002a", "removed": 0}},
+        {"slug": "r2", "title": "R2", "dataJson": {"number": 2, "applied_at": "2026-11-12", "note": "A longer cabin scene", "same": 15, "reworded": 0, "new_beats": "1004a, 1004b", "removed": 1}}]}
+    page = script.breakdown_html(script.breakdown(records))
+    assert "Revisions" in page and "Narration in act one" in page and "1004a, 1004b" in page and "Revision 2, 12 November 2026" in page

@@ -227,6 +227,7 @@ def pull_records(story: str, creds: tuple[str, str]) -> dict:
         "scenes": {e["slug"]: e for e in rows if _data(e).get("story") == story and "ambience" in _data(e)},
         "sounds": {e["slug"]: e for e in rows if e.get("slug", "").find("-sound-") >= 0 or (_data(e).get("story") == story and "kind" in _data(e) and "source" in _data(e))},
         "chapters": {e["slug"]: e for e in rows if e.get("slug", "").startswith(f"{story}-chapter-") and _data(e).get("story") == story},
+        "revisions": sorted((e for e in rows if _data(e).get("story") == story and _data(e).get("status") == "applied" and _data(e).get("applied_at")), key=lambda e: float(_data(e).get("number") or 0)),
         "characters": [e for e in rows if _data(e).get("story") == story and "profile" in _data(e) and _data(e).get("cast_id")],  # a character has a profile; a casting (also story + cast_id) does not
     }
 
@@ -312,6 +313,9 @@ def breakdown(records: dict) -> dict:
         "characters": sorted(people.values(), key=lambda p: (-p["speaks"], p["id"])),
         "locations": list(places.values()),
         "sounds": list(heard.values()),
+        "revision": _data(story).get("revision"),
+        "revision_date": _data(story).get("revision_date"),
+        "revisions": [{"number": _data(r).get("number"), "date": _data(r).get("applied_at"), "note": _clean(_data(r).get("note") or r.get("title")), "same": _data(r).get("same"), "reworded": _data(r).get("reworded"), "new": _data(r).get("new_beats"), "removed": _data(r).get("removed")} for r in records.get("revisions", [])],
     }
 
 
@@ -331,28 +335,79 @@ def breakdown_html(info: dict) -> str:
         return f"<table><tr>{head}</tr>{body}</table>"
 
     target = _seconds(info.get("target_seconds"))
-    summary = f"{info['beats']} beats · {info['seconds_spoken']:g}s of recorded speech" + (f" · aimed at {target}" if target else "")
+    summary = f"{info['beats']} beats · {info['seconds_spoken']:g}s of recorded speech" + (f" · aimed at {target}" if target else "") + (f" · {revision_text(info.get('revision'), info.get('revision_date'))}" if info.get("revision") else "")
     characters = table(["Character", "Role", "Actor", "Lines", "Words", "Spoken", "Beats"], [[c["id"], c["role"], c["actor"], c["speaks"], c["words"], f"{c['seconds']:g}s", _range(c["beats"])] for c in info["characters"]])
     locations = table(["Scene", "Place and look", "Ambience", "Beats"], [[p["title"], " ".join(x for x in (p["place"], p["look"]) if x), p["ambience"], _range(p["beats"])] for p in info["locations"]])
     sound_rows = table(["Sound", "Beats"], [[x["title"], _range(x["beats"])] for x in info["sounds"]])
     style = "body{font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#222}h1{margin-bottom:0}.sub{color:#666;margin-top:.25rem}table{border-collapse:collapse;width:100%;margin:.5rem 0 1.5rem}th,td{text-align:left;border-bottom:1px solid #ddd;padding:.4rem .6rem;vertical-align:top}th{background:#f4f4f4}@media print{body{margin:0}}"
     title = e(info["story"])
+    revisions = ""
+    if info.get("revisions"):
+        revisions = "<h2>Revisions</h2>" + table(["Revision", "Date", "What changed", "Beats unchanged", "Reworded", "New", "Gone"], [[r["number"], r["date"], r["note"], r["same"], r["reworded"], r["new"] or "", r["removed"]] for r in info["revisions"]])
     return (
         f"<!DOCTYPE html><html><head><meta charset='utf-8'><title>{title}: script breakdown</title><style>{style}</style></head><body>"
         f"<h1>{title}: script breakdown</h1><p class='sub'>{e(summary)}</p>"
-        f"<h2>Characters</h2>{characters}<h2>Locations</h2>{locations}<h2>Sounds</h2>{sound_rows}</body></html>\n"
+        f"<h2>Characters</h2>{characters}<h2>Locations</h2>{locations}<h2>Sounds</h2>{sound_rows}{revisions}</body></html>\n"
     )
 
 
 def title_page(text: str) -> dict[str, str]:
-    """The `Title:` / `Credit:` / `Notes:` lines at the top of Fountain `text`, by lower-cased key."""
+    """The title page at the top of Fountain `text` (`Title:`, `Credit:`, `Author:`, `Draft date:`, `Notes:` and any other key), by lower-cased key; a key's
+    value may continue on indented lines. It ends at the first blank line."""
     found: dict[str, str] = {}
+    key = ""
     for line in text.split("\n"):
-        key, colon, value = line.partition(":")
-        if not colon or key.strip().lower() not in ("title", "credit", "notes"):
+        if not line.strip():
             break
-        found[key.strip().lower()] = value.strip()
+        if line[:1] in (" ", "\t") and key:
+            found[key] = (found[key] + " " + line.strip()).strip()
+            continue
+        name, colon, value = line.partition(":")
+        if not colon:
+            break
+        key = name.strip().lower()
+        found[key] = value.strip()
     return found
+
+
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+
+
+def revision_text(number: object, date: object) -> str:
+    """`Revision 3, 11 November 2026` (the date as the record keeps it: 2026-11-11)."""
+    when = ""
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})(?:\b.*)?", str(date or "").strip())
+    if m:
+        when = f"{int(m.group(3))} {_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
+    try:
+        n = int(float(str(number)))
+    except (TypeError, ValueError):
+        return ""
+    return f"Revision {n}" + (f", {when}" if when else "")
+
+
+def stamp_revision(text: str, story: dict) -> str:
+    """The Fountain with the story's revision on its title page, where screenplain prints the draft date (and the HTML cover does too): `Draft date: Revision 3,
+    11 November 2026`, keeping an earlier draft date beside it. Nothing changes for a story with no revision."""
+    d = _data(story)
+    stamp = revision_text(d.get("revision"), d.get("revision_date"))
+    if not stamp:
+        return text
+    lines = text.split("\n")
+    end = next((i for i, ln in enumerate(lines) if not ln.strip()), len(lines))
+    for i in range(end):
+        name, colon, value = lines[i].partition(":")
+        if colon and name.strip().lower() == "draft date":
+            before = value.strip()
+            lines[i] = f"Draft date: {stamp}" + (f" (first draft: {before})" if before and "revision" not in before.lower() else "")
+            return "\n".join(lines)
+    if not lines or not _TITLE_KEY_LINE.match(lines[0]):
+        return text  # no title page to put it on
+    lines.insert(end, f"Draft date: {stamp}")
+    return "\n".join(lines)
+
+
+_TITLE_KEY_LINE = re.compile(r"^[A-Za-z][A-Za-z ]*:")
 
 
 def with_title_page(page: str, text: str) -> str:
@@ -363,7 +418,7 @@ def with_title_page(page: str, text: str) -> str:
     if not title:
         return page
     safe = html.escape(title)
-    extra = "".join(f'<p class="{k}">{html.escape(info[k])}</p>' for k in ("credit", "notes") if info.get(k))
+    extra = "".join(f'<p class="{k.replace(" ", "-")}">{html.escape(info[k])}</p>' for k in ("credit", "author", "source", "draft date", "notes") if info.get(k))
     cover = (
         '<style>.titlepage{text-align:center;margin:0 auto;padding:180pt 0 120pt;font-family:\'Courier Final Draft\',\'Courier Screenplay\',Courier;font-size:12pt}'
         ".titlepage .title{text-transform:uppercase;text-decoration:underline;margin-bottom:24pt}"

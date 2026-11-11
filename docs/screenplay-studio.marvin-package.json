@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "123",
+  "version": "124",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1937,6 +1937,20 @@
               "type": "textarea",
               "group": "Credits (from the Fountain title page)",
               "helpText": "Any other line of the title page (Format: Short Screenplay), one `key: value` to a line, so nothing is thrown away."
+            },
+            {
+              "key": "revision",
+              "label": "Revision",
+              "type": "number",
+              "group": "Credits (from the Fountain title page)",
+              "helpText": "The number of the last revision applied to the story (0 or empty: none yet). Set when a revision is applied; printed on the script's title page beside the draft date."
+            },
+            {
+              "key": "revision_date",
+              "label": "Revision date",
+              "type": "text",
+              "group": "Credits (from the Fountain title page)",
+              "helpText": "The day the last revision was applied (2026-11-11). Printed on the script's title page."
             },
             {
               "key": "fountain_front",
@@ -6215,6 +6229,123 @@
     },
     {
       "kind": "workflow",
+      "slug": "screenplay-check-revision",
+      "name": "Screenplay: check a revision",
+      "description": "Say what a Revision would do to its story, and change nothing: the proposed Fountain is fitted to the beats already made by what they say, and the Revision is given the result (beats unchanged, reworded, new with their numbers, gone; lines to record; pictures to make).",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: check a revision",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "revision",
+                "label": "Revision",
+                "type": "entry",
+                "required": true
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Check the revision: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "check-revision",
+                "args": {
+                  "revision": "${entry.slug}"
+                },
+                "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-apply-revision",
+      "name": "Screenplay: apply a revision",
+      "description": "Make a checked Revision the story's Fountain and bring it in, after you approve what it would do. The story's text becomes the revision's, the beats already made are fitted to it by what they say (new beats numbered after the beat before, nothing already made lost), the revision is numbered and marked applied, and its number and date are printed on the script's title page. Refused when the story's text changed after the revision was checked.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: apply a revision",
+        "definition": {
+          "trigger": {
+            "type": "manual",
+            "inputs": [
+              {
+                "name": "revision",
+                "label": "Revision",
+                "type": "entry",
+                "required": true
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "approval",
+              "id": "unchecked",
+              "message": "${entry.title} has not been checked yet. Run “Screenplay: check a revision” first, so you see what applying it would do, then run this again. Approve to close this.",
+              "when": [
+                {
+                  "field": "entry.data.base_digest",
+                  "op": "shorter_than",
+                  "value": 1
+                }
+              ]
+            },
+            {
+              "kind": "approval",
+              "id": "apply",
+              "message": "Apply ${entry.title} to ${entry.data.story}?\n\n${entry.data.report}\n\nThis makes it the story's Fountain, brings it in (nothing already made is lost: beats keep their picture, recording and sounds; new beats are numbered after the beat before), and prints the revision on the script. Approve to apply, deny to keep it a draft.",
+              "when": [
+                {
+                  "field": "entry.data.base_digest",
+                  "op": "longer_than",
+                  "value": 0
+                }
+              ]
+            },
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Apply the revision: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "apply-revision",
+                "args": {
+                  "revision": "${entry.slug}"
+                },
+                "status": "queued"
+              },
+              "when": [
+                {
+                  "field": "entry.data.base_digest",
+                  "op": "longer_than",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
       "slug": "screenplay-write-master-prompt",
       "name": "Screenplay: write a Character's master prompt",
       "description": "Write the picture prompt for a Character's master from everything known about it: the actor's whole sheet, the costume, props and rules, the story and the world's style. It is saved on the Character as Master prompt to read and edit; no image is made and no image credit is spent.",
@@ -6771,6 +6902,145 @@
               "label": "Note",
               "type": "textarea",
               "rows": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "revision",
+      "name": "Revision",
+      "description": "A proposed change to a story's Fountain, kept as a draft until you approve it. Paste the new Fountain (or upload the file), run “Screenplay: check a revision” to see what it would do (beats unchanged, reworded, new, gone; lines to record), then “Screenplay: apply a revision”. Applying makes it the story's Fountain, fits the beats already made to it by what they say, numbers the revision and prints it on the script.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Revision",
+        "icon": "📝",
+        "color": "#7C3AED",
+        "description": "A proposed change to a story's Fountain, kept as a draft until you approve it. Paste the new Fountain (or upload the file), run “Screenplay: check a revision” to see what it would do (beats unchanged, reworded, new, gone; lines to record), then “Screenplay: apply a revision”. Applying makes it the story's Fountain, fits the beats already made to it by what they say, numbers the revision and prints it on the script.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "story",
+              "label": "Story (story entry slug)",
+              "type": "text",
+              "required": true,
+              "group": "Your revision",
+              "helpText": "The story this revision is for, e.g. the-devils-shoals."
+            },
+            {
+              "key": "note",
+              "label": "What this revision does",
+              "type": "text",
+              "group": "Your revision",
+              "helpText": "One line, kept in the revision list: “More narration in Act I; the cabin scene has a longer exchange.”"
+            },
+            {
+              "key": "proposed",
+              "label": "Proposed Fountain",
+              "type": "markdown",
+              "group": "Your revision",
+              "helpText": "The whole story as it should be, written in Fountain (edit it anywhere, then paste it here). Use this or File, not both."
+            },
+            {
+              "key": "file",
+              "label": "Fountain file",
+              "type": "asset",
+              "role": "file",
+              "accept": ".fountain,.txt,.md,text/plain",
+              "group": "Your revision",
+              "helpText": "The proposed Fountain as a file, for a long script. Use this or Proposed Fountain, not both."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "applied",
+                "discarded"
+              ],
+              "defaultValue": "draft",
+              "group": "Result",
+              "helpText": "draft until it is applied; discarded when you decide not to use it."
+            },
+            {
+              "key": "number",
+              "label": "Revision number",
+              "type": "number",
+              "group": "Result",
+              "helpText": "Set when it is applied."
+            },
+            {
+              "key": "applied_at",
+              "label": "Applied on",
+              "type": "text",
+              "group": "Result"
+            },
+            {
+              "key": "report",
+              "label": "What it would do",
+              "type": "textarea",
+              "rows": 10,
+              "group": "What the check found",
+              "helpText": "Written by “Screenplay: check a revision”: how many beats are unchanged, reworded, new (with their numbers) and gone, and what needs recording or a picture."
+            },
+            {
+              "key": "same",
+              "label": "Beats unchanged",
+              "type": "number",
+              "group": "What the check found"
+            },
+            {
+              "key": "reworded",
+              "label": "Beats reworded",
+              "type": "number",
+              "group": "What the check found",
+              "helpText": "They keep their number, picture and recording; a reworded line is flagged."
+            },
+            {
+              "key": "new_beats",
+              "label": "New beats (their numbers)",
+              "type": "text",
+              "group": "What the check found",
+              "helpText": "A new beat is numbered after the beat before it (1002a), so nothing after it is renumbered."
+            },
+            {
+              "key": "removed",
+              "label": "Beats gone from the text",
+              "type": "number",
+              "group": "What the check found"
+            },
+            {
+              "key": "beats_to_make",
+              "label": "Beats to make",
+              "type": "number",
+              "group": "What the check found"
+            },
+            {
+              "key": "lines_to_record",
+              "label": "Lines to record",
+              "type": "number",
+              "group": "What the check found"
+            },
+            {
+              "key": "base_digest",
+              "label": "Compared with (digest)",
+              "type": "text",
+              "group": "What the check found",
+              "helpText": "A fingerprint of the story's Fountain this was checked against. Applying is refused if the story's text has changed since."
+            },
+            {
+              "key": "checked",
+              "label": "Checked on",
+              "type": "text",
+              "group": "What the check found"
             }
           ]
         }
