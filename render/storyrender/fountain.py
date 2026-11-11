@@ -557,6 +557,7 @@ def _piece(lines: list[str], start: int, stop: int) -> str:
 
 _NAMEWORD = r"""(?:[A-Z][A-Z0-9'’.\-]*|"[^"]+"|“[^”]+”)"""
 _INTRO = re.compile(rf"({_NAMEWORD}(?:\s+{_NAMEWORD})*)\s*\(((?:early |mid-?|late )?\d{{1,3}}s?)\)")  # `CAPTAIN VALERIE "THE VULTURE" VANE (40s)`
+_HOLD_NOTE = re.compile(r"\bHold:\s*(\d+(?:\.\d+)?)\s*s\b")
 _SENTENCES = re.compile(r"(?<=[.!?])\s+")
 _FEMALE = re.compile(r"\b(?:she|herself|woman|girl|lady|madam)\b", re.I)  # who a sentence is about, not whom it is done to: `frowns at her` says nothing of the one who frowns
 _MALE = re.compile(r"\b(?:he|himself|man|boy|gentleman|lad)\b", re.I)
@@ -883,6 +884,9 @@ def attach_source(imp: dict, plan: Plan, story: str) -> None:
         place = place_of(beat.get("place", "")) if beat else None
         if place:
             data["scene"] = f"{story}-{place['slug']}"
+        held = _HOLD_NOTE.search(" ".join(re.findall(r"\[\[(.*?)\]\]", beat.get("fountain") or "", re.S))) if beat else None
+        if held and not data.get("hold_seconds"):  # a note on the beat (`[[Hold: 6s.]]`) says how long its picture stays when nobody speaks
+            data["hold_seconds"] = float(held.group(1))
         if beat and beat.get("sounds"):
             data["sounds"] = [{"sound": f"{story}-sound-{data.get('number')}-{i}", "at": 0} for i, _c in enumerate(beat["sounds"], 1)]
     for slug, _title, data in imp["lines"]:
