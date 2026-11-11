@@ -33,7 +33,7 @@ Do not put story role, family relationships or personality on the actor from how
 
 ## The character record
 
-A character is made from an actor, not from scratch. Fields: `story`, `actor` (the actor's slug), `role`, `speaker` (the one-word name its speech lines use in the beat sheet), `presence`, `age_state` (young, mid, old), `costume`, `props`, `rules` and `master` (the approved picture). Stills attach the approved master, so an unapproved master blocks them.
+A character is made from an actor, not from scratch. Fields: `story`, `actor` (the actor's slug), `role`, `speaker` (the one-word name its speech lines use as the cue in the Fountain), `presence`, `age_state` (young, mid, old), `costume`, `props`, `rules` and `master` (the approved picture). Stills attach the approved master, so an unapproved master blocks them.
 
 **`rules`** is what must hold in every picture of this one character (which side a peg leg is on; that the face matches the same person at other ages). The world holds only the style, so a rule about one person lives here; the still and master workflows put each character's costume, props and rules into the prompt.
 

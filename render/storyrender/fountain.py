@@ -159,7 +159,7 @@ def _block_elements(block: list[str]) -> list[dict]:
 def _block_content(block: list[str]) -> list[dict]:
     first = block[0].strip()
     if first.startswith("==="):
-        return []
+        return [{"t": "break"}]  # a page break: the next picture starts here (a writer's way to say "new shot" where two actions would be read as one)
     if first.startswith("=") and not first.startswith("=="):
         return []  # a synopsis is a note to the writer
     m = _SECTION.match(first)
@@ -190,7 +190,7 @@ def _block_content(block: list[str]) -> list[dict]:
 
 
 def parse(text: str, *, lines: bool = False) -> list[dict]:
-    """The screenplay's elements in order: {t: scene|action|dialogue|transition|section, ...}. A title page, page breaks and synopses are left out.
+    """The screenplay's elements in order: {t: scene|action|dialogue|transition|section, ...}. A title page and synopses are left out; a page break (`===`) is {t: break}.
     With `lines`, each element also says the line (counting from 0) of the text it starts on."""
     blocks = _blocks_at(_blank_comments(_normal(text)) if lines else _clean(text))  # to say where each element is, a note or boneyard keeps its line breaks
     if blocks and all(_ANY_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
@@ -533,6 +533,9 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
                 if cur is None:
                     cur = start(scene.heading or "Continues", ln, sc)
                 cur["sung"].append(el["text"])
+            elif t == "break":
+                cur = None
+                fresh_scene = False
             elif t == "transition":
                 held.append(el["text"])
                 if ln is not None and carry["held_at"] is None:

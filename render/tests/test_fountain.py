@@ -138,7 +138,7 @@ def test_text_that_is_not_fountain_says_so():
 def marvin(monkeypatch, tmp_path):
     def make(screenplay, have=None, script=""):
         fake = FakeMarvin(script, have or {})
-        fake.story["dataJson"]["screenplay"] = screenplay
+        fake.story["dataJson"]["fountain"] = screenplay
         monkeypatch.setattr(jobs.marvin_api, "query", fake.query)
         monkeypatch.setattr(jobs.marvin_api, "request", fake.request)
         return fake, Context(creds=("http://m", "tok"), work=tmp_path, name="import-beats-1")
@@ -147,23 +147,22 @@ def marvin(monkeypatch, tmp_path):
 
 
 def run(ctx, **args):
-    return jobs.import_beats({"job": "import-beats-1", "args": {"story": "s", "source": "screenplay", **args}}, ctx)
+    return jobs.import_beats({"job": "import-beats-1", "args": {"story": "s", **args}}, ctx)
 
 
 THREE = "# 01 One\n\n" + scenes(2) + "\n# 02 Two\n\n" + scenes(2) + "\n# 03 Three\n\n" + scenes(2)
 
 
-def test_the_job_cuts_the_screenplay_and_leaves_the_script_alone(marvin):
-    fake, ctx = marvin(THREE, script="hand edited script")
+def test_the_job_cuts_the_fountain_into_chapters_beats_and_lines(marvin):
+    fake, ctx = marvin(THREE)
     done = run(ctx)
-    assert done["result"]["source"] == "fountain" and len(done["result"]["chapters_made"]) == 3
+    assert len(done["result"]["chapters_made"]) == 3
     assert "3 chapters" in done["log"]
-    assert fake.story["dataJson"]["script"] == "hand edited script"
     slugs = {m["slug"] for m in fake.made}
     assert "s-chapter-01" in slugs and "s-beat-1001" in slugs and "s-beat-3001" in slugs and "s-line-1001-1" in slugs or "s-line-1002-1" in slugs
     story_patch = [p for p in fake.patched if p[0] == "e0"]
     assert all("sheet_base" not in p[1]["dataJson"] for p in story_patch)
-    assert story_patch and "from the screenplay" in story_patch[0][1]["dataJson"]["sheet_log"]
+    assert story_patch and "from the Fountain" in story_patch[0][1]["dataJson"]["sheet_log"]
 
 
 def test_a_preview_reports_the_split_and_writes_nothing(marvin):
@@ -306,7 +305,7 @@ def _chapter_texts(fake):
 
 def test_each_chapter_made_holds_its_own_part_of_the_fountain(marvin):
     fake, ctx = marvin(THREE)
-    run(ctx, source="fountain")
+    run(ctx)
     held = _chapter_texts(fake)
     assert set(held) == {"s-chapter-01", "s-chapter-02", "s-chapter-03"}
     assert held["s-chapter-01"].startswith("# 01 One") and held["s-chapter-02"].startswith("# 02 Two") and held["s-chapter-03"].startswith("# 03 Three")
@@ -315,20 +314,20 @@ def test_each_chapter_made_holds_its_own_part_of_the_fountain(marvin):
 
 def test_one_part_gives_only_that_chapter_its_text(marvin):
     fake, ctx = marvin(THREE)
-    run(ctx, source="fountain", part="2")
+    run(ctx, part="2")
     assert list(_chapter_texts(fake)) == ["s-chapter-02"] and _chapter_texts(fake)["s-chapter-02"].startswith("# 02 Two")
 
 
 def test_a_preview_makes_nothing_and_says_the_chapters_would_hold_their_text(marvin):
     fake, ctx = marvin(THREE)
-    done = run(ctx, source="fountain", dry_run="yes")
+    done = run(ctx, dry_run="yes")
     assert fake.made == [] and "would hold" in done["log"]
 
 
 def test_the_fountain_field_is_read_in_place_of_the_older_screenplay_field(marvin):
     fake, ctx = marvin("")
     fake.story["dataJson"]["fountain"] = THREE
-    run(ctx, source="fountain")
+    run(ctx)
     assert len(_chapter_texts(fake)) == 3
 
 
@@ -336,7 +335,7 @@ def test_an_uploaded_fountain_file_is_read_whatever_its_size(marvin, monkeypatch
     fake, ctx = marvin("")
     fake.story["dataJson"]["fountain_file"] = "asset-1"
     monkeypatch.setattr(jobs.marvin_api, "download_asset", lambda creds, asset, dest: dest.write_text(THREE, encoding="utf-8"))
-    run(ctx, source="fountain")
+    run(ctx)
     assert len(_chapter_texts(fake)) == 3
     assert jobs._fountain_text(ctx, "s", fake.story["dataJson"])[1] == "s's uploaded Fountain file"
 
@@ -345,12 +344,12 @@ def test_fountain_text_and_an_uploaded_file_together_are_said_not_guessed_at(mar
     fake, ctx = marvin("")
     fake.story["dataJson"].update(fountain=THREE, fountain_file="asset-1")
     with pytest.raises(JobError, match="Fountain text and an uploaded Fountain file"):
-        run(ctx, source="fountain")
+        run(ctx)
 
 
 def test_a_chapter_made_before_chapters_held_their_text_is_given_it(marvin):
     fake, ctx = marvin(THREE, have=["s-chapter-01", "s-chapter-02"])
-    run(ctx, source="fountain")
+    run(ctx)
     filled = {p[0]: p[1]["dataJson"]["fountain"] for p in fake.patched if p[0].startswith("id-s-chapter-")}
     assert set(filled) == {"id-s-chapter-01", "id-s-chapter-02"} and filled["id-s-chapter-01"].startswith("# 01 One")
     assert set(_chapter_texts(fake)) == {"s-chapter-03"}  # the one that was missing is made with its text
@@ -542,6 +541,8 @@ def test_every_element_of_the_fountain_spec_is_read_as_the_spec_says():
     def show(e):
         if e["t"] == "dialogue":
             return ("dialogue", e["name"], e["ext"], e["paren"], e["text"])
+        if e["t"] == "break":
+            return ("break",)
         return (e["t"], e.get("title") or e["text"]) if e["t"] != "section" else ("section", e["depth"], e["title"])
 
     assert [show(e) for e in fountain.parse(ALL_ELEMENTS)] == [
@@ -562,6 +563,7 @@ def test_every_element_of_the_fountain_spec_is_read_as_the_spec_says():
         ("lyrics", "Willy wanna go home Willy wanna go home"),  # lyrics (`~`) are the words, without the mark
         ("transition", "CUT TO:"),
         ("transition", "FADE OUT."),  # `>` forces a transition
+        ("break",),  # `===` starts the next picture
         ("section", 1, "ACT TWO"),
         ("scene", "INT. HALL - DAY"),
         ("dialogue", "BRICK", "", [], "Screw retirement."),
@@ -750,7 +752,7 @@ def test_attaching_the_source_gives_new_records_their_piece_and_the_transition()
 
 def test_the_job_gives_each_beat_its_text_and_transition_each_chapter_its_summary_and_the_story_its_title_page(marvin):
     fake, ctx = marvin(DEVILS)
-    run(ctx, source="fountain", chapter_pages="0.1")
+    run(ctx, chapter_pages="0.1")
     beats = {m["slug"]: m["dataJson"] for m in fake.made if "-beat-" in m["slug"]}
     assert beats and all(d.get("fountain") for d in beats.values())
     assert any(d.get("transition") == "dissolve" and d.get("transition_text") == "CROSSFADE TO:" for d in beats.values())
@@ -767,7 +769,7 @@ def test_the_job_gives_each_beat_its_text_and_transition_each_chapter_its_summar
 def test_a_title_page_field_the_person_filled_in_is_kept_and_a_preview_writes_none(marvin):
     fake, ctx = marvin(DEVILS)
     fake.story["dataJson"]["author"] = "Jared"
-    run(ctx, source="fountain", chapter_pages="0.1")
+    run(ctx, chapter_pages="0.1")
     assert fake.patched[-1][1]["dataJson"]["author"] == "Jared"
     fake2, ctx2 = marvin(DEVILS)
     run(ctx2, source="fountain", dry_run="yes", chapter_pages="0.1")
@@ -855,7 +857,7 @@ class CastingMarvin(FakeMarvin):
 def casting(monkeypatch, tmp_path):
     def make(screenplay):
         fake = CastingMarvin("", {})
-        fake.story["dataJson"]["screenplay"] = screenplay
+        fake.story["dataJson"]["fountain"] = screenplay
         monkeypatch.setattr(jobs.marvin_api, "query", fake.query)
         monkeypatch.setattr(jobs.marvin_api, "request", fake.request)
         return fake, Context(creds=("http://m", "tok"), work=tmp_path, name="import-beats-1")
@@ -964,3 +966,44 @@ def test_a_score_placeholder_is_made_and_set_as_the_storys_music_unless_it_has_o
     run(ctx2)
     assert not any(m["slug"] == "s-score" for m in own.made)
     assert [p[1]["dataJson"]["music"] for p in own.patched if p[0] == "e0"] == ["my-theme"]
+
+
+# --- a page break, and the complete export ----------------------------------------------------------------------------------------------
+
+
+def test_a_page_break_starts_the_next_picture():
+    text = ".THE GALLEY\n\nA pot on a table.\n\n===\n\nA cook enters.\n\n===\n\nA hand.\n\nCOOK\nHello.\n"
+    plan = fountain.cut(fountain.parse(text))
+    assert [b["picture"] for _c, _n, b in plan.rows()] == ["THE GALLEY. A pot on a table.", "A cook enters.", "A hand."]
+    merged = fountain.cut(fountain.parse(text.replace("===\n\n", "")))
+    assert len(merged.rows()) == 1  # without the breaks small actions are one picture, as before
+
+
+def _records():
+    row = lambda slug, title, **d: {"slug": slug, "title": title, "dataJson": d}  # noqa: E731
+    return {
+        "story": row("s", "The Last Onion", premise="A cook has one onion.", format="short-9x16", target_seconds=30, music="theme"),
+        "chapters": {},
+        "scenes": {"s-galley": row("s-galley", "Galley", story="s", place="A small galley.", look="Lantern light.", set_dressing="A pot.", continuity="Onion on the table.", ambience="s-sea", ambience_volume=0.3, ambience_muffled=True)},
+        "sounds": {"s-sea": row("s-sea", "Sea", prompt="Waves on a hull."), "s-clank": row("s-clank", "Clank", prompt="A pot lid clanks.")},
+        "characters": [row("s-cook", "Old Cook (Bill)", cast_id="cook", speaker="cook", role="ship's cook", costume="A brown apron.", props="A wooden spoon.", rules="Peg leg on the left.", actor="bill")],
+        "beats": [
+            row("s-beat-01", "b1", story="s", number="01", scene="s-galley", picture="EXT. THE GALLEY, a wide shot of a pot.", hold_seconds=6, focus="the pot", sounds=[{"sound": "s-clank", "at": 1.5}]),
+            row("s-beat-02", "b2", story="s", number="02", scene="s-galley", picture="A close shot of a hand.", cast="old-ship-cook"),
+        ],
+        "lines": {"s-beat-02": [row("s-line-02-1", "l", story="s", beat="s-beat-02", speaker="cook", text="One onion.", direction="Flat.", voice="s-voice-cook")]},
+    }
+
+
+def test_the_complete_export_keeps_every_detail_and_reads_back_as_the_same_beats_and_lines():
+    from storyrender import script
+
+    text = script.fountain_complete(_records())
+    for said in ("Title: The Last Onion", "Premise: A cook has one onion.", "Length: about", "Music: theme", "COOK is Old Cook (Bill). Role: ship's cook. Costume: A brown apron. Props: A wooden spoon. Rules: Peg leg on the left. Played by: bill.",
+                 ".GALLEY #1#", "Place: A small galley. Light: Lantern light. Set dressing: A pot. Continuity: Onion on the table.", "Ambience: Sea, level 0.3, muffled (indoors). Waves on a hull.",
+                 "Hold: 6s. Focus: the pot.", "Sound: Clank. A pot lid clanks at 1.5s.", "One onion.", "(flat)", "Voice: s-voice-cook."):
+        assert said in text, said
+    assert "\n!EXT. THE GALLEY, a wide shot of a pot." in text  # a picture that begins like a scene heading stays a picture
+    plan = fountain.cut(fountain.parse(text, lines=True), text=text)
+    assert [(len(c.beats), c.lines()) for c in plan.chapters] == [(2, 1)]
+    assert plan.characters and plan.places and "galley" in plan.places
