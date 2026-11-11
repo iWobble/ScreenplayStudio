@@ -421,3 +421,149 @@ def test_fountain_handed_over_in_a_code_fence_reads_as_if_it_were_not():
 def test_a_fence_in_the_middle_of_the_script_is_left_alone():
     text = "INT. PORCH - DAY\n\n```\nnot a fence round the whole\n\nGranny rocks.\n"
     assert any("```" in e.get("text", "") for e in fountain.parse(text))
+
+
+DUAL = """INT. DECK - NIGHT
+
+CHET
+Captain, look down.
+
+VALERIE
+What now?
+
+CHET^
+(screaming)
+They're here!
+VALERIE^
+(laughing)
+Looks like we're joining the fleet!
+
+CHET
+BREAKER AHEAD!
+"""
+
+
+def test_two_speakers_run_together_with_no_blank_line_between_them_are_two_speeches():
+    speeches = [(e["name"], e["text"], e["paren"]) for e in fountain.parse(DUAL) if e["t"] == "dialogue"]
+    assert speeches == [
+        ("CHET", "Captain, look down.", []), ("VALERIE", "What now?", []),
+        ("CHET", "They're here!", ["screaming"]), ("VALERIE", "Looks like we're joining the fleet!", ["laughing"]),
+        ("CHET", "BREAKER AHEAD!", []),
+    ]
+
+
+def test_a_shouted_line_that_is_not_a_known_speaker_stays_part_of_the_speech():
+    text = "INT. DECK - NIGHT\n\nCHET\nLook!\nBREAKER AHEAD!\nHold on.\n\nVALERIE\nAye.\n"
+    chet = [e for e in fountain.parse(text) if e["t"] == "dialogue" and e["name"] == "CHET"]
+    assert len(chet) == 1 and chet[0]["text"] == "Look! BREAKER AHEAD! Hold on."
+
+
+def test_the_marks_of_bold_italic_and_underline_do_not_reach_the_words():
+    els = fountain.parse("INT. DECK - NIGHT\n\nJagged, *black* rocks and **tattered** sails, ***both***, _underlined_.\n\nCHET\nIt's *so* big, and 2 * 3 * 4 stays, snake_case too.\n")
+    assert els[1]["text"] == "Jagged, black rocks and tattered sails, both, underlined."
+    assert els[2]["text"] == "It's so big, and 2 * 3 * 4 stays, snake_case too."
+
+
+# --- every element of the Fountain spec in one script: what the reader must make of each -----------------------------------------------------
+
+ALL_ELEMENTS = """Title: All Elements
+Credit: Written by
+Author: Test
+Contact:
+    Agent: Someone
+    123 Street
+
+[[A note
+over two lines]]
+
+/* a boneyard
+over two lines */
+
+# ACT ONE
+
+= A synopsis of the act.
+
+## The porch
+
+= Another synopsis.
+
+EXT. PORCH - DUSK #1#
+
+Granny rocks. *Italic*, **bold**, ***both***, _underline_. [[inline note]]
+
+!SHOUT IN ACTION, FORCED
+
+.A FORCED HEADING
+
+INT. KITCHEN - NIGHT
+
+GRANNY (V.O.)
+(softly)
+Never go to bed angry.
+
+@McDUFF
+A forced character cue.
+
+BOB
+I'm here.
+
+ANN
+Wait for me.
+
+> CENTERED <
+
+~Willy wanna go home
+~Willy wanna go home
+
+CUT TO:
+
+> FADE OUT.
+
+===
+
+# ACT TWO
+
+INT. HALL - DAY
+
+BRICK
+Screw retirement.
+
+STEEL ^
+Screw retirement.
+
+GRANNY (CONT'D)
+Done.
+
+THE END
+"""
+
+
+def test_every_element_of_the_fountain_spec_is_read_as_the_spec_says():
+    def show(e):
+        if e["t"] == "dialogue":
+            return ("dialogue", e["name"], e["ext"], e["paren"], e["text"])
+        return (e["t"], e.get("title") or e["text"]) if e["t"] != "section" else ("section", e["depth"], e["title"])
+
+    assert [show(e) for e in fountain.parse(ALL_ELEMENTS)] == [
+        ("section", 1, "ACT ONE"),  # a section; the synopsis under it and the page break are the writer's, and the title page, notes and boneyard are dropped
+        ("section", 2, "The porch"),
+        ("scene", "EXT. PORCH - DUSK"),  # its scene number (#1#) is not part of the place
+        ("action", "Granny rocks. Italic, bold, both, underline."),  # emphasis marks and the inline note are gone
+        ("action", "SHOUT IN ACTION, FORCED"),  # `!` forces action
+        ("scene", "A FORCED HEADING"),  # `.` forces a scene heading
+        ("scene", "INT. KITCHEN - NIGHT"),
+        ("dialogue", "GRANNY", "V.O.", ["softly"], "Never go to bed angry."),  # an extension, a parenthetical
+        ("dialogue", "McDUFF", "", [], "A forced character cue."),  # `@` forces a cue (mixed case)
+        ("dialogue", "BOB", "", [], "I'm here."),
+        ("dialogue", "ANN", "", [], "Wait for me."),
+        ("action", "CENTERED"),  # `> text <` is centred action
+        ("action", "Willy wanna go home Willy wanna go home"),  # lyrics (`~`) are kept as the words, without the mark
+        ("transition", "CUT TO:"),
+        ("transition", "FADE OUT."),  # `>` forces a transition
+        ("section", 1, "ACT TWO"),
+        ("scene", "INT. HALL - DAY"),
+        ("dialogue", "BRICK", "", [], "Screw retirement."),
+        ("dialogue", "STEEL", "", [], "Screw retirement."),  # the second speaker of a dual dialogue (`^`) is a speech like any other
+        ("dialogue", "GRANNY", "", [], "Done."),  # (CONT'D) is not an extension
+        ("action", "THE END"),
+    ]

@@ -118,6 +118,31 @@ def _is_character(s: str) -> bool:
     return bool(re.search(r"[A-Z]", name)) and name == name.upper() and not name.endswith(".") or (bool(re.search(r"[A-Z]", name)) and name == name.upper() and len(name.split()) <= 4)
 
 
+_EMPHASIS = (
+    re.compile(r"\*\*\*(\S(?:.*?\S)?)\*\*\*"),
+    re.compile(r"\*\*(\S(?:.*?\S)?)\*\*"),
+    re.compile(r"(?<![\w*])\*(?![\s*])(.+?)(?<![\s*])\*(?![\w*])"),
+    re.compile(r"(?<!\w)_(?![\s_])(.+?)(?<![\s_])_(?!\w)"),
+)
+
+
+def _plain(text: str) -> str:
+    """The words without Fountain's emphasis marks (`*italic*`, `**bold**`, `_underline_`): a picture prompt or a caption must not show them."""
+    for pattern in _EMPHASIS:
+        text = pattern.sub(r"\1", text)
+    return text.replace("\\*", "*").replace("\\_", "_")
+
+
+def _plain_elements(els: list[dict]) -> list[dict]:
+    for el in els:
+        if el["t"] == "action":
+            el["text"] = _plain(el["text"])
+        elif el["t"] == "dialogue":
+            el["text"] = _plain(el["text"])
+            el["paren"] = [_plain(x) for x in el["paren"]]
+    return els
+
+
 def _block_elements(block: list[str]) -> list[dict]:
     first = block[0].strip()
     if first.startswith("==="):
@@ -155,11 +180,26 @@ def parse(text: str, *, lines: bool = False) -> list[dict]:
     blocks = _blocks_at(_clean(text))
     if blocks and all(_ANY_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
         blocks = blocks[1:]  # a title page: it starts with a key Fountain knows, and every line is a key or the rest of one
+    known = {_cue_name(block[0]) for _start, block in blocks if len(block) >= 2 and _is_character(block[0])}
     out: list[dict] = []
     for start, block in blocks:
-        for el in _block_elements(block):
-            out.append({**el, "line": start} if lines else el)
+        for at, piece in _split_cues(start, block, known):
+            for el in _plain_elements(_block_elements(piece)):
+                out.append({**el, "line": at} if lines else el)
     return out
+
+
+def _split_cues(start: int, block: list[str], known: set[str]) -> list[tuple[int, list[str]]]:
+    """A speech block cut where another speaker's cue appears inside it. Writers (and AIs) leave out the blank line between two speakers of a
+    dual dialogue; a line is taken for a cue only when it is a name already used as a cue elsewhere and something follows it, so a shouted line
+    of dialogue stays dialogue."""
+    if len(block) < 3 or not _is_character(block[0]):
+        return [(start, block)]
+    for i in range(2, len(block) - 1):
+        line = block[i].strip()
+        if _is_character(line) and _cue_name(line) in known:
+            return [(start, block[:i]), *_split_cues(start + i, block[i:], known)]
+    return [(start, block)]
 
 
 # --- speakers -----------------------------------------------------------------------------------------------------------------------
