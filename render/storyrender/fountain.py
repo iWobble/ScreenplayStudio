@@ -19,7 +19,7 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from . import beat_import, beats
+from . import beat_import, beats, numbering
 
 LINE_SEP = "¶"
 """Between two speakers in an audio cell: the importer reads a name after it as the next speaker, whatever the words before it end in."""
@@ -779,17 +779,6 @@ def _sameness(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
-def _after(number: str) -> str:
-    """The number a beat inserted after `number` takes: 1002 -> 1002a, 1002a -> 1002b."""
-    m = re.fullmatch(r"(\d+)([a-z]?)", number)
-    if not m:
-        raise ValueError(f"beat number “{number}” cannot be followed by an inserted beat")
-    digits, letter = m.groups()
-    if letter == "z":
-        raise ValueError(f"more than 26 beats were inserted after beat {digits}: add a `#` section line or number the story again")
-    return digits + (chr(ord(letter) + 1) if letter else "a")
-
-
 def align(plan: Plan, existing: dict[str, str]) -> "dict | None":
     """Fit a revised Fountain to the beats already made from it, by what they say and not by where they stand. `existing` is each made beat's number and
     its own piece of the Fountain. A beat whose words are unchanged keeps its number (and with it its picture, recording and sounds); one reworded keeps it
@@ -799,10 +788,9 @@ def align(plan: Plan, existing: dict[str, str]) -> "dict | None":
     if not existing or not plan.chapters or any(not b.get("fountain") for c in plan.chapters for b in c.beats):
         return None
     found = {"same": 0, "reworded": 0, "new": [], "removed": []}
-    key = lambda n: (int(re.match(r"\d+", n).group()), n[-1] if n[-1:].isalpha() else "")  # noqa: E731
     for chapter in plan.chapters:
-        mine = [n for n in existing if re.fullmatch(r"\d+[a-z]?", n) and (plan.single or int(re.match(r"\d+", n).group()) // 1000 == chapter.number)]
-        old = sorted(mine, key=key)
+        mine = [n for n in existing if re.fullmatch(r"\d+[a-z]*", n) and (plan.single or int(re.match(r"\d+", n).group()) // 1000 == chapter.number)]
+        old = sorted(mine, key=numbering.order_key)
         old_text = [_sameness(existing[n]) for n in old]
         new_text = [_sameness(b["fountain"]) for b in chapter.beats]
         taken: dict[int, str] = {}  # position of a new beat (0-based) -> the number it keeps
@@ -829,9 +817,9 @@ def align(plan: Plan, existing: dict[str, str]) -> "dict | None":
             if j in taken:
                 number = taken[j]
             else:
-                number = _after(previous)
+                number = numbering.after(previous)
                 while number in used:
-                    number = _after(number)
+                    number = numbering.after(number)
                 used.add(number)
                 found["new"].append(number)
             plan.renumber[(chapter.number, j + 1)] = number

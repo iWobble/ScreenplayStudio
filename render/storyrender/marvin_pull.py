@@ -12,7 +12,7 @@ from pathlib import Path
 
 from marvin_worker import marvin_api
 
-from . import captions, cards, ffmpeg, formats
+from . import captions, cards, ffmpeg, formats, numbering
 
 CREDENTIALS = Path.home() / ".marvin" / "credentials.json"
 
@@ -125,7 +125,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     story_row = next((e for e in rows if e.get("slug") == story), None)
     if story_row is None:
         raise PullError(f"no story “{story}” in the workspace the CLI is signed in to")
-    beats = sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-beat-") and data(e).get("story") == story), key=lambda e: str(data(e).get("number")))
+    beats = sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-beat-") and data(e).get("story") == story), key=lambda e: numbering.order_key(data(e).get("number")))
     if chosen is not None:
         beats = [b for b in beats if chosen(data(b).get("number"))]
         if not beats:

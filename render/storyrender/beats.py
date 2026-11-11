@@ -8,7 +8,7 @@ speak; a beat with no speech is a held image.
 
 import re
 
-_ROW = re.compile(r"^\|\s*(\d+[a-z]?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*(.*?)\s*\|\s*$")
+_ROW = re.compile(r"^\|\s*(\d+[a-z]*)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*(.*?)\s*\|\s*$")
 _TIME = re.compile(r"(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)\s*s")
 _LABEL = re.compile(r"(?:^|(?<=[.?!]\s))([A-Z][a-z]+):\s+")
 _LABEL_FENCED = re.compile(r"(?:^|(?<=¶\s))([A-Z][a-z]+):\s+")

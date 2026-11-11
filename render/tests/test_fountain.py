@@ -6,7 +6,7 @@ import re
 import pytest
 
 from marvin_worker.jobs import Context, JobError
-from storyrender import beat_import, beats, fountain, jobs
+from storyrender import beat_import, beats, fountain, jobs, numbering
 from tests.test_beat_import import FakeMarvin
 
 GRANNY = """Title: Granny Advice
@@ -1074,6 +1074,24 @@ def test_a_beat_inserted_in_the_middle_is_numbered_after_the_beat_before_it_and_
     assert [n for _c, n, _b in plan.rows()] == ["01", "02", "02a", "03", "04"]
     two = fountain.align(_pieces(revised.replace("The cook looks up at the sky.", "The cook looks up.\n\n===\n\nThe sky darkens."))[0], made)
     assert two["new"] == ["02a", "02b"]
+
+
+def test_more_than_26_beats_inserted_in_one_place_carry_on_aa_ab_and_still_play_in_order():
+    _plan, made = _pieces(REVISED)
+    many = "".join(f"===\n\nBeat {i} of the long insertion, with words of its own.\n\n" for i in range(30))
+    plan, _ = _pieces(REVISED.replace("===\n\nA hand.", many + "===\n\nA hand."))
+    found = fountain.align(plan, made)
+    letters = [n[2:] for n in found["new"]]
+    assert letters[:3] == ["a", "b", "c"] and letters[25:28] == ["z", "aa", "ab"] and len(found["new"]) == 30
+    numbers = [n for _c, n, _b in plan.rows()]
+    assert sorted(numbers, key=numbering.order_key) == numbers  # z comes before aa, and the old beats keep their places
+    assert numbers[0:2] == ["01", "02"] and numbers[-2:] == ["03", "04"]
+
+
+def test_beat_numbers_count_on_like_spreadsheet_columns_and_sort_by_length_first():
+    assert [numbering.after(n) for n in ("02", "02a", "02y", "02z", "02az", "02zz")] == ["02a", "02b", "02z", "02aa", "02ba", "02aaa"]
+    shuffled = ["3001", "3000b", "3000aa", "3000z", "3000", "3000a"]
+    assert sorted(shuffled, key=numbering.order_key) == ["3000", "3000a", "3000b", "3000z", "3000aa", "3001"]
 
 
 def test_a_beat_inserted_at_the_start_comes_before_the_first():
