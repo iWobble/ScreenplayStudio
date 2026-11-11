@@ -128,9 +128,10 @@ _EMPHASIS = (
 
 def _plain(text: str) -> str:
     """The words without Fountain's emphasis marks (`*italic*`, `**bold**`, `_underline_`): a picture prompt or a caption must not show them."""
+    text = text.replace("\\*", "\x00a").replace("\\_", "\x00u")  # an escaped mark is a plain character: set it aside while the marks come off
     for pattern in _EMPHASIS:
         text = pattern.sub(r"\1", text)
-    return text.replace("\\*", "*").replace("\\_", "_")
+    return text.replace("\x00a", "*").replace("\x00u", "_")
 
 
 def _plain_elements(els: list[dict]) -> list[dict]:

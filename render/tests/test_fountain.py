@@ -605,3 +605,8 @@ def test_a_sound_note_is_read_once_from_a_cell_written_with_pilcrows():
     plan = fountain.cut(fountain.parse(SONG))
     notes = [beat_import.notes_of(r) for r in beat_import.parse_any(plan.sheet())[1]]
     assert notes[0] == "Sound: sung: Row, row, row your boat Gently down the stream"
+
+
+def test_an_escaped_mark_is_the_plain_character():
+    els = fountain.parse("INT. X - DAY\n\nTwo \\*stars\\* here, _under_ and snake\\_case.\n")
+    assert els[1]["text"] == "Two *stars* here, under and snake_case."
