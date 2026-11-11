@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "111",
+  "version": "112",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -7726,7 +7726,7 @@
             "id": "how",
             "kind": "option",
             "title": "Start from",
-            "help": "Beats are made from a beat sheet in Marvin's format. A screenplay can be cut into one by AI, which you read and approve before it is used.",
+            "help": "Beats are made from a beat sheet in Marvin's format. A screenplay can be cut into one by AI, which you read and approve before it is used. Skip this when the story already has its script or beat sheet: go on to Cut the beats.",
             "as": "input",
             "options": [
               {
@@ -7741,7 +7741,8 @@
                 "value": "none",
                 "label": "Nothing yet: I will write it in Marvin"
               }
-            ]
+            ],
+            "optional": true
           },
           {
             "id": "upload-script",
