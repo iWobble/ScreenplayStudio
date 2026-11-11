@@ -156,7 +156,7 @@ THREE = "# 01 One\n\n" + scenes(2) + "\n# 02 Two\n\n" + scenes(2) + "\n# 03 Thre
 def test_the_job_cuts_the_screenplay_and_leaves_the_script_alone(marvin):
     fake, ctx = marvin(THREE, script="hand edited script")
     done = run(ctx)
-    assert done["result"]["source"] == "screenplay" and len(done["result"]["chapters_made"]) == 3
+    assert done["result"]["source"] == "fountain" and len(done["result"]["chapters_made"]) == 3
     assert "3 chapters" in done["log"]
     assert fake.story["dataJson"]["script"] == "hand edited script"
     slugs = {m["slug"] for m in fake.made}
@@ -201,7 +201,7 @@ def test_a_part_the_screenplay_does_not_have_is_refused_with_the_chapters_it_has
 
 def test_no_screenplay_is_said(marvin):
     fake, ctx = marvin("")
-    with pytest.raises(JobError, match="no screenplay"):
+    with pytest.raises(JobError, match="no Fountain"):
         run(ctx)
 
 
@@ -233,3 +233,124 @@ def test_a_chapter_whose_title_changed_under_the_same_number_is_flagged_before_a
     done = run(ctx, dry_run="yes")
     assert "Check the numbering" in done["log"] and "chapter 2 is “Something else” in Marvin but “Two” in the screenplay" in done["log"]
     assert "Check the numbering" not in run(marvin(THREE)[1], dry_run="yes")["log"]  # nothing there yet: nothing to flag
+
+
+NOTED = """Title: Granny Advice
+Author: J
+
+/* a boneyard
+that runs over
+several lines */
+
+# Act One
+
+EXT. PORCH - DUSK
+
+Granny rocks. [[the dog is asleep]]
+
+GRANNY
+Never go to bed angry.
+
+## The dog
+
+INT. KITCHEN - NIGHT
+
+Tea is poured.
+
+# Act Two
+
+EXT. PORCH - DAWN
+
+GRANNY
+Nonsense.
+"""
+
+
+def test_chapter_slices_are_the_writers_own_text_notes_and_all_cut_at_the_section_that_starts_each():
+    plan = fountain.cut(fountain.parse(NOTED), chapter_pages=0.1)
+    slices = fountain.chapter_texts(NOTED, plan)
+    assert slices is not None and len(slices) == len(plan.chapters) >= 2
+    joined = "".join(slices[n] for n in sorted(slices))
+    assert "[[the dog is asleep]]" in joined  # a note survives
+    assert "Title: Granny Advice" not in joined and "boneyard" not in joined  # the title page and the boneyard above the first section are not in a chapter
+    first = slices[min(slices)]
+    assert first.startswith("# Act One")  # a chapter starts at the section written above its first scene
+    assert slices[max(slices)].startswith("# Act Two") and slices[max(slices)].rstrip().endswith("Nonsense.")
+    assert all(s.endswith("\n") and not s.endswith("\n\n") for s in slices.values())
+
+
+def test_a_screenplay_of_one_chapter_gives_one_slice_from_its_first_scene_to_the_end():
+    one = "Title: T\n\nEXT. PORCH - DUSK\n\nGranny rocks.\n\nGRANNY\nHello.\n"
+    plan = fountain.cut(fountain.parse(one))
+    assert fountain.chapter_texts(one, plan) == {1: "EXT. PORCH - DUSK\n\nGranny rocks.\n\nGRANNY\nHello.\n"}
+
+
+def test_slices_work_on_windows_line_breaks_and_a_byte_order_mark():
+    text = "﻿" + NOTED.replace("\n", "\r\n")
+    plan = fountain.cut(fountain.parse(text), chapter_pages=0.1)
+    slices = fountain.chapter_texts(text, plan)
+    assert slices is not None and "\r" not in "".join(slices.values())
+
+
+def test_no_slices_when_the_text_does_not_match_the_chapters_found():
+    plan = fountain.cut(fountain.parse(NOTED), chapter_pages=0.1)
+    assert fountain.chapter_texts(NOTED.replace("EXT. PORCH - DAWN", "EXT. PORCH - NOON"), plan) is None
+
+
+# --- the Fountain is the one source: a field, a file, an older field; each chapter holds its own part ---------------------------------------
+
+
+def _chapter_texts(fake):
+    return {m["slug"]: m["dataJson"].get("fountain") for m in fake.made if m["slug"].startswith("s-chapter-")}
+
+
+def test_each_chapter_made_holds_its_own_part_of_the_fountain(marvin):
+    fake, ctx = marvin(THREE)
+    run(ctx, source="fountain")
+    held = _chapter_texts(fake)
+    assert set(held) == {"s-chapter-01", "s-chapter-02", "s-chapter-03"}
+    assert held["s-chapter-01"].startswith("# 01 One") and held["s-chapter-02"].startswith("# 02 Two") and held["s-chapter-03"].startswith("# 03 Three")
+    assert "".join(held[k] for k in sorted(held)).count("INT. ROOM - DAY") == THREE.count("INT. ROOM - DAY")  # nothing is lost between them
+
+
+def test_one_part_gives_only_that_chapter_its_text(marvin):
+    fake, ctx = marvin(THREE)
+    run(ctx, source="fountain", part="2")
+    assert list(_chapter_texts(fake)) == ["s-chapter-02"] and _chapter_texts(fake)["s-chapter-02"].startswith("# 02 Two")
+
+
+def test_a_preview_makes_nothing_and_says_the_chapters_would_hold_their_text(marvin):
+    fake, ctx = marvin(THREE)
+    done = run(ctx, source="fountain", dry_run="yes")
+    assert fake.made == [] and "would hold" in done["log"]
+
+
+def test_the_fountain_field_is_read_in_place_of_the_older_screenplay_field(marvin):
+    fake, ctx = marvin("")
+    fake.story["dataJson"]["fountain"] = THREE
+    run(ctx, source="fountain")
+    assert len(_chapter_texts(fake)) == 3
+
+
+def test_an_uploaded_fountain_file_is_read_whatever_its_size(marvin, monkeypatch):
+    fake, ctx = marvin("")
+    fake.story["dataJson"]["fountain_file"] = "asset-1"
+    monkeypatch.setattr(jobs.marvin_api, "download_asset", lambda creds, asset, dest: dest.write_text(THREE, encoding="utf-8"))
+    run(ctx, source="fountain")
+    assert len(_chapter_texts(fake)) == 3
+    assert jobs._fountain_text(ctx, "s", fake.story["dataJson"])[1] == "s's uploaded Fountain file"
+
+
+def test_fountain_text_and_an_uploaded_file_together_are_said_not_guessed_at(marvin):
+    fake, ctx = marvin("")
+    fake.story["dataJson"].update(fountain=THREE, fountain_file="asset-1")
+    with pytest.raises(JobError, match="Fountain text and an uploaded Fountain file"):
+        run(ctx, source="fountain")
+
+
+def test_a_chapter_made_before_chapters_held_their_text_is_given_it(marvin):
+    fake, ctx = marvin(THREE, have=["s-chapter-01", "s-chapter-02"])
+    run(ctx, source="fountain")
+    filled = {p[0]: p[1]["dataJson"]["fountain"] for p in fake.patched if p[0].startswith("id-s-chapter-")}
+    assert set(filled) == {"id-s-chapter-01", "id-s-chapter-02"} and filled["id-s-chapter-01"].startswith("# 01 One")
+    assert set(_chapter_texts(fake)) == {"s-chapter-03"}  # the one that was missing is made with its text
