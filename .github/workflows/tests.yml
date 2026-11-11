@@ -6,6 +6,7 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with: { path: ScreenplayStudio }
@@ -14,7 +15,16 @@ jobs:
           repository: InnerOpen/marvin-worker
           path: MarvinWorker
           token: ${{ secrets.MARVIN_WORKER_TOKEN || github.token }}
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      # The mirror can stall for an hour: short network timeouts and retries make a bad moment fail fast or pass on a second try.
+      - name: ffmpeg
+        timeout-minutes: 5
+        run: |
+          apt_opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          for attempt in 1 2 3; do
+            sudo apt-get $apt_opts update && sudo apt-get $apt_opts install -y --no-install-recommends ffmpeg && exit 0
+            sleep 10
+          done
+          exit 1
       - uses: astral-sh/setup-uv@v5
       - name: render
         working-directory: ScreenplayStudio/render

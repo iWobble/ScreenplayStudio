@@ -384,7 +384,7 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
         role = ", ".join(x for x in (who, c["age"]) if x)
         role = f"{role}. {c['description']}" if role and c["description"] else (c["description"] or role)
         cast_id = re.sub(r"[^a-z0-9]+", "-", c["name"].lower()).strip("-") or speaker
-        out.append(("cast-member", (f"{story}-{speaker}", c["name"], {"cast_id": cast_id, "role": role, "speaker": speaker, "story": story, "presence": "on screen", "status": "draft"})))
+        out.append(("cast-member", (f"{story}-{speaker}", c["name"], {"cast_id": cast_id, "role": role, "speaker": speaker, "story": story, "presence": "voice only" if re.search(r"narrat|announcer|^voice$", c["cue"], re.I) else "on screen", "status": "draft"})))
     want = {b[2]["scene"] for b in plan["beats"] if b[2].get("scene")} | {add["scene"] for _r, add in link if add.get("scene")}
     have_scenes = {e["slug"] for e in _all(ctx.creds, {"entry_type": "scene", "data": {"story": story}})}
     have_sounds = {e["slug"] for e in _all(ctx.creds, {"entry_type": "sound", "data": {"story": story}})}
@@ -457,6 +457,21 @@ def import_beats(job: dict, ctx: Context) -> dict:
     report = fplan.report(parts)
     if lost := fountain.check(fplan):
         raise JobError("the cut would lose part of the screenplay, so nothing was made: " + "; ".join(lost) + "\n\n" + report)
+    made_pieces, made_count = {}, 0  # the beats already made from this Fountain, and the piece of it each holds: a revised Fountain is fitted to them by what it says
+    for e in _all(ctx.creds, {"entry_type": "beat", "data": {"story": story}}):
+        d_ = e.get("dataJson") or {}
+        made_count += 1
+        if str(d_.get("number") or "").strip() and str(d_.get("fountain") or "").strip():
+            made_pieces[str(d_["number"]).strip()] = str(d_["fountain"])
+    try:  # only when every beat made has its piece: a story made before beats kept them is matched by number, as it was
+        revision = fountain.align(fplan, made_pieces) if made_count and len(made_pieces) == made_count else None
+    except ValueError as e:
+        raise JobError(str(e)) from e
+    if revision and (revision["new"] or revision["reworded"] or revision["removed"]):
+        report += (
+            f"\n\nRevision of what was brought in before: {revision['same']} beats unchanged, {revision['reworded']} reworded (they keep their number, picture and recording; a refresh updates or flags them), "
+            f"{len(revision['new'])} new ({', '.join(revision['new'][:12])}{'…' if len(revision['new']) > 12 else ''}: numbered after the beat before, so nothing is renumbered), {len(revision['removed'])} gone from the text."
+        )
     text, where = fplan.sheet(parts), fountain_where + (f" (chapters {part_text})" if parts is not None else "")
     if not text.strip():
         raise JobError(f"nothing to read: {where} is empty (write the Fountain in the story's Fountain field, or upload a `.fountain` file as its Fountain file)")
@@ -514,8 +529,8 @@ def import_beats(job: dict, ctx: Context) -> dict:
             add["scene"] = f"{story}-{place['slug']}"
         if beat.get("sounds") and not data.get("sounds"):
             add["sounds"] = [{"sound": f"{story}-sound-{number}-{i}", "at": c.get("at", 0)} for i, c in enumerate(beat["sounds"], 1)]
-        if rec and beat.get("fountain") and not str(data.get("fountain") or "").strip():
-            add["fountain"] = beat["fountain"]  # a beat made before it kept its own piece of the text gets it
+        if rec and beat.get("fountain") and (not str(data.get("fountain") or "").strip() or (revision is not None and str(data.get("fountain")).strip() != beat["fountain"].strip())):
+            add["fountain"] = beat["fountain"]  # a beat made before it kept its own piece of the text gets it; a revised text gives the beat it is the new piece (it is made from the text, not edited)
         for key in ("transition", "transition_text"):
             if rec and beat.get(key) and not data.get(key):
                 add[key] = beat[key]
@@ -523,7 +538,8 @@ def import_beats(job: dict, ctx: Context) -> dict:
             link.append((rec, add))
         for i, ln in enumerate(beat.get("lines") or [], 1):
             line_rec = have.get(f"{story}-line-{number}-{i}")
-            if line_rec and ln.get("fountain") and not str((line_rec.get("dataJson") or {}).get("fountain") or "").strip():
+            held = str((line_rec.get("dataJson") or {}).get("fountain") or "").strip() if line_rec else ""
+            if line_rec and ln.get("fountain") and (not held or (revision is not None and held != ln["fountain"].strip())):
                 link.append((line_rec, {"fountain": ln["fountain"], **({"simultaneous": True} if ln.get("dual") else {})}))
     extra = _implied(ctx, story, story_row, fplan, plan, link)
     if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link):
@@ -601,6 +617,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
         "sound_cues_not_imported": plan["sounds"],
         "problems": plan["problems"],
         "part": str(part_text or "all"),
+        "revision": revision,
         "split_report": report,
     }
     changed = plan["beats"] or plan["lines"] or plan["chapters"] or plan["updates"] or plan["trash"]
