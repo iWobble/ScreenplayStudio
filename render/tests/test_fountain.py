@@ -698,3 +698,77 @@ def test_synopses_become_the_chapters_summary_those_under_the_section_first():
         "Seawater floods the hold.",
     ]
     assert not any("=" in b["picture"] or "brigantine fights" in b["picture"] for _c, _n, b in plan.rows())
+
+
+# --- nothing the writer wrote is dropped: each beat and line keeps its own piece, as written -----------------------------------------------------
+
+
+def _planned(text):
+    return fountain.cut(fountain.parse(text, lines=True), chapter_pages=0.1, text=text)
+
+
+def test_the_pieces_of_all_the_beats_and_the_front_make_the_whole_text_again():
+    plan = _planned(DEVILS)
+    beats = [b for _c, _n, b in plan.rows()]
+    assert plan.front.startswith("Title: THE DEVIL'S SHOALS") and "123 Tortuga Way" in plan.front
+    whole = plan.front + "\n" + "\n".join(b["fountain"] for b in beats)
+    assert whole.split() == DEVILS.split()  # every word, in order (the blank lines between pieces are the only difference)
+
+
+def test_a_section_and_a_transition_written_before_a_beat_belong_to_it():
+    beats = [b for _c, _n, b in _planned(DEVILS).rows()]
+    assert beats[2]["fountain"].startswith("FADE OUT.\n\n# ACT II: THE DAMNED")  # the transition into it, then its section
+    assert "= Seawater floods the hold." in beats[2]["fountain"]  # and its synopsis
+    assert beats[1]["fountain"].startswith("CROSSFADE TO:")
+    assert beats[3]["fountain"].startswith("CUT TO:")
+
+
+def test_a_speech_keeps_its_own_text_with_the_marks_the_words_do_not_show():
+    text = "INT. PORCH - DAY\n\nANN (V.O.)\n(softly)\nI said *never* [[stress it]].\n\nBOB\nWell.\n"
+    plan = _planned(text)
+    lines = [ln for _c, _n, b in plan.rows() for ln in b["lines"]]
+    assert lines[0]["text"] == "I said never ." and lines[0]["fountain"] == "ANN (V.O.)\n(softly)\nI said *never* [[stress it]].\n"
+    assert lines[1]["fountain"] == "BOB\nWell.\n"
+
+
+def test_two_speakers_at_once_are_flagged_on_the_second_whichever_way_the_caret_was_written():
+    spec = "INT. DECK - NIGHT\n\nBRICK\nScrew retirement.\n\nSTEEL ^\nScrew retirement.\n"
+    ai = "INT. DECK - NIGHT\n\nVALERIE\nBrace.\n\nCHET^\n(screaming)\nHere!\nVALERIE^\n(laughing)\nFleet!\n"
+    for text, flags in ((spec, [False, True]), (ai, [False, False, True])):
+        assert [bool(e.get("dual")) for e in fountain.parse(text) if e["t"] == "dialogue"] == flags
+
+
+def test_attaching_the_source_gives_new_records_their_piece_and_the_transition():
+    plan = _planned(DEVILS)
+    imp = beat_import.import_plan("s", beat_import.parse_any(plan.sheet())[1], {})
+    fountain.attach_source(imp, plan, "s")
+    beats = {d["number"]: d for _s, _t, d in imp["beats"]}
+    assert any(d.get("transition") == "dissolve" and d["fountain"].startswith("CROSSFADE TO:") for d in beats.values())
+    lines = [d for _s, _t, d in imp["lines"]]
+    assert lines and lines[0]["fountain"] == "CHET\nLook!\n" and "simultaneous" not in lines[0]
+
+
+def test_the_job_gives_each_beat_its_text_and_transition_each_chapter_its_summary_and_the_story_its_title_page(marvin):
+    fake, ctx = marvin(DEVILS)
+    run(ctx, source="fountain", chapter_pages="0.1")
+    beats = {m["slug"]: m["dataJson"] for m in fake.made if "-beat-" in m["slug"]}
+    assert beats and all(d.get("fountain") for d in beats.values())
+    assert any(d.get("transition") == "dissolve" and d.get("transition_text") == "CROSSFADE TO:" for d in beats.values())
+    chapters = {m["slug"]: m["dataJson"] for m in fake.made if "-chapter-" in m["slug"]}
+    assert chapters["s-chapter-01"]["summary"].startswith("The wreck of a pirate ship.") and chapters["s-chapter-02"]["summary"] == "Seawater floods the hold."
+    lines = [m["dataJson"] for m in fake.made if "-line-" in m["slug"]]
+    assert lines and all(d.get("fountain") for d in lines)
+    story = fake.patched[-1][1]["dataJson"]
+    assert story["author"] == "AI Collaborator" and story["credit"] == "Written by" and story["draft_date"] == "November 2026"
+    assert story["contact"] == "Agent: Blackbeard Literary\n123 Tortuga Way" and story["title_page_other"] == "format: Short Screenplay"
+    assert story["fountain_front"].startswith("Title: THE DEVIL'S SHOALS")
+
+
+def test_a_title_page_field_the_person_filled_in_is_kept_and_a_preview_writes_none(marvin):
+    fake, ctx = marvin(DEVILS)
+    fake.story["dataJson"]["author"] = "Jared"
+    run(ctx, source="fountain", chapter_pages="0.1")
+    assert fake.patched[-1][1]["dataJson"]["author"] == "Jared"
+    fake2, ctx2 = marvin(DEVILS)
+    run(ctx2, source="fountain", dry_run="yes", chapter_pages="0.1")
+    assert "author" not in fake2.patched[-1][1]["dataJson"] and "fountain_front" not in fake2.patched[-1][1]["dataJson"]

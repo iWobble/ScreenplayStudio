@@ -181,7 +181,7 @@ def _block_content(block: list[str]) -> list[dict]:
             s = ln.strip()
             (paren if s.startswith("(") and s.endswith(")") else speech).append(s.strip("()") if s.startswith("(") and s.endswith(")") else s.lstrip("~").strip())  # a sung line of a speech is the words, not the mark
         if speech:
-            return [{"t": "dialogue", "name": _cue_name(first), "ext": (ext.group(1) if ext else ""), "paren": paren, "text": " ".join(speech).strip()}]
+            return [{"t": "dialogue", "name": _cue_name(first), "ext": (ext.group(1) if ext else ""), "paren": paren, "text": " ".join(speech).strip(), "dual": first.rstrip().endswith("^")}]
     if all(ln.strip().startswith("~") for ln in block):  # lyrics: words that are sung, not described and not (yet) anyone's line
         return [{"t": "lyrics", "text": " ".join(ln.strip().lstrip("~").strip() for ln in block).strip()}]
     text_ = " ".join(ln.strip().lstrip("!~") for ln in block).strip()
@@ -192,14 +192,17 @@ def _block_content(block: list[str]) -> list[dict]:
 def parse(text: str, *, lines: bool = False) -> list[dict]:
     """The screenplay's elements in order: {t: scene|action|dialogue|transition|section, ...}. A title page, page breaks and synopses are left out.
     With `lines`, each element also says the line (counting from 0) of the text it starts on."""
-    blocks = _blocks_at(_clean(text))
+    blocks = _blocks_at(_blank_comments(_normal(text)) if lines else _clean(text))  # to say where each element is, a note or boneyard keeps its line breaks
     if blocks and all(_ANY_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
         blocks = blocks[1:]  # a title page: it starts with a key Fountain knows, and every line is a key or the rest of one
     known = {_cue_name(block[0]) for _start, block in blocks if len(block) >= 2 and _is_character(block[0])}
     out: list[dict] = []
     for start, block in blocks:
-        for at, piece in _split_cues(start, block, known):
+        pieces = _split_cues(start, block, known)
+        for n, (at, piece) in enumerate(pieces):
             for el in _plain_elements(_block_elements(piece)):
+                if n == 0 and len(pieces) > 1 and el["t"] == "dialogue":
+                    el["dual"] = False  # written together with no blank line, only the second can be the one that speaks over the first
                 out.append({**el, "line": at} if lines else el)
     return out
 
@@ -395,6 +398,7 @@ class Plan:
     warnings: list[str]
     source: dict
     single: bool
+    front: str = ""  # what is written before the first beat, as written: the title page, and anything the story does not make a beat of
 
     def number(self, chapter: Chapter, i: int) -> str:
         return f"{i:02d}" if self.single else str(chapter.number * 1000 + i)
@@ -464,10 +468,18 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
     first beat of the next, and only the story's very first beat has nothing before it to change from."""
     out: list[dict] = []
     carry = carry if carry is not None else {"held": [], "seen": False}
+    carry.setdefault("held_at", None)
     held: list[str] = carry["held"]  # transition lines written since the last beat: they belong to the one that comes next
+    scene_first = [True]
 
-    def start(picture: str) -> dict:
+    def start(picture: str, at: "int | None" = None, scene_start: "int | None" = None) -> dict:
         beat: dict = {"picture": picture, "lines": [], "notes": [], "sung": []}
+        if at is not None:  # where the beat starts in the text: a section or transition written just above it starts it
+            for earlier in (carry["held_at"], scene_start if scene_first[0] else None):
+                at = at if earlier is None else min(at, earlier)
+            beat["at"] = at
+        carry["held_at"] = None
+        scene_first[0] = False
         if held:
             beat["transition_text"] = held[-1]
             kind = transition_kind(held[-1])
@@ -482,10 +494,13 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
     for scene in scenes:
         cur = None
         fresh_scene = True
+        scene_first[0] = True
         for el in scene.elements:
             t = el["t"]
+            ln = el.get("line")
+            sc = scene.start if ln is not None else None
             if t == "scene":
-                cur = start(el["text"])
+                cur = start(el["text"], ln, sc)
                 fresh_scene = True
             elif t == "action":
                 # Action with no speech between it and the last action is the same picture (up to a paragraph's worth); after speech it is a new one.
@@ -493,25 +508,27 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
                     joined = f"{cur['picture']}. {el['text']}" if fresh_scene else f"{cur['picture']} {el['text']}"
                     cur["picture"] = joined
                 else:
-                    cur = start(el["text"])
+                    cur = start(el["text"], ln, sc)
                 fresh_scene = False
             elif t == "dialogue":
                 if cur is None:
-                    cur = start(scene.heading or "Continues")
+                    cur = start(scene.heading or "Continues", ln, sc)
                 if len(cur["lines"]) >= LINES_PER_BEAT:
-                    cur = start(f"(continued) {cur['picture'][:80]}")
+                    cur = start(f"(continued) {cur['picture'][:80]}", ln, sc)
                 who = names.get(el["name"], el["name"].capitalize())
-                cur["lines"].append({"speaker": who, "text": el["text"]})
+                cur["lines"].append({"speaker": who, "text": el["text"], "at": ln, "end": el.get("end"), "dual": bool(el.get("dual"))})
                 note = ", ".join(el["paren"] + ([el["ext"]] if el["ext"] else []))
                 if note:
                     cur["notes"].append(f"{who} ({note})")
                 fresh_scene = False
             elif t == "lyrics":
                 if cur is None:
-                    cur = start(scene.heading or "Continues")
+                    cur = start(scene.heading or "Continues", ln, sc)
                 cur["sung"].append(el["text"])
             elif t == "transition":
                 held.append(el["text"])
+                if ln is not None and carry["held_at"] is None:
+                    carry["held_at"] = ln
                 cur = None
     for b in out:
         if b["notes"]:
@@ -519,7 +536,20 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
     return out
 
 
-def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: float = MAX_CHAPTER_PAGES) -> Plan:
+def _piece(lines: list[str], start: int, stop: int) -> str:
+    text = "\n".join(lines[start:stop]).strip("\n")
+    return text + "\n" if text else ""
+
+
+def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: float = MAX_CHAPTER_PAGES, text: "str | None" = None) -> Plan:
+    """The chapters, beats and lines of a screenplay. Given the `text` it was read from (and the elements read with `lines=True`), each beat and each
+    speech also holds its own piece of the writer's text, as written (`fountain`), and the plan holds what comes before the first beat (`front`):
+    nothing the writer wrote is dropped, it stays with the beat it was written for."""
+    positioned = text is not None and bool(elements) and "line" in elements[0]
+    all_lines = _normal(text).split("\n") if positioned and text is not None else []
+    if positioned:
+        for i, el in enumerate(elements):
+            el["end"] = elements[i + 1]["line"] if i + 1 < len(elements) else len(all_lines)
     scenes = _scenes(elements)
     warnings: list[str] = []
     if not scenes:
@@ -533,7 +563,7 @@ def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: f
     explicit = [int(m.group(1)) for m in numbered if m]
     use_titles = len(explicit) == len(groups) and len(set(explicit)) == len(groups) and explicit == sorted(explicit)
     chapters = []
-    carry: dict = {"held": [], "seen": False}
+    carry: dict = {"held": [], "seen": False, "held_at": None}
     for i, (title, group) in enumerate(groups, 1):
         m = numbered[i - 1]
         n = int(m.group(1)) if use_titles and m else i
@@ -559,7 +589,17 @@ def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: f
         "dialogue_words": sum(_words(e["text"]) for e in elements if e["t"] == "dialogue"),
         "actions": [e["text"] for e in elements if e["t"] == "action"],
     }
-    return Plan(chapters, {r: h for r, h in names.items()}, warnings, source, single)
+    front = ""
+    if positioned:
+        flat = [b for ch in chapters for b in ch.beats if "at" in b]
+        for i, b in enumerate(flat):
+            stop = flat[i + 1]["at"] if i + 1 < len(flat) else len(all_lines)
+            b["fountain"] = _piece(all_lines, b["at"], stop)
+            for ln in b["lines"]:
+                if ln.get("at") is not None:
+                    ln["fountain"] = _piece(all_lines, ln["at"], ln.get("end") or stop)
+        front = _piece(all_lines, 0, flat[0]["at"]) if flat else ""
+    return Plan(chapters, {r: h for r, h in names.items()}, warnings, source, single, front)
 
 
 def check(plan: Plan) -> list[str]:
@@ -633,3 +673,23 @@ def title_page(text: str) -> dict[str, str]:
         elif key:
             entries[key] = (entries[key] + "\n" + ln.strip()).strip()
     return entries
+
+
+def attach_source(imp: dict, plan: Plan, story: str) -> None:
+    """Give the records an import plan is about to make (`beat_import.import_plan`) what the screenplay said that the beat sheet cannot carry: each
+    beat's own text as written (`fountain`) and the transition written before it, each line's own text (`fountain`) and whether it is spoken over
+    the line before (`simultaneous`). New records only; one that exists is left as it is."""
+    by_number = {n: b for _c, n, b in plan.rows()}
+    for _slug, _title, data in imp["beats"]:
+        beat = by_number.get(str(data.get("number")))
+        for key in ("fountain", "transition", "transition_text"):
+            if beat and beat.get(key):
+                data[key] = beat[key]
+    for slug, _title, data in imp["lines"]:
+        m = re.search(r"-line-(.+)-(\d+)$", slug)
+        beat = by_number.get(m.group(1)) if m else None
+        ln = beat["lines"][int(m.group(2)) - 1] if beat and m and 0 < int(m.group(2)) <= len(beat["lines"]) else None
+        if ln and ln.get("fountain"):
+            data["fountain"] = ln["fountain"]
+        if ln and ln.get("dual"):
+            data["simultaneous"] = True

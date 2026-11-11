@@ -56,6 +56,18 @@ def _sound_line(placed: dict, sounds: dict) -> str:
     return f"SFX {when}: {name.lower()}" if when else f"SFX: {name.lower()}"
 
 
+def fountain_as_written(records: dict) -> "str | None":
+    """The Fountain the writer wrote, made again from what the records kept of it: the story's front matter (the title page), then each beat's own
+    piece in order. The same words in the same order, with one blank line between pieces. None when the story was not made from Fountain (a beat
+    holds no text of its own), and then the production script below is the one to make."""
+    beats = records.get("beats", [])
+    pieces = [str(_data(b).get("fountain") or "") for b in beats]
+    if not beats or not all(piece.strip() for piece in pieces):
+        return None
+    front = str(_data(records["story"]).get("fountain_front") or "")
+    return "\n".join(p for p in [front, *pieces] if p.strip()).rstrip("\n") + "\n"
+
+
 def fountain(records: dict) -> str:
     """The Fountain text for `records`: {"story": row, "scenes": {slug: row}, "beats": [row], "lines": {beat slug: [row]}, "sounds": {slug: row}}."""
     story = records["story"]
