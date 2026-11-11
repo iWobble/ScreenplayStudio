@@ -1359,3 +1359,10 @@ def test_a_preview_names_the_gaps_and_writes_no_setting(marvin):
 def test_a_screenplay_with_no_synopsis_is_set_where_its_first_place_is():
     plan = fountain.cut(fountain.parse(CAST_TEXT.replace("= The ship breaks up.\n", "")))
     assert jobs._setting_from(plan) == "The Reef (exterior), Night, Dawn"
+
+
+def test_a_character_is_introduced_by_a_comma_age_as_well_as_a_bracketed_one():
+    text = "INT. CABIN - NIGHT\n\nCAPTAIN VALERIE \"THE VULTURE\" VANE, 40s, braces herself over a chart. A clouded eye beneath a soaked tricorn.\n\nCHET, 20s, clutches a waterlogged logbook.\n\nCHET\nWe have to drop anchor!\n\nVALERIE\nWe push through.\n"
+    who = {c["handle"]: c for c in fountain.cut(fountain.parse(text)).characters}
+    assert (who["Valerie"]["age"], who["Valerie"]["sex"]) == ("40s", "female") and "clouded eye" in who["Valerie"]["description"]
+    assert who["Chet"]["age"] == "20s" and "logbook" in who["Chet"]["description"]

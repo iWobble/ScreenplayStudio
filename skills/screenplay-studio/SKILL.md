@@ -1,6 +1,6 @@
 ---
 name: screenplay-studio
-description: Run Screenplay Studio, the story-to-narrated-video pipeline built on a Marvin workspace. Use for cutting a Fountain screenplay into chapters, beats, characters, scenes and sounds in Marvin (import-beats, Refresh), chapters and episodes of a series, casting actors who play one person at several ages (views tagged age-young, age-mid, age-old, make-master), transcribing a recording as the start of a script, the filmstrip approval and the render job, and running or debugging the workers and their container image.
+description: Run Screenplay Studio, the story-to-narrated-video pipeline built on a Marvin workspace. Use for writing a Fountain screenplay from an idea so the import reads all of it, for cutting a Fountain screenplay into chapters, beats, characters, scenes and sounds in Marvin (import-beats, Refresh), chapters and episodes of a series, casting actors who play one person at several ages (views tagged age-young, age-mid, age-old, make-master), transcribing a recording as the start of a script, the filmstrip approval and the render job, and running or debugging the workers and their container image.
 ---
 
 # Screenplay Studio
@@ -9,6 +9,7 @@ Screenplay Studio is the pipeline, not any one world. A **world** (Storyworld is
 
 **In a Marvin workspace the records are the source of truth.** Read references/marvin.md first: what each record holds, the workflows, and the stages from idea to video.
 
+- **Writing a Fountain from an idea (or asking an AI to):** read references/fountain.md first. It lists what to decide before writing, the title page (including `Setting:` and `Premise:`), the structure, how to introduce each character, dialogue, pictures, timing, sound and notes, a skeleton, and a check to run before importing. What the file does not say is empty in Marvin.
 - **Cutting a Fountain into beats:** the story is one Fountain document (written by you or by an AI) in its Fountain field. The import cuts it with no AI: a `#` section line is a chapter, a scene heading with its first action is a picture, each further action is another, a page break (`===`) always starts a new picture, and each speech is a spoken line. It also makes a Character for each speaker, a Scene for each place and a draft Sound for each sound the words call for. A beat is one picture with its words and sounds, the same as a shot-list row, not a plot beat.
 - **One place to edit:** the story's Fountain. Bring it in again after changing it (Refresh adds, updates what nothing has been made from, moves what is gone to the Trash, keeps and flags anything with a picture or recording). The Script job with *version: complete* writes the records back out as a Fountain, and *written* writes the Fountain as it was written.
 - **Casting:** read references/actors.md. One actor can play the same person at several ages; tag the actor's views `age-young`, `age-mid`, `age-old` and give each Character an Age.
