@@ -41,6 +41,8 @@ A character is made from an actor, not from scratch. Fields: `story`, `actor` (t
 
 `story`, `role`, `character`, `actor` (the candidate), `state` (what the role needs at that point), `fit` (why this actor does or does not fit), `status` (`considering`, `auditioned`, `chosen`, `passed`) and a `screen_test` picture. Search the troupe on the hard fields (presence, base, age range) first, then judge look and voice by eye and ear and write the verdict in `fit`. A role that fits nobody is a gap: make a new actor.
 
+The **Casting call** guided setup (Setups) walks it for one story: pick the world and the story, list the roles (the characters), look through the troupe, shortlist actors for a role (each shortlisted actor is a casting record, with a note on the fit and an optional screen test; mark one Chosen and the others Passed), give the role to the chosen actor with the age and the costume and props, then make the role's master picture. Do the next role by picking it again. The Open call scouts the troupe first; Narrate a story brings in the script and beats.
+
 ## Reading what is in Marvin
 
 `marvin platform entries get <slug>` returns an actor's or character's fields and its attached pictures with their URLs. Download the picture to attach it as a reference; do not describe it from memory.
