@@ -51,7 +51,7 @@ def test_sections_forced_elements_and_page_breaks():
     assert got[0] == ("section", "Act One")
     assert ("scene", "OPENING") in got and ("dialogue", "McCLANE") in got
     assert ("action", "INT. NOT A HEADING") in got and ("action", "THE END") in got
-    assert not any("synopsis" in str(v) for _, v in got)
+    assert ("synopsis", "a synopsis") in got  # the writer's one-line summary, kept apart from the action
 
 
 def test_a_one_line_shout_is_action_not_a_speaker():
@@ -545,8 +545,10 @@ def test_every_element_of_the_fountain_spec_is_read_as_the_spec_says():
         return (e["t"], e.get("title") or e["text"]) if e["t"] != "section" else ("section", e["depth"], e["title"])
 
     assert [show(e) for e in fountain.parse(ALL_ELEMENTS)] == [
-        ("section", 1, "ACT ONE"),  # a section; the synopsis under it and the page break are the writer's, and the title page, notes and boneyard are dropped
+        ("section", 1, "ACT ONE"),  # a section; the page break is the writer's, and the title page, notes and boneyard are dropped
+        ("synopsis", "A synopsis of the act."),  # a synopsis is the writer's one-line summary
         ("section", 2, "The porch"),
+        ("synopsis", "Another synopsis."),
         ("scene", "EXT. PORCH - DUSK"),  # its scene number (#1#) is not part of the place
         ("action", "Granny rocks. Italic, bold, both, underline."),  # emphasis marks and the inline note are gone
         ("action", "SHOUT IN ACTION, FORCED"),  # `!` forces action
@@ -572,7 +574,10 @@ def test_every_element_of_the_fountain_spec_is_read_as_the_spec_says():
 def test_a_synopsis_right_under_a_scene_heading_is_the_writers_and_is_not_in_the_beat():
     text = "EXT. SHOALS - NIGHT\n= The brigantine fights a losing battle.\n\nA violent storm rages.\n\n.THE DECK - NIGHT\n= Introduce the environment.\n\nLightning flashes.\n"
     els = fountain.parse(text)
-    assert [(e["t"], e["text"]) for e in els] == [("scene", "EXT. SHOALS - NIGHT"), ("action", "A violent storm rages."), ("scene", "THE DECK - NIGHT"), ("action", "Lightning flashes.")]
+    assert [(e["t"], e["text"]) for e in els] == [
+        ("scene", "EXT. SHOALS - NIGHT"), ("synopsis", "The brigantine fights a losing battle."), ("action", "A violent storm rages."),
+        ("scene", "THE DECK - NIGHT"), ("synopsis", "Introduce the environment."), ("action", "Lightning flashes."),
+    ]
     assert not any("=" in b["picture"] for _c, _n, b in fountain.cut(els).rows())
 
 
@@ -610,3 +615,86 @@ def test_a_sound_note_is_read_once_from_a_cell_written_with_pilcrows():
 def test_an_escaped_mark_is_the_plain_character():
     els = fountain.parse("INT. X - DAY\n\nTwo \\*stars\\* here, _under_ and snake\\_case.\n")
     assert els[1]["text"] == "Two *stars* here, under and snake_case."
+
+
+# --- the metadata: title page, transitions, synopses ------------------------------------------------------------------------------------------
+
+
+def test_the_title_page_is_read_with_its_own_keys_and_its_multi_line_entries():
+    entries = fountain.title_page(DEVILS)
+    assert entries["title"] == "THE DEVIL'S SHOALS" and entries["draft_date"] == "November 2026" and entries["format"] == "Short Screenplay"
+    assert entries["contact"] == "Agent: Blackbeard Literary\n123 Tortuga Way"
+    assert list(entries)[:3] == ["title", "credit", "author"]
+    assert fountain.title_page("EXT. SHOALS - NIGHT\n\nWaves.\n") == {} and fountain.title_page('TITLE CARD: "Dead men."\n\nEXT. X - DAY\n') == {}
+
+
+DEVILS = """Title: THE DEVIL'S SHOALS
+Credit: Written by
+Author: AI Collaborator
+Draft date: November 2026
+Format: Short Screenplay
+Contact:
+    Agent: Blackbeard Literary
+    123 Tortuga Way
+
+# ACT I: THE WRECK
+
+= The wreck of a pirate ship.
+
+EXT. SHOALS - NIGHT
+= The brigantine fights a losing battle.
+
+Waves crash.
+
+CROSSFADE TO:
+
+INT. CABIN - NIGHT
+= The captain refuses to back down.
+
+CHET
+Look!
+
+FADE OUT.
+
+# ACT II: THE DAMNED
+
+INT. HOLD - DAY
+= Seawater floods the hold.
+
+Gold spills.
+
+CUT TO:
+
+EXT. DECK - DAY
+
+Fog.
+"""
+
+
+def test_a_transition_belongs_to_the_beat_that_comes_after_it_in_the_words_the_video_has():
+    plan = fountain.cut(fountain.parse(DEVILS))
+    beats = [b for _c, _n, b in plan.rows()]
+    assert [(b["picture"][:12], b.get("transition"), b.get("transition_text")) for b in beats] == [
+        ("EXT. SHOALS ", None, None),
+        ("INT. CABIN -", "dissolve", "CROSSFADE TO:"),
+        ("INT. HOLD - ", "fade", "FADE OUT."),  # written at the end of the last chapter, it belongs to the first beat of the next
+        ("EXT. DECK - ", "cut", "CUT TO:"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("line", "kind"),
+    [("CUT TO:", "cut"), ("SMASH CUT TO:", "cut"), ("MATCH CUT TO:", "cut"), ("DISSOLVE TO:", "dissolve"), ("CROSSFADE TO:", "dissolve"), ("CROSS DISSOLVE TO:", "dissolve"),
+     ("FADE TO:", "fade"), ("FADE OUT.", "fade"), ("FADE TO BLACK.", "fade"), ("FADE IN:", "fade"), ("WIPE TO:", None)],
+)
+def test_a_transition_line_is_a_cut_a_fade_or_a_dissolve(line, kind):
+    assert fountain.transition_kind(line) == kind
+
+
+def test_synopses_become_the_chapters_summary_those_under_the_section_first():
+    plan = fountain.cut(fountain.parse(DEVILS))
+    assert [c.summary for c in plan.chapters] == [
+        "The wreck of a pirate ship. The brigantine fights a losing battle. The captain refuses to back down.",
+        "Seawater floods the hold.",
+    ]
+    assert not any("=" in b["picture"] or "brigantine fights" in b["picture"] for _c, _n, b in plan.rows())
