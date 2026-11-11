@@ -502,7 +502,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
         if (n := _chapter_of(story, slug)) in extras and (missing := {k: v for k, v in extras[n].items() if not str((rec.get("dataJson") or {}).get(k) or "").strip()})
     ]
     extra: list[tuple[str, tuple[str, str, dict]]] = []  # the characters and scenes the screenplay implies that this story does not have yet
-    link: list[tuple[dict, str]] = []  # beats that are already there but are in no Scene yet, with the Scene the screenplay puts them in
+    link: list[tuple[dict, dict]] = []  # records that are already there and lack something the Fountain gives them (a Scene, sounds, their own piece of the text), with what to add
     for _chapter, number, beat in fplan.rows():
         place = fountain.place_of(beat.get("place", ""))
         rec = have.get(f"{story}-beat-{number}")
@@ -512,8 +512,17 @@ def import_beats(job: dict, ctx: Context) -> dict:
             add["scene"] = f"{story}-{place['slug']}"
         if beat.get("sounds") and not data.get("sounds"):
             add["sounds"] = [{"sound": f"{story}-sound-{number}-{i}", "at": c.get("at", 0)} for i, c in enumerate(beat["sounds"], 1)]
+        if rec and beat.get("fountain") and not str(data.get("fountain") or "").strip():
+            add["fountain"] = beat["fountain"]  # a beat made before it kept its own piece of the text gets it
+        for key in ("transition", "transition_text"):
+            if rec and beat.get(key) and not data.get(key):
+                add[key] = beat[key]
         if rec and add:
             link.append((rec, add))
+        for i, ln in enumerate(beat.get("lines") or [], 1):
+            line_rec = have.get(f"{story}-line-{number}-{i}")
+            if line_rec and ln.get("fountain") and not str((line_rec.get("dataJson") or {}).get("fountain") or "").strip():
+                link.append((line_rec, {"fountain": ln["fountain"], **({"simultaneous": True} if ln.get("dual") else {})}))
     extra = _implied(ctx, story, story_row, fplan, plan, link)
     if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link):
         types = {t["slug"]: t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types"))}
@@ -551,7 +560,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
         made = {t: [r[1] for u, r in extra if u == t] for t in ("cast-member", "scene", "sound")}
         note += f", {len(made['cast-member'])} characters ({', '.join(made['cast-member'])}), {len(made['scene'])} scenes ({', '.join(made['scene'])}) and {len(made['sound'])} sounds to fill in ({', '.join(made['sound'][:8])}{'…' if len(made['sound']) > 8 else ''})"
     if link:
-        note += f", and {'would put' if dry else 'put'} {len(link)} beats that were made earlier into their scenes"
+        note += f", and {'would fill' if dry else 'filled'} in {len(link)} records made earlier (their scene, sounds and own piece of the Fountain)"
     if refresh:
         note += f"; {uverb} {len(plan['updates'])} that nothing had been made from; {plan['same']} already matched"
     note += f". {plan['have']['beats']} beats and {plan['have']['lines']} lines were already there" + (" (the rest left alone)." if not refresh else ".")
@@ -578,7 +587,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
         "characters_made": [r[0] for t, r in extra if t == "cast-member"],
         "scenes_made": [r[0] for t, r in extra if t == "scene"],
         "sounds_made": [r[0] for t, r in extra if t == "sound"],
-        "beats_put_in_scenes": len(link),
+        "records_filled_in": len(link),
         "updated": [u[0] for u in plan["updates"]],
         "already_matched": plan["same"],
         "kept_because_worked_on": [{"slug": s, "why": why} for s, why in plan["kept"]],
