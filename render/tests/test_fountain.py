@@ -1015,3 +1015,14 @@ def test_a_hold_note_on_a_beat_sets_its_hold_and_a_hold_already_set_is_kept():
     imp = {"beats": [("b1", "t", {"number": "01"}), ("b2", "t", {"number": "02", "hold_seconds": 9}), ("b3", "t", {"number": "03"})], "lines": []}
     fountain.attach_source(imp, plan, "s")
     assert [d.get("hold_seconds") for _s, _t, d in imp["beats"]] == [6.0, 9, None]
+
+
+def test_a_sound_note_on_a_beat_is_the_writers_own_cue_and_is_placed_where_it_says():
+    text = ".THE GALLEY\n\nA pot on a table.\n\n[[Beat 01. Hold: 4s.]]\n\n[[Sound: a pot lid clanks at 1.5s.]]\n\n[[Sound: rain and wind.]]\n\n===\n\nA hand.\n"
+    plan = fountain.cut(fountain.parse(text, lines=True), text=text)
+    first = plan.rows()[0][2]["sounds"]
+    assert [(c["kind"], c["prompt"], c["at"]) for c in first] == [("effect", "a pot lid clanks", 1.5), ("effect", "rain and wind", 0.0)]
+    assert plan.rows()[1][2]["sounds"] == []
+    imp = {"beats": [("b1", "t", {"number": "01"})], "lines": []}
+    fountain.attach_source(imp, plan, "s")
+    assert imp["beats"][0][2]["sounds"] == [{"sound": "s-sound-01-1", "at": 1.5}, {"sound": "s-sound-01-2", "at": 0.0}]
