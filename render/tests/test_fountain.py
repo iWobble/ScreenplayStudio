@@ -599,3 +599,9 @@ def test_a_sung_line_travels_with_its_beat_as_a_sound_note_and_the_cut_still_los
     first = rows[0]
     assert "Row, row, row your boat" in beat_import.notes_of(first) and "Sound:" in beat_import.notes_of(first)
     assert [l["text"] for r in rows for l in r["lines"]] == ["Listen to this. Merrily, merrily Life is but a dream"]
+
+
+def test_a_sound_note_is_read_once_from_a_cell_written_with_pilcrows():
+    plan = fountain.cut(fountain.parse(SONG))
+    notes = [beat_import.notes_of(r) for r in beat_import.parse_any(plan.sheet())[1]]
+    assert notes[0] == "Sound: sung: Row, row, row your boat Gently down the stream"
