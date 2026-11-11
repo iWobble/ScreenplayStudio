@@ -1219,3 +1219,42 @@ def test_the_breakdown_lists_the_applied_revisions():
         {"slug": "r2", "title": "R2", "dataJson": {"number": 2, "applied_at": "2026-11-12", "note": "A longer cabin scene", "same": 15, "reworded": 0, "new_beats": "1004a, 1004b", "removed": 1}}]}
     page = script.breakdown_html(script.breakdown(records))
     assert "Revisions" in page and "Narration in act one" in page and "1004a, 1004b" in page and "Revision 2, 12 November 2026" in page
+
+
+# --- who is in a beat's picture ----------------------------------------------------------------------------------------------------------
+
+def test_the_cast_of_a_beat_is_who_speaks_in_it_then_who_its_action_names_and_never_a_narrator():
+    people = [{"handle": "Valerie", "cue": "VALERIE", "name": "Valerie"}, {"handle": "Chet", "cue": "CHET", "name": "Chet"}, {"handle": "Narrator", "cue": "NARRATOR (V.O.)", "name": "Narrator"}]
+    beat = {"picture": "Chet looks up while the narrator speaks. Valerie waits.", "lines": [{"speaker": "Narrator"}]}
+    assert fountain.cast_of(beat, people) == ["chet", "valerie"]  # named, in the order the action names them; the narrator is a voice
+    assert fountain.cast_of({"picture": "Rain.", "lines": [{"speaker": "Valerie"}, {"speaker": "Chet"}, {"speaker": "Valerie"}]}, people) == ["valerie", "chet"]
+    assert fountain.cast_of({"picture": "Chetwynd Hall at dusk.", "lines": []}, people) == []  # whole words only
+
+
+def test_new_beats_are_cast_from_who_speaks_and_who_the_action_names(casting):
+    fake, ctx = casting(CAST_TEXT)
+    run(ctx)
+    beats = {m["slug"]: m["dataJson"] for m in fake.made if m["entryTypeId"] == "T-beat"}
+    first = beats["s-beat-01"]
+    assert first["cast"].split(",")[:2] == ["s-valerie", "s-chet"] and "s-hand" in first["cast"].split(",")
+    assert "references" not in first  # nobody has a master picture yet: the cast is set and a later import adds the pictures
+
+
+def test_running_the_import_again_adds_the_masters_of_the_cast_and_keeps_what_was_set(casting):
+    first, ctx = casting(CAST_TEXT)
+    run(ctx)
+    beats = {m["slug"]: {"id": f"id-{m['slug']}", "slug": m["slug"], "title": m["title"], "dataJson": dict(m["dataJson"])} for m in first.made if m["entryTypeId"] == "T-beat"}
+    beats["s-beat-01"]["dataJson"].pop("cast")
+    mine = next(b for slug, b in beats.items() if slug != "s-beat-01")
+    mine["dataJson"]["cast"] = "s-chet"  # set by hand: left as it is
+    mine["dataJson"]["references"] = "a-place-picture"  # a picture of the place: kept, and the master follows it
+    again, ctx2 = casting(CAST_TEXT)
+    again.records = dict(beats)
+    for who, master in (("valerie", "m-val"), ("chet", "m-chet")):
+        again.on_hand["cast-member"][f"s-{who}"] = {"id": f"c-{who}", "slug": f"s-{who}", "title": who, "dataJson": {"story": "s", "speaker": who, "master": master}}
+    run(ctx2)
+    put = {p[0]: p[1]["dataJson"] for p in again.patched if p[0] != "e0"}
+    one = put["id-s-beat-01"]
+    assert one["cast"].split(",")[:2] == ["s-valerie", "s-chet"] and one["references"].split(",") == ["m-val", "m-chet"]
+    if mine["slug"] in {b["slug"] for b in beats.values()} and f"id-{mine['slug']}" in put:
+        assert put[f"id-{mine['slug']}"]["cast"] == "s-chet" and put[f"id-{mine['slug']}"]["references"] == "a-place-picture"

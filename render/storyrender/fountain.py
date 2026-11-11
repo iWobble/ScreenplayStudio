@@ -622,6 +622,32 @@ def characters(elements: list[dict], names: dict[str, str]) -> list[dict]:
     return out
 
 
+VOICE_ONLY = re.compile(r"narrat|announcer|^voice$", re.I)
+"""A speaker with no body in the picture: a narrator, an announcer, a bare VOICE."""
+
+
+def cast_of(beat: dict, characters: list[dict]) -> list[str]:
+    """The handles of the characters in a beat's picture: those who speak in it, in the order they first speak, then those its action names (by name or
+    cue, whole words), in the order they come. A narrator or announcer is a voice, not someone in frame, so is never in the cast."""
+    seen: list[str] = []
+    spoke = [str(ln.get("speaker") or "").lower() for ln in beat.get("lines") or []]
+    text = str(beat.get("picture") or "")
+    named: list[tuple[int, str]] = []
+    for c in characters:
+        handle = str(c["handle"]).lower()
+        if VOICE_ONLY.search(str(c.get("cue") or c.get("name") or handle)):
+            continue
+        if handle in spoke:
+            continue
+        hits = [m.start() for word in {c.get("name"), c.get("cue"), handle} if word for m in re.finditer(rf"\b{re.escape(str(word))}\b", text, re.I)]
+        if hits:
+            named.append((min(hits), handle))
+    for handle in spoke:
+        if handle and handle not in seen and any(str(c["handle"]).lower() == handle and not VOICE_ONLY.search(str(c.get("cue") or c.get("name") or handle)) for c in characters):
+            seen.append(handle)
+    return seen + [h for _i, h in sorted(named)]
+
+
 _TIME_WORDS = re.compile(r"\b(?:day|night|dawn|dusk|evening|morning|afternoon|sunset|sunrise|twilight|noon|midnight|continuous|later|same|moments?|minutes|hours|days)\b", re.I)
 _HEADING_KIND = re.compile(r"^(INT\.?/EXT\.?|EXT\.?/INT\.?|I/E\.?|INT\.?|EXT\.?|EST\.?)\s+", re.I)
 _SCENE_NO = re.compile(r"\s*#[^#]+#\s*$")
