@@ -12,7 +12,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import audio_convert, audio_measure, beat_export, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, script, voices
+from . import audio_convert, audio_measure, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, script, voices
 
 
 def story_of(job: dict) -> str:
@@ -166,7 +166,7 @@ SCRIPT_FILES = {"fountain": "text/plain", "pdf": "application/pdf", "html": "tex
     description="Make a story's screenplay from its records: scene headings, action, voice-over and dialogue with directions, sound cues. A Fountain file, a PDF in Courier 12 and an HTML page, plus a breakdown page: who speaks and appears, where, which sounds",
     inputs={
         "story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"},
-        "version": {"type": "string", "required": False, "description": "production (default): a production script made from the records, with the beat numbers, sound cues and directions. written: the Fountain as it was written, made again from the text each beat kept of it (for a story made from Fountain)"},
+        "version": {"type": "string", "required": False, "description": "production (default): a production script made from the records, with the beat numbers, sound cues and directions. written: the Fountain as it was written, made again from the text each beat kept of it (for a story made from Fountain). complete: every detail the records hold (title page, characters with costume and props, scenes with place, light and ambience, beats with hold, focus and sounds, lines with direction) as a Fountain that can be brought in again"},
     },
     produces=list(dict.fromkeys(SCRIPT_FILES.values())),
     needs=["screenplain"],
@@ -181,9 +181,9 @@ def make_script(job: dict, ctx: Context) -> dict:
     title = records["story"].get("title") or story
     ctx.note(f"read {len(records['beats'])} beats")
     version = str((job.get("args") or {}).get("version") or "production").strip().lower()
-    if version not in ("production", "written"):
-        raise JobError(f"version “{version}” is not production or written")
-    text = script.fountain_as_written(records) if version == "written" else None
+    if version not in ("production", "written", "complete"):
+        raise JobError(f"version “{version}” is not production, written or complete")
+    text = script.fountain_as_written(records) if version == "written" else script.fountain_complete(records) if version == "complete" else None
     if version == "written" and text is None:
         ctx.note("this story's beats hold no Fountain text of their own (it was not made from Fountain): made the production script instead")
     made = script.render(text or script.fountain(records), ctx.work / "script", story)
@@ -353,8 +353,7 @@ MAX_FOUNTAIN_BYTES = 20_000_000
 
 
 def _fountain_text(ctx: Context, story: str, story_data: dict) -> tuple[str, str]:
-    """The story's Fountain and where it came from: its `fountain` text, else the file in `fountain_file` (any size a file can be uploaded at), else
-    the `screenplay` text an older story holds. Both a text and a file is a mistake to say, not to guess at."""
+    """The story's Fountain and where it came from: its `fountain` text, else the file in `fountain_file` (any size a file can be uploaded at). Both a text and a file is a mistake to say, not to guess at."""
     text, asset = str(story_data.get("fountain") or ""), str(story_data.get("fountain_file") or "").strip()
     if text.strip() and asset:
         raise JobError(f"{story} has Fountain text and an uploaded Fountain file: the text is the one to edit, so empty it to read the file, or remove the file to read the text")
@@ -366,8 +365,6 @@ def _fountain_text(ctx: Context, story: str, story_data: dict) -> tuple[str, str
         if file.stat().st_size > MAX_FOUNTAIN_BYTES:
             raise JobError(f"the uploaded Fountain file is {file.stat().st_size // 1_000_000} MB: that is not a screenplay (20 MB at most)")
         return file.read_text(encoding="utf-8", errors="replace"), f"{story}'s uploaded Fountain file"
-    if str(story_data.get("screenplay") or "").strip():
-        return str(story_data["screenplay"]), f"{story}'s older Screenplay field"
     raise JobError(f"nothing to read: {story} has no Fountain. Write or paste it in the story's Fountain field, or upload a .fountain file")
 
 
@@ -421,89 +418,69 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
 
 @job_kind(
     "import-beats",
-    description="Read a story's beats and spoken lines out of text and make them as records (a `## Scene 3 - Title` heading above a table makes that chapter, and its beats are put in it): numbered lines (`**01** — Narrator: …`, what a story's script field holds) or a beat-sheet table (Beat | Time | Audio | Single still). Makes what is missing and leaves what is there alone; `dry_run` only says what it would make",
+    description="Read a story's Fountain (its `fountain` text, or the file in `fountain_file`) and make what it implies, with no AI: the chapters, beats and spoken lines (each holding its own part of the text), a Character for each speaker, a Scene for each place, and a draft Sound for each sound the words call for. Makes what is missing and leaves what is there alone; `dry_run` only says what it would make",
     inputs={
         "story": {"type": "string", "description": "the story entry's slug, e.g. devils-due-one-small-boat"},
-        "sheet": {"type": "asset", "required": False, "accepts": ["text/*"], "description": "a beat sheet or numbered script as a text asset (slug or id); empty reads the story's own script field"},
-        "source": {"type": "string", "required": False, "description": "fountain: read the story's Fountain (its `fountain` text, or the file in `fountain_file`; an older story's `screenplay` text), cut it into chapters and beats with no AI, make those, and give each chapter its own part of the text; the older script is not touched. script (the default, kept for stories made before Fountain): read the story's script field as a beat sheet. screenplay is the older name of fountain"},
-        "part": {"type": "string", "required": False, "description": "with source=fountain: which chapters to make, so a long script is brought in a piece at a time: all (default), 3, 2-4, or 1,3,5. Anything in Marvin outside these chapters is left alone, whatever the mode"},
-        "chapter_pages": {"type": "string", "required": False, "description": "with source=fountain and no `#` section lines in it: about how many pages a chapter should be (default 12); a chapter always ends between two scenes"},
+        "part": {"type": "string", "required": False, "description": "which chapters to make, so a long script is brought in a piece at a time: all (default), 3, 2-4, or 1,3,5. Anything in Marvin outside these chapters is left alone, whatever the mode"},
+        "chapter_pages": {"type": "string", "required": False, "description": "when the Fountain has no `#` section lines: about how many pages a chapter should be (default 12); a chapter always ends between two scenes"},
         "dry_run": {"type": "string", "required": False, "description": "yes: say what would be made or changed, write nothing"},
-        "mode": {"type": "string", "required": False, "description": "add (default): make what is missing, change nothing that exists. refresh: also bring existing beats and lines nothing has been made from (no still, no recording) in line with the sheet"},
+        "mode": {"type": "string", "required": False, "description": "add (default): make what is missing, change nothing that exists. refresh: also bring existing beats and lines nothing has been made from (no still, no recording) in line with the Fountain"},
     },
     produces=[],
 )
 def import_beats(job: dict, ctx: Context) -> dict:
-    """The beats and lines of a story, made as `beat` and `speech-line` records from a numbered script or a beat sheet."""
+    """The records a story's Fountain implies: chapters, beats and spoken lines, characters, scenes and sounds."""
     story, args = story_of(job), job.get("args") or {}
     rows_of_story = marvin_api.query(ctx.creds, {"entries": story}, limit=1)
     if not rows_of_story:
         raise JobError(f"no story “{story}” in this workspace")
     story_row = rows_of_story[0]
     story_data = dict(story_row.get("dataJson") or {})
-    sheet, loaded = str(args.get("sheet") or "").strip(), False
-    source = str(args.get("source") or "script").strip().lower()
-    if source == "screenplay":
-        source = "fountain"  # the older name of the same thing
-    if source not in ("script", "fountain"):
-        raise JobError(f"source “{source}” is not fountain (or the older script)")
     report, parts, part_text = "", None, ""
-    if source == "fountain":
-        sheet = ""  # the Fountain is the source: nothing is loaded into the older script field, and that is left as it is
-        screenplay, fountain_where = _fountain_text(ctx, story, story_data)
-        part_text = args.get("part") or story_data.get("import_part")  # asked for in the run, else what the story says to bring in
-        parts = parse_part(part_text)
-        try:
-            pages = float(args.get("chapter_pages") or fountain.CHAPTER_PAGES)
-        except ValueError:
-            raise JobError("chapter_pages is a number of pages, like 12") from None
-        fplan = fountain.cut(fountain.parse(screenplay, lines=True), chapter_pages=pages, text=screenplay)
-        if not fplan.chapters:
-            raise JobError(fplan.warnings[0])
-        if fplan.single:
-            parts = None  # one chapter is the whole story: there is nothing to pick between
-        elif parts is not None and (absent := sorted(parts - {c.number for c in fplan.chapters})):
-            have_nums = ", ".join(str(c.number) for c in fplan.chapters)
-            raise JobError(f"there is no chapter {', '.join(map(str, absent))} in the screenplay; its chapters are {have_nums}.\n\n{fplan.report()}")
-        report = fplan.report(parts)
-        if lost := fountain.check(fplan):
-            raise JobError("the cut would lose part of the screenplay, so nothing was made: " + "; ".join(lost) + "\n\n" + report)
-        text, where = fplan.sheet(parts), fountain_where + (f" (chapters {part_text})" if parts is not None else "")
-    elif sheet:
-        if str(story_data.get("script") or "").strip():
-            raise JobError(f"{story} already has a script, and the script is the one place to edit it: change it there, or empty it first to load {sheet}")
-        file = ctx.work / "sheet.txt"
-        marvin_api.download_asset(ctx.creds, sheet, file)
-        text, where, loaded = file.read_text(encoding="utf-8", errors="replace"), f"the asset {sheet}", True
-        story_data["script"] = text  # the file becomes the story's script (written below), so the story is where it is edited from now on
-    else:
-        text, where = str(story_data.get("script") or ""), f"{story}'s script field"
+    screenplay, fountain_where = _fountain_text(ctx, story, story_data)
+    part_text = args.get("part") or story_data.get("import_part")  # asked for in the run, else what the story says to bring in
+    parts = parse_part(part_text)
+    try:
+        pages = float(args.get("chapter_pages") or fountain.CHAPTER_PAGES)
+    except ValueError:
+        raise JobError("chapter_pages is a number of pages, like 12") from None
+    fplan = fountain.cut(fountain.parse(screenplay, lines=True), chapter_pages=pages, text=screenplay)
+    if not fplan.chapters:
+        raise JobError(fplan.warnings[0])
+    if fplan.single:
+        parts = None  # one chapter is the whole story: there is nothing to pick between
+    elif parts is not None and (absent := sorted(parts - {c.number for c in fplan.chapters})):
+        have_nums = ", ".join(str(c.number) for c in fplan.chapters)
+        raise JobError(f"there is no chapter {', '.join(map(str, absent))} in the screenplay; its chapters are {have_nums}.\n\n{fplan.report()}")
+    report = fplan.report(parts)
+    if lost := fountain.check(fplan):
+        raise JobError("the cut would lose part of the screenplay, so nothing was made: " + "; ".join(lost) + "\n\n" + report)
+    text, where = fplan.sheet(parts), fountain_where + (f" (chapters {part_text})" if parts is not None else "")
     if not text.strip():
-        raise JobError(f"nothing to read: {where} is empty (give `sheet`, or put the numbered lines in the story's script field)")
+        raise JobError(f"nothing to read: {where} is empty (write the Fountain in the story's Fountain field, or upload a `.fountain` file as its Fountain file)")
     kind, rows = beat_import.parse_any(text)
     if not rows:
         raise JobError(
-            f"found no beats in {where}. Write one per line as `**01** — Narrator: words` (more speakers: `Cook: words` after it), or as a beat-sheet table `| 01 | 0–8s | Narrator: words | picture |`"
+            f"found no beats in {where}: is this Fountain? A scene starts with a heading like `INT. KITCHEN - DAY`"
         )
-    ctx.note(f"read {len(rows)} beats from {where} ({'a beat-sheet table' if kind == 'table' else 'numbered lines'})")
+    ctx.note(f"read {len(rows)} beats from {where}")
     have = {e["slug"]: e for kind_ in ("beat", "speech-line") for e in _all(ctx.creds, {"entry_type": kind_, "data": {"story": story}})}
     chapters_have = {e["slug"]: e for e in _all(ctx.creds, {"entry_type": "chapter", "data": {"story": story}})}
-    if source == "fountain":
-        # A chapter inserted before others shifts their numbers (unless every title carries its own number), and the beats made under the old
-        # numbers would then no longer match the screenplay. Say so in the plan, before anything is made.
-        wrote = {c.number: c.title.strip().lower() for c in fplan.chapters}
-        moved = sorted(
-            (n, str(rec.get("title") or ""), next(c.title for c in fplan.chapters if c.number == n))
-            for slug, rec in chapters_have.items()
-            if (n := _chapter_of(story, slug)) in wrote and str(rec.get("title") or "").strip().lower() not in ("", wrote[n])
+    # A chapter inserted before others shifts their numbers (unless every title carries its own number), and the beats made under the old
+    # numbers would then no longer match the screenplay. Say so in the plan, before anything is made.
+    wrote = {c.number: c.title.strip().lower() for c in fplan.chapters}
+    moved = sorted(
+        (n, str(rec.get("title") or ""), next(c.title for c in fplan.chapters if c.number == n))
+        for slug, rec in chapters_have.items()
+        if (n := _chapter_of(story, slug)) in wrote and str(rec.get("title") or "").strip().lower() not in ("", wrote[n])
+    )
+    if moved and not fplan.single:
+        lines = "; ".join(f"chapter {n} is “{old}” in Marvin but “{new}” in the screenplay" for n, old, new in moved[:6])
+        report += (
+            f"\n\nCheck the numbering: {lines}{'…' if len(moved) > 6 else ''}. If a chapter was inserted or moved, the chapters after it have new numbers, "
+            "and bringing them in would add beats beside the old ones. Number the section titles in the screenplay (`## 03 The heist`) so a chapter keeps its "
+            "number wherever it sits; if the title was only reworded, ignore this."
         )
-        if moved and not fplan.single:
-            lines = "; ".join(f"chapter {n} is “{old}” in Marvin but “{new}” in the screenplay" for n, old, new in moved[:6])
-            report += (
-                f"\n\nCheck the numbering: {lines}{'…' if len(moved) > 6 else ''}. If a chapter was inserted or moved, the chapters after it have new numbers, "
-                "and bringing them in would add beats beside the old ones. Number the section titles in the screenplay (`## 03 The heist`) so a chapter keeps its "
-                "number wherever it sits; if the title was only reworded, ignore this."
-            )
     if parts is not None:  # a piece of the story: what is in the other pieces is not this run's to keep, trash or change
         have = {k: v for k, v in have.items() if _chapter_of(story, k) in parts}
         chapters_have = {k: v for k, v in chapters_have.items() if _chapter_of(story, k) in parts}
@@ -511,35 +488,33 @@ def import_beats(job: dict, ctx: Context) -> dict:
     plan = beat_import.import_plan(story, rows, have, refresh=refresh, chapters=chapters_have)
     dry = _yes(args.get("dry_run"))
     fill: list[tuple[dict, dict]] = []  # chapters that already exist but hold none of the Fountain text or summary yet, with what they should hold
-    if source == "fountain":
-        fountain.attach_source(plan, fplan, story)  # every beat and line made holds its own piece of the text, and the transition written before it
-        chapter_summaries = {c.number: c.summary for c in fplan.chapters if c.summary}
-        slices = None if fplan.single else fountain.chapter_texts(screenplay, fplan)
-        if slices is None and not fplan.single:
-            ctx.note("could not match the Fountain text to its chapters one for one, so no chapter holds its own text: the story's Fountain stays whole")
-        wanted = {n: t for n, t in (slices or {}).items() if parts is None or n in parts}
-        extras = {n: {k: v for k, v in (("fountain", wanted.get(n)), ("summary", chapter_summaries.get(n))) if v} for n in {*wanted, *chapter_summaries} if parts is None or n in parts}
-        plan["chapters"] = [(slug, title, {**extras.get(n, {}), **data} if (n := _chapter_of(story, slug)) in extras else data) for slug, title, data in plan["chapters"]]
-        fill = [
-            (rec, missing)
-            for slug, rec in chapters_have.items()
-            if (n := _chapter_of(story, slug)) in extras and (missing := {k: v for k, v in extras[n].items() if not str((rec.get("dataJson") or {}).get(k) or "").strip()})
-        ]
+    fountain.attach_source(plan, fplan, story)  # every beat and line made holds its own piece of the text, and the transition written before it
+    chapter_summaries = {c.number: c.summary for c in fplan.chapters if c.summary}
+    slices = None if fplan.single else fountain.chapter_texts(screenplay, fplan)
+    if slices is None and not fplan.single:
+        ctx.note("could not match the Fountain text to its chapters one for one, so no chapter holds its own text: the story's Fountain stays whole")
+    wanted = {n: t for n, t in (slices or {}).items() if parts is None or n in parts}
+    extras = {n: {k: v for k, v in (("fountain", wanted.get(n)), ("summary", chapter_summaries.get(n))) if v} for n in {*wanted, *chapter_summaries} if parts is None or n in parts}
+    plan["chapters"] = [(slug, title, {**extras.get(n, {}), **data} if (n := _chapter_of(story, slug)) in extras else data) for slug, title, data in plan["chapters"]]
+    fill = [
+        (rec, missing)
+        for slug, rec in chapters_have.items()
+        if (n := _chapter_of(story, slug)) in extras and (missing := {k: v for k, v in extras[n].items() if not str((rec.get("dataJson") or {}).get(k) or "").strip()})
+    ]
     extra: list[tuple[str, tuple[str, str, dict]]] = []  # the characters and scenes the screenplay implies that this story does not have yet
     link: list[tuple[dict, str]] = []  # beats that are already there but are in no Scene yet, with the Scene the screenplay puts them in
-    if source == "fountain":
-        for _chapter, number, beat in fplan.rows():
-            place = fountain.place_of(beat.get("place", ""))
-            rec = have.get(f"{story}-beat-{number}")
-            data = rec.get("dataJson") or {} if rec else {}
-            add = {}
-            if place and not str(data.get("scene") or "").strip():
-                add["scene"] = f"{story}-{place['slug']}"
-            if beat.get("sounds") and not data.get("sounds"):
-                add["sounds"] = [{"sound": f"{story}-sound-{number}-{i}", "at": 0} for i, _c in enumerate(beat["sounds"], 1)]
-            if rec and add:
-                link.append((rec, add))
-        extra = _implied(ctx, story, story_row, fplan, plan, link)
+    for _chapter, number, beat in fplan.rows():
+        place = fountain.place_of(beat.get("place", ""))
+        rec = have.get(f"{story}-beat-{number}")
+        data = rec.get("dataJson") or {} if rec else {}
+        add = {}
+        if place and not str(data.get("scene") or "").strip():
+            add["scene"] = f"{story}-{place['slug']}"
+        if beat.get("sounds") and not data.get("sounds"):
+            add["sounds"] = [{"sound": f"{story}-sound-{number}-{i}", "at": 0} for i, _c in enumerate(beat["sounds"], 1)]
+        if rec and add:
+            link.append((rec, add))
+    extra = _implied(ctx, story, story_row, fplan, plan, link)
     if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link):
         types = {t["slug"]: t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types"))}
         for needed in ("beat", "speech-line") + (("chapter",) if plan["chapters"] else ()):
@@ -610,24 +585,15 @@ def import_beats(job: dict, ctx: Context) -> dict:
         "not_in_the_sheet": plan["gone"],
         "trashed": [s for s, _ in plan["trash"]],
         "kept_though_gone": [{"slug": s, "why": why} for s, why in plan["orphans_kept"]],
-        "script_loaded_from_sheet": loaded,
         "beats_existing": plan["have"]["beats"],
         "lines_existing": plan["have"]["lines"],
         "sound_cues_not_imported": plan["sounds"],
         "problems": plan["problems"],
-        "source": source,
-        "part": str((part_text if source == "fountain" else args.get("part")) or "all"),
+        "part": str(part_text or "all"),
         "split_report": report,
     }
     changed = plan["beats"] or plan["lines"] or plan["chapters"] or plan["updates"] or plan["trash"]
-    base_changed = False
-    if not dry and source == "script":  # when the script and the records now say the same, remember it: that is what a later sync compares against
-        _chapters, now_beats, now_lines = _story_records(ctx.creds, story)
-        if beat_export.signature_of_records(story, now_beats, now_lines) == beat_export.signature_of_rows(rows):
-            digest = beat_export.digest(beat_export.signature_of_rows(rows))
-            if story_data.get("sheet_base") != digest:
-                story_data["sheet_base"], base_changed = digest, True
-    if source == "fountain" and not dry:  # the title page is the story's credits; a field already filled in is the person's and is kept
+    if not dry:  # the title page is the story's credits; a field already filled in is the person's and is kept
         meta = fountain.title_page(screenplay)
         for key in ("credit", "author", "source", "draft_date", "contact", "copyright"):
             if meta.get(key) and not str(story_data.get(key) or "").strip():
@@ -640,77 +606,24 @@ def import_beats(job: dict, ctx: Context) -> dict:
         if fplan.front.strip() and not str(story_data.get("fountain_front") or "").strip():
             story_data["fountain_front"] = fplan.front  # what the writer put before the first beat, as written: the export writes it back first
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    if source == "fountain":  # the report is kept on the story, where a wizard step (or the person) reads it before and after importing
-        story_data["split_plan"] = f"{stamp} · {'preview' if dry else 'import'}, chapters {part_text or 'all'}\n\n{report}\n\n{note}"
-    if source == "fountain" or (not dry and (changed or loaded or base_changed)):
-        bits = [f"+{len(plan['beats'])} beats, +{len(plan['lines'])} lines" + (f", +{len(plan['chapters'])} chapters" if plan["chapters"] else "")]
-        if plan["updates"]:
-            bits.append(f"{len(plan['updates'])} updated")
-        if plan["trash"]:
-            bits.append("trashed: " + ", ".join(short(s) for s, _ in plan["trash"][:12]) + ("…" if len(plan["trash"]) > 12 else ""))
-        if plan["orphans_kept"]:
-            bits.append("kept though gone from the script (something was made from them): " + ", ".join(short(s) for s, _ in plan["orphans_kept"][:8]))
-        if plan["kept"]:
-            bits.append("differ from the script but kept (a picture or recording was made): " + ", ".join(short(s) for s, _ in plan["kept"][:8]))
-        if (changed or loaded) and not dry:
-            via = f" · from the screenplay{' (chapters ' + str(part_text) + ')' if parts is not None else ''}" if source == "fountain" else ""
-            entry = f"{stamp} · {'refresh' if refresh else 'add'}{via}{' · loaded from ' + sheet if loaded else ''} · " + " · ".join(bits)
-            story_data["sheet_log"] = (str(story_data.get("sheet_log") or "").rstrip() + "\n" + entry).strip()
-        body = json.dumps({"title": story_row.get("title"), "slug": story_row.get("slug"), "dataJson": story_data}).encode()
-        marvin_api.request(ctx.creds, f"/api/platform/entries/{story_row['id']}", method="PATCH", data=body, content_type="application/json")
+    story_data["split_plan"] = f"{stamp} · {'preview' if dry else 'import'}, chapters {part_text or 'all'}\n\n{report}\n\n{note}"  # kept on the story, where a wizard step (or the person) reads it before and after importing
+    bits = [f"+{len(plan['beats'])} beats, +{len(plan['lines'])} lines" + (f", +{len(plan['chapters'])} chapters" if plan["chapters"] else "")]
+    if plan["updates"]:
+        bits.append(f"{len(plan['updates'])} updated")
+    if plan["trash"]:
+        bits.append("trashed: " + ", ".join(short(s) for s, _ in plan["trash"][:12]) + ("…" if len(plan["trash"]) > 12 else ""))
+    if plan["orphans_kept"]:
+        bits.append("kept though gone from the script (something was made from them): " + ", ".join(short(s) for s, _ in plan["orphans_kept"][:8]))
+    if plan["kept"]:
+        bits.append("differ from the script but kept (a picture or recording was made): " + ", ".join(short(s) for s, _ in plan["kept"][:8]))
+    if changed and not dry:
+        via = f" · from the Fountain{' (chapters ' + str(part_text) + ')' if parts is not None else ''}"
+        entry = f"{stamp} · {'refresh' if refresh else 'add'}{via} · " + " · ".join(bits)
+        story_data["sheet_log"] = (str(story_data.get("sheet_log") or "").rstrip() + "\n" + entry).strip()
+    body = json.dumps({"title": story_row.get("title"), "slug": story_row.get("slug"), "dataJson": story_data}).encode()
+    marvin_api.request(ctx.creds, f"/api/platform/entries/{story_row['id']}", method="PATCH", data=body, content_type="application/json")
     return {"result": result, "log": (report + "\n\n" + note) if report else note}
 
-
-@job_kind(
-    "sync-sheet",
-    description="Rewrite a story's script (its beat-sheet table) from its beats, after a beat was edited by hand. Safe: it writes only when the beats changed and the script did not since the two last agreed; if the script changed it says to update the beats from it, and if both changed it stops and names the beats",
-    inputs={
-        "story": {"type": "string", "description": "the story entry's slug"},
-        "dry_run": {"type": "string", "required": False, "description": "yes: say what it would do, write nothing"},
-    },
-    produces=[],
-)
-def sync_sheet(job: dict, ctx: Context) -> dict:
-    """The story's script, rewritten from its records when only the records have changed since the script and they last agreed."""
-    story, args = story_of(job), job.get("args") or {}
-    found = marvin_api.query(ctx.creds, {"entries": story}, limit=1)
-    if not found:
-        raise JobError(f"no story “{story}” in this workspace")
-    story_row = found[0]
-    story_data = dict(story_row.get("dataJson") or {})
-    script, base = str(story_data.get("script") or ""), story_data.get("sheet_base")
-    chapters, beat_records, line_records = _story_records(ctx.creds, story)
-    if not beat_records:
-        raise JobError(f"{story} has no beats yet: update the beats from its script first (the import-beats job)")
-    s_records = beat_export.signature_of_records(story, beat_records, line_records)
-    kind, rows = beat_import.parse_any(script) if script.strip() else ("", [])
-    s_script = beat_export.signature_of_rows(rows)
-    differ = beat_export.differing_beats(s_script, s_records) if rows else []  # an empty script has no edits to name
-    if rows and s_script == s_records:
-        return {"result": {"decision": "in sync"}, "log": "The script and the beats already say the same thing; nothing to rewrite."}
-    script_edited = bool(rows) and (base is None or beat_export.digest(s_script) != base)
-    beats_edited = base is None or beat_export.digest(s_records) != base
-    names = ", ".join(differ[:12]) + ("…" if len(differ) > 12 else "")
-    if rows and base is None:
-        raise JobError("the script and the beats have never been brought into agreement, so there is no way to tell which is newer. Update the beats from the script first (that records the agreement), or empty the script to write it from the beats")
-    if rows and script_edited and beats_edited:
-        raise JobError(f"both changed since they last agreed, so nothing was written: the script was edited and so were the beats (they differ at: {names}). Decide which to keep: copy what you want from the script, then update the beats from it, or undo the beat edits")
-    if rows and script_edited:
-        raise JobError(f"the script was edited since the beats last agreed with it and the beats were not, so there is nothing to write back: update the beats from the script (differing: {names})")
-    text = beat_export.render_sheet(story, chapters, beat_records, line_records, beat_export.preamble_of(script))
-    again = beat_export.signature_of_rows(beat_import.parse_any(text)[1])
-    if again != s_records:
-        lost = ", ".join(beat_export.differing_beats(again, s_records)[:10])
-        raise JobError(f"the sheet cannot be written back without losing something (beats {lost}), so the script was left as it is")
-    ctx.note(f"{len(beat_records)} beats written back as {len(text.splitlines())} lines" + (f"; edited by hand: {names}" if names else ""))
-    if not _yes(args.get("dry_run")):
-        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-        entry = f"{stamp} · rewrote the script from the beats" + (f" · beats edited by hand: {names}" if names else " · written from the beats (the script was empty)")
-        story_data.update({"script": text, "sheet_base": beat_export.digest(s_records), "sheet_log": (str(story_data.get("sheet_log") or "").rstrip() + "\n" + entry).strip()})
-        body = json.dumps({"title": story_row.get("title"), "slug": story_row.get("slug"), "dataJson": story_data}).encode()
-        marvin_api.request(ctx.creds, f"/api/platform/entries/{story_row['id']}", method="PATCH", data=body, content_type="application/json")
-    verb = "would rewrite" if _yes(args.get("dry_run")) else "rewrote"
-    return {"result": {"decision": verb, "beats": len(beat_records), "beats_edited": differ}, "log": f"{verb} the script from {len(beat_records)} beats" + (f"; edited by hand: {names}." if names else ".")}
 
 
 PREVIEW_SIZE = "720:1280"

@@ -1,6 +1,6 @@
 # The Screenplay Studio worker: ONE image holding every kind of job the Screenplay Studio package (docs/screenplay-studio.marvin-package.json)
 # hands to a worker. It is the generic Marvin worker (`marvin-worker-base`, from ~/code/MarvinWorker) plus ffmpeg, the `storyrender` jobs
-# (audio-cut, script, filmstrip, import-voices, import-beats, sync-sheet, render) and the `storytranscribe` job (transcribe, faster-whisper on
+# (audio-cut, script, filmstrip, import-voices, import-beats, render) and the `storytranscribe` job (transcribe, faster-whisper on
 # the CPU). Which kinds a container offers is chosen at run time with WORKER_KINDS, so one image serves the light jobs and the heavy
 # transcribing in separate containers (see docker/compose.yml). The image is tagged with the package version it goes with.
 # Build with docker/build.sh (the build context is the repository root).

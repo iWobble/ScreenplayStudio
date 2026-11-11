@@ -5,7 +5,7 @@ Take a story from an idea and a screenplay to a narrated, illustrated video, in 
 It is the pipeline, not any one world. A *world* (for example Storyworld, a recurring miniature cast) is just records inside it: a `world`, its actors, its stories.
 
 ```
-idea -> screenplay (Fountain) -> beat sheet -> Marvin records -> casting -> stills + voices -> filmstrip (approve) -> video
+idea -> screenplay (Fountain) -> Marvin records -> casting -> stills + voices -> filmstrip (approve) -> video
 ```
 
 ## What is here
@@ -13,13 +13,13 @@ idea -> screenplay (Fountain) -> beat sheet -> Marvin records -> casting -> stil
 | | Where | What |
 |---|---|---|
 | **Package** | `docs/screenplay-studio.marvin-package.json` | The record types (story, series, chapter, beat, speech line, actor, character, casting, voice, sound...), collections and workflows. Install it from a file in Marvin (Settings -> Automation -> Packages). |
-| **Workers** | `render/` (`storyrender`), `transcribe/` (`storytranscribe`) | The job kinds: `audio-cut`, `filmstrip`, `render`, `script`, `import-beats`, `sync-sheet`, `import-voices`, `transcribe`. They only reach *out* to Marvin and poll for `job` records. |
+| **Workers** | `render/` (`storyrender`), `transcribe/` (`storytranscribe`) | The job kinds: `audio-cut`, `filmstrip`, `render`, `script`, `import-beats`, `import-voices`, `transcribe`. They only reach *out* to Marvin and poll for `job` records. |
 | **Image** | `docker/` | One image, `screenplay-studio-worker`, tagged with the package version it goes with, and a compose file that runs it as two containers. Published to this repository's container registry. |
-| **Skill** | `skills/screenplay-studio`, `.claude-plugin/` | The beat-sheet format (with a worked example the tests check against the importer), the Marvin flow, casting one actor across ages. Installable as a Claude Code plugin. |
+| **Skill** | `skills/screenplay-studio`, `.claude-plugin/` | The Marvin flow, casting one actor across ages. Installable as a Claude Code plugin. |
 
 ## The idea in one paragraph
 
-The story's `script` field is the one place the content is edited: numbered lines, or a beat-sheet table with `## Scene` headings that become chapters. `import-beats` turns it into beats, spoken lines and chapters; Refresh adds what is new, updates what nothing has been made from yet, moves what is gone to the Trash, and keeps and flags anything that already has a picture or a recording. Edit a single beat by hand and `sync-sheet` writes the script back, refusing if both sides changed since they last agreed. Casting, stills, voices, the filmstrip approval and the render follow from the records.
+The story's Fountain is the one place the content is written: by you or by an AI, as one Fountain document. `import-beats` cuts it, with no AI, into chapters, beats and spoken lines (each holding its own piece of the text), and makes a Character for each speaker, a Scene for each place and a draft Sound for each sound the words call for; a re-run adds what is missing and never rewrites what exists. The Script job writes it back out as written, or complete (every detail the records hold). Casting, stills, voices, the filmstrip approval and the render follow from the records.
 
 ## Quick start
 

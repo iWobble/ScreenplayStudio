@@ -20,6 +20,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from . import fountain as fountain_mod
+
 NARRATOR = "narrator"
 
 
@@ -116,6 +118,96 @@ def fountain(records: dict) -> str:
     return "\n".join(out).rstrip("\n") + "\n"
 
 
+def _say(label: str, value: object) -> str:
+    text = _clean(value)
+    return f"{label}: {text.rstrip('.')}." if text else ""
+
+
+def fountain_complete(records: dict) -> str:
+    """Everything the records hold, as a Fountain a writer can read, edit and bring in again: the title page (credits, premise, setting, format,
+    length, music), each character as a note with their role, costume, props and rules, each scene as a heading with its place, light, set dressing,
+    continuity and ambience, each beat as the picture with a note of its hold, focus, expression, camera move, cast and sounds, each spoken line as
+    dialogue with its direction and voice. A page break (`===`) keeps each beat its own picture when the Fountain is read again; notes (`[[ ]]`)
+    keep what has no element of its own, so nothing a person put into the records is lost in the file."""
+    story = records["story"]
+    sd = _data(story)
+    scenes, sounds, chapters = records.get("scenes", {}), records.get("sounds", {}), records.get("chapters", {})
+    lines_by_beat = records.get("lines", {})
+    out: list[str] = [f"Title: {_clean(story.get('title') or story.get('slug'))}", f"Credit: {_clean(sd.get('credit')) or 'A Storyworld film'}"]
+    for key, label in (("author", "Author"), ("source", "Source"), ("draft_date", "Draft date"), ("contact", "Contact"), ("copyright", "Copyright")):
+        if _clean(sd.get(key)):
+            out.append(f"{label}: {_clean(sd[key])}")
+    for key, label in (("premise", "Premise"), ("setting", "Setting"), ("world", "World"), ("format", "Format"), ("music", "Music"), ("platform", "Platform")):
+        if _clean(sd.get(key)):
+            out.append(f"{label}: {_clean(sd[key])}")
+    seconds = _seconds(sd.get("target_seconds"))
+    if seconds:
+        out.append(f"Length: about {seconds}")
+    out.append("")
+    for ch in records.get("characters", []):  # who is in it, and what is said of each (the cast, costume and props belong to the story, not to a scene)
+        cd = _data(ch)
+        bits = [x for x in (_say("Role", cd.get("role")), _say("Costume", cd.get("costume")), _say("Props", cd.get("props")), _say("Rules", cd.get("rules")), _say("Played by", cd.get("actor"))) if x]
+        out += [f"[[{_clean(cd.get('speaker') or ch.get('title') or '').upper()} is {_clean(ch.get('title'))}. " + " ".join(bits) + "]]", ""]
+
+    scene_now, bed_now, chapter_now, first = None, None, None, True
+    scene_numbers: dict[str, int] = {}
+    for beat in records.get("beats", []):
+        d = _data(beat)
+        number = str(d.get("number") or "").strip()
+        chapter_slug = d.get("chapter")
+        if chapter_slug and chapter_slug != chapter_now:
+            chapter_now = chapter_slug
+            title = _clean((chapters.get(str(chapter_slug)) or {}).get("title") or _slug_words(str(chapter_slug)))
+            out += [f"# {title}", ""]
+        scene_slug = d.get("scene")
+        new_scene = bool(scene_slug) and scene_slug != scene_now
+        if not first:
+            out += ["===", ""]  # each beat is its own picture
+        if new_scene:
+            scene_now = scene_slug
+            scene = scenes.get(str(scene_slug), {})
+            heading = _clean(scene.get("title") or _slug_words(str(scene_slug))).upper()
+            scene_numbers[str(scene_slug)] = scene_numbers.get(str(scene_slug), len(scene_numbers) + 1)
+            out += [f".{heading} #{scene_numbers[str(scene_slug)]}#", ""]
+            sc = _data(scene)
+            said = [x for x in (_say("Place", sc.get("place")), _say("Light", sc.get("look")), _say("Set dressing", sc.get("set_dressing")), _say("Continuity", sc.get("continuity"))) if x]
+            if said:
+                out += ["= " + " ".join(said), ""]
+            if sc.get("ambience") != bed_now:
+                bed_now = sc.get("ambience")
+            if sc.get("ambience"):
+                bed = sounds.get(str(sc["ambience"]), {})
+                level = f", level {sc['ambience_volume']}" if sc.get("ambience_volume") not in (None, "") else ""
+                muffled = ", muffled (indoors)" if sc.get("ambience_muffled") else ""
+                out += [f"[[Ambience: {_clean(bed.get('title') or _slug_words(str(sc['ambience'])))}{level}{muffled}. {_clean(_data(bed).get('prompt'))}]]", ""]
+        picture = _clean(d.get("picture"))
+        if picture and (fountain_mod._is_scene(picture) or fountain_mod._is_transition(picture) or picture.isupper() or picture[0] in "@#=~>!."):
+            picture = "!" + picture  # forced action: a picture that begins like a heading, a cue or a transition is still only a picture
+        out += [picture or f"Beat {number}.", ""]
+        facts = [x for x in (_say("Hold", f"{_seconds(d.get('hold_seconds'))}" if _seconds(d.get("hold_seconds")) else ""), _say("Focus", d.get("focus")), _say("Expression", d.get("expression")), _say("Camera", d.get("move")), _say("Cast", d.get("cast")), _say("Transition", d.get("transition")), _say("Note", d.get("notes")), _say("Info card", " — ".join(x for x in (_clean(d.get("info_label")), _clean(d.get("info_title")), _clean(d.get("info_text"))) if x))) if x]
+        out += [f"[[Beat {number}. " + " ".join(facts) + "]]" if facts else f"[[Beat {number}.]]", ""]
+        for placed in d.get("sounds") if isinstance(d.get("sounds"), list) else []:
+            if isinstance(placed, dict) and placed.get("sound"):
+                snd = sounds.get(str(placed["sound"]), {})
+                at = f" at {_seconds(placed.get('at'))}" if _seconds(placed.get("at")) else ""
+                name, prompt = _clean(snd.get("title") or _slug_words(str(placed["sound"]))), _clean(_data(snd).get("prompt"))
+                words = prompt if prompt and prompt.lower().startswith(name.lower().rstrip(".")[:40]) else f"{name}. {prompt}".rstrip(". ") + "."
+                out += [f"[[Sound: {words.rstrip('.')}{at}.]]", ""]
+        for line in lines_by_beat.get(beat.get("slug", ""), []):
+            ld = _data(line)
+            spoken = _clean(ld.get("text"))
+            if not spoken:
+                continue
+            out.append(_cue(ld.get("speaker") or ""))
+            if _clean(ld.get("direction")):
+                out.append(f"({_clean(ld['direction']).rstrip('.').lower()})")
+            out.append(spoken)
+            extra = [x for x in (_say("Delivery", ld.get("delivery_text")), _say("Voice", ld.get("voice")), _say("Note", ld.get("take_notes"))) if x]
+            out += ([f"[[{' '.join(extra)}]]"] if extra else []) + [""]
+        first = False
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
 def pull_records(story: str, creds: tuple[str, str]) -> dict:
     """The story's records from Marvin, in the shape `fountain()` reads."""
     from marvin_worker import marvin_api
@@ -126,14 +218,15 @@ def pull_records(story: str, creds: tuple[str, str]) -> dict:
         raise LookupError(f"no story “{story}” in this workspace")
     beats = sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-beat-") and _data(e).get("story") == story), key=lambda e: str(_data(e).get("number")))
     lines: dict[str, list[dict]] = {}
-    for line in sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-line-") and _data(e).get("story") == story), key=lambda e: e["slug"]):
+    for line in sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-line-") and "-take-" not in e["slug"] and _data(e).get("story") == story), key=lambda e: e["slug"]):
         lines.setdefault(str(_data(line).get("beat")), []).append(line)
     return {
         "story": story_row,
         "beats": beats,
         "lines": lines,
         "scenes": {e["slug"]: e for e in rows if _data(e).get("story") == story and "ambience" in _data(e)},
-        "sounds": {e["slug"]: e for e in rows if e.get("slug", "").find("-sound-") >= 0},
+        "sounds": {e["slug"]: e for e in rows if e.get("slug", "").find("-sound-") >= 0 or (_data(e).get("story") == story and "kind" in _data(e) and "source" in _data(e))},
+        "chapters": {e["slug"]: e for e in rows if e.get("slug", "").startswith(f"{story}-chapter-") and _data(e).get("story") == story},
         "characters": [e for e in rows if _data(e).get("story") == story and "profile" in _data(e) and _data(e).get("cast_id")],  # a character has a profile; a casting (also story + cast_id) does not
     }
 
