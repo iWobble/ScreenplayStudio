@@ -10,7 +10,6 @@ import pytest
 from storyrender import beats, build, captions, demo, ffmpeg, manifest
 from storyrender.manifest import Line, Manifest, Move, Shot
 
-BEAT_SHEET = Path(__file__).resolve().parents[2] / "stories" / "the-last-onion" / "beat-sheet.md"
 needs_ffmpeg = pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg not installed")
 
 
@@ -21,26 +20,6 @@ def test_the_audio_cell_splits_on_speaker_labels_and_sounds_are_not_speech():
     mixed = beats.split_audio("Captain: What’s that for? Sound: brief pause; spoon against bowl. Cook: Breakfast.")
     assert [(p["speaker"], p["kind"]) for p in mixed] == [("Captain", "speech"), ("Sound", "sound"), ("Cook", "speech")]
     assert beats.split_audio("No speech. Hold on the captain’s small smile.") == []
-
-
-@pytest.mark.skipif(not BEAT_SHEET.exists(), reason="the Last Onion beat sheet isn't here")
-def test_the_last_onion_beat_sheet_parses_to_24_beats_and_the_lines_to_record():
-    rows = beats.load(BEAT_SHEET)
-    assert [r["beat"] for r in rows] == [f"{n:02d}" for n in range(1, 25)]
-    assert rows[0]["hold"] == 8 and rows[0]["lines"][0]["speaker"] == "Narrator"
-    assert [ln["speaker"] for ln in rows[7]["lines"]] == ["Narrator", "Cook", "Captain"]  # beat 08
-    assert rows[14]["lines"] == [] and rows[14]["sounds"]  # beat 15: sound only
-    assert rows[23]["lines"] == []  # beat 24: no speech
-    lines = beats.speech_lines(rows)
-    assert lines[0]["id"] == "b01-1" and len({ln["id"] for ln in lines}) == len(lines) and 24 <= len(lines) <= 32
-    assert all(ln["characters"] == len(ln["text"]) for ln in lines) and 0 < sum(ln["characters"] for ln in lines) < 5000
-
-
-def test_the_skeleton_manifest_names_stills_and_lines_by_convention():
-    rows = beats.parse("| 04 | 20–24s | Cook: Your feast. | Cabin two-shot |\n")
-    shot = beats.skeleton_manifest(rows, "T")["shots"][0]
-    assert shot["id"] == "b04" and shot["still"] == "stills/b04.png" and shot["hold"] == 4
-    assert shot["lines"] == [{"speaker": "Cook", "text": "Your feast.", "audio": "audio/b04-1.mp3"}]
 
 
 # ── timeline ─────────────────────────────────────────────────────────────────

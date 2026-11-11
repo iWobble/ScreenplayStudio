@@ -1,4 +1,4 @@
-"""storyrender — `pull`, `listen`, `render`, `plan`, `from-beats`, `demo`, `youtube`."""
+"""storyrender — `pull`, `listen`, `render`, `plan`, `demo`, `youtube`."""
 
 import argparse
 import json
@@ -63,22 +63,6 @@ def cmd_pull(a) -> int:
     return 0
 
 
-def cmd_from_beats(a) -> int:
-    rows = beats.load(Path(a.beat_sheet))
-    if not rows:
-        print("no shot rows found in that beat sheet", file=sys.stderr)
-        return 1
-    out = Path(a.out)
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "manifest.skeleton.json").write_text(json.dumps(beats.skeleton_manifest(rows, a.title, ext=a.ext), indent=2, ensure_ascii=False))
-    (out / "lines.json").write_text(json.dumps(beats.speech_lines(rows), indent=2, ensure_ascii=False))
-    (out / "beats.json").write_text(json.dumps(rows, indent=2, ensure_ascii=False))
-    lines = beats.speech_lines(rows)
-    chars = sum(ln["characters"] for ln in lines)
-    print(f"{len(rows)} beats, {len(lines)} lines, {chars} characters to record → {out}/ (manifest.skeleton.json, lines.json, beats.json)")
-    return 0
-
-
 def cmd_demo(a) -> int:
     path = demo.make(Path(a.folder))
     print(path)
@@ -116,12 +100,6 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("plan", help="print the timeline a manifest implies (measures audio, renders nothing)")
     s.add_argument("manifest")
     s.set_defaults(fn=cmd_plan)
-    b = sub.add_parser("from-beats", help="beat sheet → skeleton manifest + the lines to record")
-    b.add_argument("beat_sheet")
-    b.add_argument("--out", required=True)
-    b.add_argument("--title", default="Untitled")
-    b.add_argument("--ext", default="mp3", help="extension the recorded lines will have")
-    b.set_defaults(fn=cmd_from_beats)
     d = sub.add_parser("demo", help="make a 3-beat placeholder project (stills + tones) to test the pipeline")
     d.add_argument("folder")
     d.set_defaults(fn=cmd_demo)
