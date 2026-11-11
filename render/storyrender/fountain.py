@@ -56,21 +56,29 @@ def _clean(text: str) -> str:
     return _NOTE.sub("", _BONEYARD.sub("", text))  # a boneyard and a note are the writer's, not the story's
 
 
-def _blocks(text: str) -> list[list[str]]:
-    blocks: list[list[str]] = []
+def _blocks_at(text: str) -> list[tuple[int, list[str]]]:
+    """The text's paragraphs (runs of lines between blank ones), each with the line it starts on."""
+    blocks: list[tuple[int, list[str]]] = []
     cur: list[str] = []
-    for raw in text.split("\n"):
+    start = 0
+    for n, raw in enumerate(text.split("\n")):
         if not raw.strip() and not (cur and raw == "  " and _is_character(cur[0])):  # two spaces keep a gap inside a speech
             if cur:
-                blocks.append(cur)
+                blocks.append((start, cur))
             cur = []
         elif raw == "  " and cur and _is_character(cur[0]):
             continue
         else:
+            if not cur:
+                start = n
             cur.append(raw.rstrip())
     if cur:
-        blocks.append(cur)
+        blocks.append((start, cur))
     return blocks
+
+
+def _blocks(text: str) -> list[list[str]]:
+    return [block for _start, block in _blocks_at(text)]
 
 
 def _is_scene(s: str) -> bool:
@@ -95,45 +103,47 @@ def _is_character(s: str) -> bool:
     return bool(re.search(r"[A-Z]", name)) and name == name.upper() and not name.endswith(".") or (bool(re.search(r"[A-Z]", name)) and name == name.upper() and len(name.split()) <= 4)
 
 
-def parse(text: str) -> list[dict]:
-    """The screenplay's elements in order: {t: scene|action|dialogue|transition|section, ...}. A title page, page breaks and synopses are left out."""
-    blocks = _blocks(_clean(text))
-    if blocks and all(_TITLE_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0]) and _TITLE_KEY.match(blocks[0][0]):
+def _block_elements(block: list[str]) -> list[dict]:
+    first = block[0].strip()
+    if first.startswith("==="):
+        return []
+    if first.startswith("=") and not first.startswith("=="):
+        return []  # a synopsis is a note to the writer
+    m = _SECTION.match(first)
+    if m and len(block) == 1:
+        return [{"t": "section", "depth": len(m.group(1)), "title": m.group(2)}]
+    if _is_scene(first):
+        heading = _SCENE_NUMBER.sub("", first.lstrip(".")).strip()
+        out = [{"t": "scene", "text": heading}]
+        rest = " ".join(ln.strip() for ln in block[1:] if ln.strip())
+        if rest:
+            out.append({"t": "action", "text": rest})
+        return out
+    if len(block) == 1 and _is_transition(first):
+        return [{"t": "transition", "text": first.lstrip(">").strip()}]
+    if len(block) >= 2 and _is_character(first):
+        ext = _EXTENSION.search(first.lstrip("@").rstrip("^").strip())
+        paren, speech = [], []
+        for ln in block[1:]:
+            s = ln.strip()
+            (paren if s.startswith("(") and s.endswith(")") else speech).append(s.strip("()") if s.startswith("(") and s.endswith(")") else s)
+        if speech:
+            return [{"t": "dialogue", "name": _cue_name(first), "ext": (ext.group(1) if ext else ""), "paren": paren, "text": " ".join(speech).strip()}]
+    text_ = " ".join(ln.strip().lstrip("!~") for ln in block).strip()
+    text_ = re.sub(r"^>\s*(.*?)\s*<$", r"\1", text_)  # centred text is action
+    return [{"t": "action", "text": text_}] if text_ else []
+
+
+def parse(text: str, *, lines: bool = False) -> list[dict]:
+    """The screenplay's elements in order: {t: scene|action|dialogue|transition|section, ...}. A title page, page breaks and synopses are left out.
+    With `lines`, each element also says the line (counting from 0) of the text it starts on."""
+    blocks = _blocks_at(_clean(text))
+    if blocks and all(_TITLE_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
         blocks = blocks[1:]
     out: list[dict] = []
-    for block in blocks:
-        first = block[0].strip()
-        if first.startswith("==="):
-            continue
-        if first.startswith("=") and not first.startswith("=="):
-            continue  # a synopsis is a note to the writer
-        m = _SECTION.match(first)
-        if m and len(block) == 1:
-            out.append({"t": "section", "depth": len(m.group(1)), "title": m.group(2)})
-            continue
-        if _is_scene(first):
-            heading = _SCENE_NUMBER.sub("", first.lstrip(".")).strip()
-            out.append({"t": "scene", "text": heading})
-            rest = " ".join(ln.strip() for ln in block[1:] if ln.strip())
-            if rest:
-                out.append({"t": "action", "text": rest})
-            continue
-        if len(block) == 1 and _is_transition(first):
-            out.append({"t": "transition", "text": first.lstrip(">").strip()})
-            continue
-        if len(block) >= 2 and _is_character(first):
-            ext = _EXTENSION.search(first.lstrip("@").rstrip("^").strip())
-            paren, speech = [], []
-            for ln in block[1:]:
-                s = ln.strip()
-                (paren if s.startswith("(") and s.endswith(")") else speech).append(s.strip("()") if s.startswith("(") and s.endswith(")") else s)
-            if speech:
-                out.append({"t": "dialogue", "name": _cue_name(first), "ext": (ext.group(1) if ext else ""), "paren": paren, "text": " ".join(speech).strip()})
-                continue
-        text_ = " ".join(ln.strip().lstrip("!~") for ln in block).strip()
-        text_ = re.sub(r"^>\s*(.*?)\s*<$", r"\1", text_)  # centred text is action
-        if text_:
-            out.append({"t": "action", "text": text_})
+    for start, block in blocks:
+        for el in _block_elements(block):
+            out.append({**el, "line": start} if lines else el)
     return out
 
 
@@ -186,6 +196,7 @@ class Scene:
     heading: str
     elements: list[dict]
     markers: list[tuple[int, str]] = field(default_factory=list)  # sections written just above it
+    start: int = 0  # the line it starts on (a section written just above it starts it): only when the elements say where they are
 
     def pages(self) -> float:
         return pages(self.elements) + 2 / LINES_PER_PAGE
@@ -194,20 +205,22 @@ class Scene:
 def _scenes(elements: list[dict]) -> list[Scene]:
     scenes: list[Scene] = []
     pending: list[tuple[int, str]] = []
+    pending_at: int | None = None  # the line of the first section written above the next scene
     for el in elements:
         if el["t"] == "section":
             pending.append((el["depth"], el["title"]))
+            pending_at = el.get("line", 0) if pending_at is None else pending_at
             continue
         if el["t"] == "scene":
-            scenes.append(Scene(el["text"], [], pending))
-            pending = []
+            scenes.append(Scene(el["text"], [], pending, el.get("line", 0) if pending_at is None else pending_at))
+            pending, pending_at = [], None
         else:
             if not scenes:
-                scenes.append(Scene("", [], pending))
-                pending = []
+                scenes.append(Scene("", [], pending, el.get("line", 0) if pending_at is None else pending_at))
+                pending, pending_at = [], None
             elif pending:  # a section between a scene's action and its dialogue starts nothing: it is the writer's note about the scene
                 scenes[-1].markers += pending
-                pending = []
+                pending, pending_at = [], None
         if scenes:
             scenes[-1].elements.append(el)
     return scenes
@@ -451,3 +464,30 @@ def check(plan: Plan) -> list[str]:
     if lost:
         problems.append(f"{len(lost)} action paragraph(s) did not reach a picture, the first: “{lost[0][:60]}”")
     return problems
+
+
+# --- the writer's own text, a chapter at a time ------------------------------------------------------------------------------------------
+
+
+def _blank_comments(text: str) -> str:
+    """The text with each note and boneyard replaced by as many line breaks as it held, so every line keeps its number."""
+    keep = lambda m: "\n" * m.group().count("\n")  # noqa: E731
+    return _NOTE.sub(keep, _BONEYARD.sub(keep, text))
+
+
+def chapter_texts(text: str, plan: Plan) -> "dict[int, str] | None":
+    """Each chapter's own slice of the Fountain text, as the writer wrote it (notes, boneyard and layout kept): from the section or scene heading that
+    starts the chapter to the one that starts the next. The title page is not in any slice. Chapter numbers are the keys.
+    None when the text cannot be matched to the chapters the plan found, scene heading for scene heading: better no slice than a wrong one."""
+    norm = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("﻿")
+    scenes = _scenes(parse(_blank_comments(norm), lines=True))
+    if [s.heading for s in scenes] != [s.heading for ch in plan.chapters for s in ch.scenes]:
+        return None
+    lines = norm.split("\n")
+    starts: list[int] = []
+    at = 0
+    for ch in plan.chapters:
+        starts.append(scenes[at].start)
+        at += len(ch.scenes)
+    ends = [*starts[1:], len(lines)]
+    return {ch.number: "\n".join(lines[a:b]).strip("\n") + "\n" for ch, a, b in zip(plan.chapters, starts, ends, strict=True)}
