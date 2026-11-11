@@ -1276,3 +1276,10 @@ def test_running_the_import_again_adds_the_masters_of_the_cast_and_keeps_what_wa
     assert one["cast"].split(",")[:2] == ["s-valerie", "s-chet"] and one["references"].split(",") == ["m-val", "m-chet"]
     if mine["slug"] in {b["slug"] for b in beats.values()} and f"id-{mine['slug']}" in put:
         assert put[f"id-{mine['slug']}"]["cast"] == "s-chet" and put[f"id-{mine['slug']}"]["references"] == "a-place-picture"
+
+
+def test_a_beat_whose_writer_named_its_sounds_gets_only_those():
+    beat = {"picture": "Lightning reveals THE BARNACLE'S REVENGE. The ship LURCHES.", "place": "EXT. SEA - NIGHT", "sung": [], "fountain": "x\n[[Sound: timber grinding against rock at 0s.]]\n"}
+    assert [c["prompt"] for c in fountain.sound_cues(beat, set())] == ["timber grinding against rock"]
+    unnamed = {**beat, "fountain": "x"}
+    assert "Lurches" in [c["title"] for c in fountain.sound_cues(unnamed, set())]  # nobody named a sound: the words are read for one

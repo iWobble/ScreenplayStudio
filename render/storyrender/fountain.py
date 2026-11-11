@@ -735,6 +735,8 @@ def sound_cues(beat: dict, avoid: "set[str]") -> list[dict]:
         if said and said.lower() not in seen:
             seen.add(said.lower())
             cues.append({"kind": "effect", "title": _short(said, 3), "prompt": said, "at": float(at.group(1)) if at else 0.0})
+    if seen:  # the writer named this beat's sounds: what the words might suggest (a loud word, THE BARNACLE'S REVENGE) is not added to them
+        return cues
     for sentence in sentences:
         found = []
         m = _SOUND_OF.search(sentence)
