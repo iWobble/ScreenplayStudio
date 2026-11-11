@@ -906,7 +906,7 @@ def test_running_the_import_again_makes_the_scenes_and_puts_earlier_beats_in_the
     again.records = dict(beats)
     again.on_hand["scene"]["s-the-reef"] = {"id": "sc1", "slug": "s-the-reef", "title": "Reef", "dataJson": {"story": "s", "look": "mine"}}
     done = run(ctx2)
-    assert done["result"]["beats_put_in_scenes"] == len(beats) and done["result"]["scenes_made"] == ["s-captains-cabin"]
+    assert done["result"]["records_filled_in"] >= len(beats) and done["result"]["scenes_made"] == ["s-captains-cabin"]
     put = {p[0]: p[1]["dataJson"]["scene"] for p in again.patched if p[0] != "e0"}
     assert set(put.values()) == {"s-the-reef", "s-captains-cabin"} and len(put) == len(beats)
 
@@ -1026,3 +1026,20 @@ def test_a_sound_note_on_a_beat_is_the_writers_own_cue_and_is_placed_where_it_sa
     imp = {"beats": [("b1", "t", {"number": "01"})], "lines": []}
     fountain.attach_source(imp, plan, "s")
     assert imp["beats"][0][2]["sounds"] == [{"sound": "s-sound-01-1", "at": 1.5}, {"sound": "s-sound-01-2", "at": 0.0}]
+
+
+def test_a_re_run_gives_records_made_earlier_their_own_piece_of_the_fountain_and_leaves_what_is_set(casting):
+    first, ctx = casting(CAST_TEXT)
+    run(ctx)
+    recs = {m["slug"]: {"id": f"id-{m['slug']}", "slug": m["slug"], "title": m["title"], "dataJson": {k: v for k, v in m["dataJson"].items() if k not in ("fountain", "transition", "transition_text", "simultaneous", "scene", "sounds")}} for m in first.made if m["entryTypeId"] in ("T-beat", "T-line")}
+    keep = next(s for s in recs if s.startswith("s-beat-"))
+    recs[keep]["dataJson"]["fountain"] = "already mine"
+    again, ctx2 = casting(CAST_TEXT)
+    again.records = dict(recs)
+    run(ctx2)
+    patched = {p[0]: p[1]["dataJson"] for p in again.patched if p[0] != "e0"}
+    assert patched.get(recs[keep]["id"], {}).get("fountain", "already mine") == "already mine"
+    lines = [d for i, d in patched.items() if "-line-" in i]
+    assert lines and all(d.get("fountain") for d in lines)
+    beats = [d for i, d in patched.items() if "-beat-" in i and i != recs[keep]["id"]]
+    assert beats and all(d.get("fountain") for d in beats)
