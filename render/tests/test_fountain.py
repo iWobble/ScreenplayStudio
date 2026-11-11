@@ -1147,6 +1147,9 @@ class RevisionMarvin(CastingMarvin):
 
     def request(self, creds, path, **kw):
         out = super().request(creds, path, **kw)
+        if kw.get("method") == "DELETE":  # a trashed record is gone from what a query returns
+            gone = path.rsplit("/", 1)[-1]
+            self.records = {s: r for s, r in self.records.items() if r["id"] != gone}
         if kw.get("method") == "PATCH" and path.endswith("/e0"):  # a real server keeps what it is sent: the import that follows an apply reads the new text
             self.story["dataJson"] = json.loads(kw["data"])["dataJson"]
         return out
@@ -1283,3 +1286,38 @@ def test_a_beat_whose_writer_named_its_sounds_gets_only_those():
     assert [c["prompt"] for c in fountain.sound_cues(beat, set())] == ["timber grinding against rock"]
     unnamed = {**beat, "fountain": "x"}
     assert "Lurches" in [c["title"] for c in fountain.sound_cues(unnamed, set())]  # nobody named a sound: the words are read for one
+
+
+# --- replace: start the story afresh from a revision --------------------------------------------------------------------------------------
+
+def test_a_replace_check_says_what_goes_to_the_trash_and_what_stays(revising):
+    fake, ctx = revising(CAST_TEXT, NEW_TEXT)
+    fake.entries_by_slug["rev-1"]["dataJson"]["how"] = "replace"
+    done = jobs.check_revision(_job({"revision": "rev-1"}), ctx)
+    saved = next(p[1]["dataJson"] for p in fake.patched if p[0] == "rev1")
+    assert saved["report"].startswith("REPLACE: applying this moves everything made from the current text to the Trash")
+    assert done["result"]["removed"] == len([r for r in fake.records.values() if "-beat-" in r["slug"]]) and done["result"]["new_beats"] == "numbered afresh"
+    assert fake.deleted == [] and fake.made == []  # a check changes nothing
+
+
+def test_a_replace_apply_gives_old_records_a_new_slug_trashes_them_and_numbers_the_new_beats_afresh(revising):
+    fake, ctx = revising(CAST_TEXT, NEW_TEXT)
+    fake.entries_by_slug["rev-1"]["dataJson"]["how"] = "replace"
+    jobs.check_revision(_job({"revision": "rev-1"}), ctx)
+    fake.entries_by_slug["rev-1"]["dataJson"]["base_digest"] = next(p[1]["dataJson"]["base_digest"] for p in fake.patched if p[0] == "rev1")
+    old_beats = {r["id"] for r in fake.records.values() if "-beat-" in r["slug"]}
+    jobs.apply_revision(_job({"revision": "rev-1"}), ctx)
+    renamed = {p[0]: p[1]["slug"] for p in fake.patched if p[1].get("slug", "").endswith("-before-rev1")}
+    assert old_beats <= set(renamed) and old_beats <= set(fake.deleted)  # renamed first, then moved to the Trash
+    made = {m["slug"] for m in fake.made if m["entryTypeId"] == "T-beat"}
+    assert made and all(re.fullmatch(r"s-beat-\d+", s) for s in made)  # no `a` suffixes: the numbers start again
+    applied = [p[1]["dataJson"] for p in fake.patched if p[0] == "rev1"][-1]
+    assert applied["status"] == "applied" and applied["before"] == CAST_TEXT  # and the text it replaced is kept, to go back to
+
+
+def test_an_edit_apply_keeps_the_text_it_replaced_and_trashes_nothing(revising):
+    fake, ctx = revising(CAST_TEXT, NEW_TEXT)
+    jobs.check_revision(_job({"revision": "rev-1"}), ctx)
+    fake.entries_by_slug["rev-1"]["dataJson"]["base_digest"] = next(p[1]["dataJson"]["base_digest"] for p in fake.patched if p[0] == "rev1")
+    jobs.apply_revision(_job({"revision": "rev-1"}), ctx)
+    assert fake.deleted == [] and [p[1]["dataJson"] for p in fake.patched if p[0] == "rev1"][-1]["before"] == CAST_TEXT

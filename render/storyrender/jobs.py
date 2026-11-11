@@ -391,7 +391,15 @@ def _cast_for(story: str, beat: dict, characters: list[dict], people: dict, data
     return out
 
 
-def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link: list) -> list[tuple[str, tuple[str, str, dict]]]:
+MAX_BEFORE_CHARS = 200_000  # a revision keeps the text it replaced up to this size (a long script is kept in its file)
+
+
+def _made_for_a_beat(story: str, slug: str) -> bool:
+    """A Sound the import made for one beat's own words (`story-sound-1002-1`), as against a bed, a score or one that was uploaded."""
+    return bool(re.fullmatch(rf"{re.escape(story)}-sound-\d+[a-z]*-\d+", slug))
+
+
+def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link: list, fresh: bool = False) -> list[tuple[str, tuple[str, str, dict]]]:
     """The characters and scenes a screenplay implies: a Character for each speaker, with what the screenplay says of them (name, age, sex, the sentences
     that introduce them), and a Scene for each place its headings name (inside or outside, the time of day), which the new beats are put in. One that
     exists is left as it is. Nothing is cast, dressed or lit: what the writer did not say is left empty."""
@@ -408,7 +416,7 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
         out.append(("cast-member", (f"{story}-{speaker}", c["name"], {"cast_id": cast_id, "role": role, "speaker": speaker, "story": story, "presence": "voice only" if re.search(r"narrat|announcer|^voice$", c["cue"], re.I) else "on screen", "status": "draft"})))
     want = {b[2]["scene"] for b in plan["beats"] if b[2].get("scene")} | {add["scene"] for _r, add in link if add.get("scene")}
     have_scenes = {e["slug"] for e in _all(ctx.creds, {"entry_type": "scene", "data": {"story": story}})}
-    have_sounds = {e["slug"] for e in _all(ctx.creds, {"entry_type": "sound", "data": {"story": story}})}
+    have_sounds = {e["slug"] for e in _all(ctx.creds, {"entry_type": "sound", "data": {"story": story}}) if not (fresh and _made_for_a_beat(story, e["slug"]))}
     new_numbers = {str(b[2].get("number")) for b in plan["beats"]} | {str((r.get("dataJson") or {}).get("number")) for r, add in link if add.get("sounds")}
     for _chapter, number, beat in fplan.rows():  # a Sound to click, upload to or generate for each sound the beat's words call for
         if number not in new_numbers:
@@ -437,6 +445,37 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
                 out.append(("sound", (bed_slug, bed["title"], {"story": story, "kind": "ambience", "prompt": bed["prompt"], "source": "generated", "loop": True, "status": "draft"})))
         out.append(("scene", (slug, place["name"], {k: v for k, v in data.items() if v not in ("", None)})))
     return out
+
+
+def _made_from_the_text(ctx: Context, story: str) -> dict[str, list[dict]]:
+    """Everything the current Fountain made for a story, by kind: its chapters, beats, spoken lines, the takes of those lines and the sounds made for single beats.
+    Characters, scenes, ambience beds, the score and anything uploaded are not in it: they are the story's own, whatever the text says."""
+    own = {"chapter": [], "beat": [], "speech-line": [], "take": [], "sound": []}
+    for kind in ("chapter", "beat", "speech-line", "sound"):
+        own[kind] = [e for e in _all(ctx.creds, {"entry_type": kind, "data": {"story": story}}) if kind != "sound" or _made_for_a_beat(story, e["slug"])]
+    own["take"] = [e for e in _all(ctx.creds, {"entry_type": "take", "data": {"story": story}}) if str(e.get("slug") or "").startswith(f"{story}-line-")]
+    return own
+
+
+def _replace_note(made: dict[str, list[dict]]) -> str:
+    counts = {k: len(v) for k, v in made.items()}
+    return (
+        f"REPLACE: applying this moves everything made from the current text to the Trash, where it can be restored ({counts['beat']} beats, {counts['speech-line']} lines, "
+        f"{counts['take']} takes, {counts['sound']} sounds made for single beats and {counts['chapter']} chapters), and brings the revision in afresh, numbered from 1001. "
+        "Characters, scenes, ambience beds, the score, masters and voices stay."
+    )
+
+
+def _retire(ctx: Context, made: dict[str, list[dict]], tag: str) -> int:
+    """Move each record to the Trash under a slug of its own (`-before-rev2`): a trashed record still holds its slug, and the new beats need the same slugs."""
+    done = 0
+    for kind in ("take", "speech-line", "beat", "sound", "chapter"):
+        for rec in made[kind]:
+            body = json.dumps({"title": rec.get("title"), "slug": f"{rec['slug']}-{tag}", "dataJson": rec.get("dataJson") or {}}).encode()
+            marvin_api.request(ctx.creds, f"/api/platform/entries/{rec['id']}", method="PATCH", data=body, content_type="application/json")
+            marvin_api.request(ctx.creds, f"/api/platform/entries/{rec['id']}", method="DELETE")
+            done += 1
+    return done
 
 
 def _revision_text(ctx: Context, slug: str, row: dict) -> str:
@@ -495,8 +534,13 @@ def check_revision(job: dict, ctx: Context) -> dict:
     slug, rev, story, story_row = _revision_of(ctx, job)
     if (rev.get("dataJson") or {}).get("status") not in (None, "", "draft"):
         raise JobError(f"the revision {slug} is already {(rev.get('dataJson') or {}).get('status')}: only a draft can be checked")
-    ran = import_beats({"job": job["job"], "args": {"story": story, "revision": slug, "mode": "refresh"}}, ctx)
+    replace = str((rev.get("dataJson") or {}).get("how") or "edit").strip().lower() == "replace"
+    ran = import_beats({"job": job["job"], "args": {"story": story, "revision": slug, "mode": "refresh", **({"fresh": "yes"} if replace else {})}}, ctx)
     res, found = ran["result"], ran["result"].get("revision") or {}
+    made = _made_from_the_text(ctx, story) if replace else {}
+    if replace:
+        ran = {**ran, "log": _replace_note(made) + "\n\n" + ran["log"]}
+        found = {"same": 0, "reworded": 0, "removed": made["beat"], "new": []}
     data = dict(rev.get("dataJson") or {})
     data.update(
         {
@@ -505,7 +549,7 @@ def check_revision(job: dict, ctx: Context) -> dict:
             "same": found.get("same", 0),
             "reworded": found.get("reworded", 0),
             "removed": len(found.get("removed") or []),
-            "new_beats": ", ".join(found.get("new") or []),
+            "new_beats": ", ".join(found.get("new") or []) if not replace else "numbered afresh",
             "beats_to_make": len(res.get("beats_made") or []) if isinstance(res.get("beats_made"), list) else res.get("beats_made", 0),
             "lines_to_record": res.get("lines_made", 0),
             "checked": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
@@ -531,7 +575,10 @@ def apply_revision(job: dict, ctx: Context) -> dict:
     if _digest(_story_text_now(ctx, story, sd)) != rd["base_digest"]:
         raise JobError(f"the story's Fountain changed after the revision {slug} was checked: check it again, so the comparison is about what is there now")
     new_text = _revision_text(ctx, slug, rev)
+    replace = str(rd.get("how") or "edit").strip().lower() == "replace"
     before = {k: sd.get(k) for k in ("fountain", "fountain_file", "revision", "revision_date")}
+    replaced_text = _story_text_now(ctx, story, sd)
+    rd["before"] = replaced_text if len(replaced_text) <= MAX_BEFORE_CHARS else ""  # what the story said until now: to go back, make a revision of it
     number, today = int(sd.get("revision") or 0) + 1, datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if str(rd.get("proposed") or "").strip():
         sd.update({"fountain": new_text, "fountain_file": None})
@@ -539,10 +586,15 @@ def apply_revision(job: dict, ctx: Context) -> dict:
         sd.update({"fountain": "", "fountain_file": str(rd["file"])})
     sd.update({"revision": number, "revision_date": today})
     _patch_entry(ctx, story_row, sd)
+    if replace:
+        retired = _retire(ctx, _made_from_the_text(ctx, story), f"before-rev{number}")
+        ctx.note(f"moved {retired} records made from the earlier text to the Trash")
     try:
-        ran = import_beats({"job": job["job"], "args": {"story": story, "mode": "refresh"}}, ctx)
+        ran = import_beats({"job": job["job"], "args": {"story": story, "mode": "add" if replace else "refresh"}}, ctx)
     except Exception:
         _patch_entry(ctx, story_row, {**dict(story_row.get("dataJson") or {}), **before})  # the story keeps the text it had: nothing was half applied
+        if replace:
+            ctx.note(f"the import failed after the earlier records went to the Trash: restore them from there (their slugs end in -before-rev{number})")
         raise
     rd.update({"status": "applied", "number": number, "applied_at": today})
     _patch_entry(ctx, rev, rd)
@@ -597,8 +649,9 @@ def import_beats(job: dict, ctx: Context) -> dict:
     report = fplan.report(parts)
     if lost := fountain.check(fplan):
         raise JobError("the cut would lose part of the screenplay, so nothing was made: " + "; ".join(lost) + "\n\n" + report)
+    fresh = _yes(args.get("fresh"))  # a replace: what was made before is being retired, so nothing is fitted to it and the numbers start again
     made_pieces, made_count = {}, 0  # the beats already made from this Fountain, and the piece of it each holds: a revised Fountain is fitted to them by what it says
-    for e in _all(ctx.creds, {"entry_type": "beat", "data": {"story": story}}):
+    for e in ([] if fresh else _all(ctx.creds, {"entry_type": "beat", "data": {"story": story}})):
         d_ = e.get("dataJson") or {}
         made_count += 1
         if str(d_.get("number") or "").strip() and str(d_.get("fountain") or "").strip():
@@ -621,8 +674,8 @@ def import_beats(job: dict, ctx: Context) -> dict:
             f"found no beats in {where}: is this Fountain? A scene starts with a heading like `INT. KITCHEN - DAY`"
         )
     ctx.note(f"read {len(rows)} beats from {where}")
-    have = {e["slug"]: e for kind_ in ("beat", "speech-line") for e in _all(ctx.creds, {"entry_type": kind_, "data": {"story": story}})}
-    chapters_have = {e["slug"]: e for e in _all(ctx.creds, {"entry_type": "chapter", "data": {"story": story}})}
+    have = {e["slug"]: e for kind_ in ("beat", "speech-line") for e in ([] if fresh else _all(ctx.creds, {"entry_type": kind_, "data": {"story": story}}))}
+    chapters_have = {e["slug"]: e for e in ([] if fresh else _all(ctx.creds, {"entry_type": "chapter", "data": {"story": story}}))}
     # A chapter inserted before others shifts their numbers (unless every title carries its own number), and the beats made under the old
     # numbers would then no longer match the screenplay. Say so in the plan, before anything is made.
     wrote = {c.number: c.title.strip().lower() for c in fplan.chapters}
@@ -688,7 +741,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
     for _slug, _title, data in plan["beats"]:  # a beat made now is cast the same way: who speaks in it and who its action names, with their masters
         if beat := rows_by_number.get(str(data.get("number"))):
             data.update(_cast_for(story, beat, fplan.characters, people, data))
-    extra = _implied(ctx, story, story_row, fplan, plan, link)
+    extra = _implied(ctx, story, story_row, fplan, plan, link, fresh=fresh)
     if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link):
         types = {t["slug"]: t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types"))}
         for needed in ("beat", "speech-line") + (("chapter",) if plan["chapters"] else ()):
