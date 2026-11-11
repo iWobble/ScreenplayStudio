@@ -76,6 +76,7 @@ def notes_of(row: dict) -> str:
     lead = cell[: first.start()].strip() if first else cell.strip()
     parts = [lead, *row.get("dropped", []), *[f"Sound: {s['text']}" for s in row.get("sounds", [])]]
     text = " ".join(p.strip() for p in parts if p and p.strip())
+    text = re.sub(r"^no speech\.?\s*¶?\s*(?=\S)", "", text, flags=re.IGNORECASE)  # a bare `No speech.` in front of a cue is only the empty beat's placeholder
     return "" if _NO_SPEECH.match(text) else text
 
 

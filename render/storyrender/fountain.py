@@ -401,10 +401,9 @@ class Plan:
             elif not out:
                 out += ["| Beat | Time | Audio | Single still / composition |", "| --- | --- | --- | --- |"]
             for i, b in enumerate(ch.beats, 1):
-                parts = [f"{ln['speaker']}: {cell(ln['text'])}" for ln in b["lines"]]
+                audio = f" {LINE_SEP} ".join(f"{ln['speaker']}: {cell(ln['text'])}" for ln in b["lines"]) or "No speech."
                 if b.get("sung"):  # sung words are a cue for the sound library (a song, a hummed tune), kept with the beat as a note
-                    parts.append("Sound: sung: " + cell(" / ".join(b["sung"])))
-                audio = f" {LINE_SEP} ".join(parts) or "No speech."
+                    audio += f" {LINE_SEP} Sound: sung: " + cell(" / ".join(b["sung"]))
                 out.append(f"| {self.number(ch, i)} | — | {audio} | {cell(b['picture'])} |")
             out.append("")
         return "\n".join(out).rstrip() + "\n"
