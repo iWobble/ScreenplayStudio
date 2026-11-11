@@ -13,7 +13,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import audio_convert, audio_measure, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, ready, script, voices
+from . import audio_convert, audio_measure, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, numbering, ready, script, voices
 
 
 def story_of(job: dict) -> str:
@@ -414,6 +414,23 @@ def _story_gaps(story_data: dict) -> list[str]:
     return [why for key, why in asked if not str(story_data.get(key) or "").strip()]
 
 
+def _people_fill(ctx: Context, story: str, fplan) -> list[tuple[dict, dict]]:
+    """Characters made before they had Age, Sex and Age state as fields, given what the screenplay says of them. Only a field that is empty is
+    filled (never one a person set), and only when the screenplay says it (a sex only when the pronouns or a word like boy or woman do)."""
+    said = {c["handle"].lower(): c for c in fplan.characters}
+    out: list[tuple[dict, dict]] = []
+    for rec in _all(ctx.creds, {"entry_type": "cast-member", "data": {"story": story}}):
+        data = rec.get("dataJson") or {}
+        found = said.get(str(data.get("speaker") or "").lower())
+        if not found:
+            continue
+        wanted = {"age": found["age"], "sex": found["sex"], "age_state": fountain.age_state(found["age"])}
+        missing = {k: v for k, v in wanted.items() if v and not str(data.get(k) or "").strip()}
+        if missing:
+            out.append((rec, missing))
+    return out
+
+
 def _made_for_a_beat(story: str, slug: str) -> bool:
     """A Sound the import made for one beat's own words (`story-sound-1002-1`), as against a bed, a score or one that was uploaded."""
     return bool(re.fullmatch(rf"{re.escape(story)}-sound-\d+[a-z]*-\d+", slug))
@@ -433,7 +450,9 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
         role = ", ".join(x for x in (who, c["age"]) if x)
         role = f"{role}. {c['description']}" if role and c["description"] else (c["description"] or role)
         cast_id = re.sub(r"[^a-z0-9]+", "-", c["name"].lower()).strip("-") or speaker
-        out.append(("cast-member", (f"{story}-{speaker}", c["name"], {"cast_id": cast_id, "role": role, "speaker": speaker, "story": story, "presence": "voice only" if re.search(r"narrat|announcer|^voice$", c["cue"], re.I) else "on screen", "status": "draft"})))
+        said = {"age": c["age"], "sex": c["sex"], "age_state": fountain.age_state(c["age"])}  # what the screenplay says of them, as fields (the empty ones left out)
+        data = {"cast_id": cast_id, "role": role, "speaker": speaker, "story": story, "presence": "voice only" if re.search(r"narrat|announcer|^voice$", c["cue"], re.I) else "on screen", "status": "draft"}
+        out.append(("cast-member", (f"{story}-{speaker}", c["name"], {**data, **{k: v for k, v in said.items() if v}})))
     want = {b[2]["scene"] for b in plan["beats"] if b[2].get("scene")} | {add["scene"] for _r, add in link if add.get("scene")}
     have_scenes = {e["slug"] for e in _all(ctx.creds, {"entry_type": "scene", "data": {"story": story}})}
     have_sounds = {e["slug"] for e in _all(ctx.creds, {"entry_type": "sound", "data": {"story": story}}) if not (fresh and _made_for_a_beat(story, e["slug"]))}
@@ -542,6 +561,121 @@ def _revision_of(ctx: Context, job: dict) -> tuple[str, dict, str, dict]:
 def _patch_entry(ctx: Context, row: dict, data: dict) -> None:
     body = json.dumps({"title": row.get("title"), "slug": row.get("slug"), "dataJson": data}).encode()
     marvin_api.request(ctx.creds, f"/api/platform/entries/{row['id']}", method="PATCH", data=body, content_type="application/json")
+
+
+BEAT_DETAILS_BATCH = 10  # beats in one question to the AI
+BEAT_DETAILS_LIMIT = 40  # beats in one run
+
+
+def _beat_details_message(story_row: dict, characters: list[dict], batch: list[dict], lines_of: dict[str, list[str]], scenes: dict[str, str]) -> str:
+    """The question: for each beat, what the people are doing and the one thing the picture is about, as a JSON list."""
+    data = story_row.get("dataJson") or {}
+    people = "\n".join(
+        f"- {c.get('title')}: {', '.join(x for x in (str(c.get('role') or '').strip(), 'wears ' + str(c['costume']).strip() if c.get('costume') else '', 'carries ' + str(c['props']).strip() if c.get('props') else '') if x)}"
+        for c in characters
+        if str(c.get("presence") or "") != "voice only"
+    )
+    cast_names = {str(c.get("slug")): str(c.get("title")) for c in characters}
+    beats = []
+    for b in batch:
+        who = ", ".join(cast_names.get(s.strip(), s.strip()) for s in str(b.get("cast") or "").split(",") if s.strip()) or "nobody named"
+        said = "\n    ".join(lines_of.get(str(b.get("slug")), []))
+        beats.append(f"BEAT {b.get('number')}\n  place: {scenes.get(str(b.get('scene')), '')}\n  people in it: {who}\n  what happens: {str(b.get('picture') or '').strip()}" + (f"\n  spoken:\n    {said}" if said else ""))
+    return (
+        "You write two short fields for each beat (one still picture) of a narrated, illustrated story. An image model reads them with the beat's own words.\n\n"
+        f"STORY: {story_row.get('title')}. Setting: {data.get('setting') or ''} Premise: {data.get('premise') or ''}\n\nCHARACTERS\n{people or '(none)'}\n\n"
+        + "\n\n".join(beats)
+        + "\n\nFor each beat write:\n"
+        "- expression: what the people in the frame are doing and how they look (pose, face, body), in one or two plain sentences, from the beat's words. Say nothing of the place, weather, light or clothes (other fields hold those), add nobody who is not in the beat, and keep left and right as written.\n"
+        "- focus: the one object the picture is about, in a few words (a logbook, a compass, a coin); an empty string when nothing in particular.\n"
+        "Use only what the beat says or clearly implies. Answer with ONLY a JSON list, one object per beat, no code fence and no other text: "
+        '[{"number": "1001", "expression": "...", "focus": "..."}]'
+    )
+
+
+def _parse_beat_details(answer: str) -> dict[str, dict]:
+    """{beat number: {expression, focus}} from the AI's answer; anything that is not a list of such objects gives nothing."""
+    text = str(answer or "")
+    start, end = text.find("["), text.rfind("]")
+    if start < 0 or end <= start:
+        return {}
+    try:
+        items = json.loads(text[start : end + 1])
+    except ValueError:
+        return {}
+    out: dict[str, dict] = {}
+    for item in items if isinstance(items, list) else []:
+        if isinstance(item, dict) and str(item.get("number") or "").strip():
+            out[str(item["number"]).strip()] = {"expression": str(item.get("expression") or "").strip()[:400], "focus": str(item.get("focus") or "").strip()[:120]}
+    return out
+
+
+def _ask(ctx: Context, message: str, agent: str = "chat") -> str:
+    """One question to a plain-completion agent of this workspace; its answer."""
+    body = json.dumps({"message": message, "register": "professional"}).encode()
+    reply = json.loads(marvin_api.request(ctx.creds, f"/api/ai/agents/{agent}/run", method="POST", data=body, content_type="application/json"))
+    return str(reply.get("answer") or reply.get("response") or reply.get("message") or reply.get("content") or "")
+
+
+@job_kind(
+    "write-beat-details",
+    description="Propose what the people are doing (expression) and the one thing the picture is about (focus) for the beats of a story that lack them, from each beat's words, with the workspace AI (a plain completion, ten beats to a question). Only an empty field is filled, never one a person wrote; a person edits the result. dry_run shows what would be written. It spends no image or voice credit",
+    inputs={
+        "story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"},
+        "limit": {"type": "string", "description": f"most beats to write in one run (default {BEAT_DETAILS_LIMIT})"},
+        "dry_run": {"type": "string", "description": "yes: write nothing, say what would be written"},
+        "agent": {"type": "string", "description": "a plain-completion agent of the workspace to ask (default chat)"},
+    },
+    produces=[],
+)
+def write_beat_details(job: dict, ctx: Context) -> dict:
+    story, args = story_of(job), job.get("args") or {}
+    rows = marvin_api.query(ctx.creds, {"entries": story}, limit=1)
+    if not rows:
+        raise JobError(f"no story “{story}” in this workspace")
+    story_row = {**rows[0], "title": rows[0].get("title")}
+    dry = _yes(args.get("dry_run"))
+    try:
+        limit = max(1, int(args.get("limit") or BEAT_DETAILS_LIMIT))
+    except ValueError:
+        raise JobError("limit is a whole number of beats, like 20") from None
+    rec = lambda e: {**(e.get("dataJson") or {}), "slug": e.get("slug"), "title": e.get("title"), "_row": e}  # noqa: E731
+    beats = sorted((rec(e) for e in _all(ctx.creds, {"entry_type": "beat", "data": {"story": story}})), key=lambda b: numbering.order_key(b.get("number")))
+    waiting = [b for b in beats if str(b.get("picture") or "").strip() and not (str(b.get("expression") or "").strip() and str(b.get("focus") or "").strip())]
+    if not waiting:
+        return {"result": {"story": story, "written": 0}, "log": "Every beat that says what happens already has its expression and focus. Nothing to write."}
+    todo = waiting[:limit]
+    characters = [rec(e) for e in _all(ctx.creds, {"entry_type": "cast-member", "data": {"story": story}})]
+    scenes = {str(e.get("slug")): str((e.get("dataJson") or {}).get("place") or "") for e in _all(ctx.creds, {"entry_type": "scene", "data": {"story": story}})}
+    lines_of: dict[str, list[str]] = {}
+    for e in _all(ctx.creds, {"entry_type": "speech-line", "data": {"story": story}}):
+        d = e.get("dataJson") or {}
+        lines_of.setdefault(str(d.get("beat")), []).append(f"{str(d.get('speaker') or '').upper()}: {str(d.get('text') or '').strip()}")
+    agent = str(args.get("agent") or "chat").strip() or "chat"
+    written, skipped, shown = 0, [], []
+    for at in range(0, len(todo), BEAT_DETAILS_BATCH):
+        batch = todo[at : at + BEAT_DETAILS_BATCH]
+        answer = _parse_beat_details(_ask(ctx, _beat_details_message(story_row, characters, batch, lines_of, scenes), agent))
+        for b in batch:
+            found = answer.get(str(b.get("number")))
+            if not found:
+                skipped.append(str(b.get("number")))
+                continue
+            new = {k: v for k, v in found.items() if v and not str(b.get(k) or "").strip()}  # only an empty field is filled
+            if not new:
+                continue
+            shown.append(f"{b.get('number')}: {new.get('expression', '')}" + (f" [focus: {new['focus']}]" if new.get("focus") else ""))
+            if not dry:
+                row = b["_row"]
+                _patch_entry(ctx, row, {**(row.get("dataJson") or {}), **new})
+            written += 1
+    left = len(waiting) - len(todo)
+    log = f"{'Would write' if dry else 'Wrote'} expression and focus for {written} beat{'s' if written != 1 else ''} of “{story_row.get('title')}”" + (" (nothing was changed)" if dry else "") + ". They are proposals: read them and edit what is off."
+    if skipped:
+        log += f" The AI gave nothing usable for {len(skipped)} (beats {', '.join(skipped[:8])}): run it again."
+    if left:
+        log += f" {left} more beat{'s' if left != 1 else ''} wait: run it again."
+    return {"result": {"story": story, "written": written, "skipped": skipped, "left": left}, "log": log + "\n\n" + "\n".join(shown)}
 
 
 @job_kind(
@@ -792,7 +926,8 @@ def import_beats(job: dict, ctx: Context) -> dict:
         if beat := rows_by_number.get(str(data.get("number"))):
             data.update(_cast_for(story, beat, fplan.characters, people, data))
     extra = _implied(ctx, story, story_row, fplan, plan, link, fresh=fresh)
-    if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link):
+    people = [] if fresh else _people_fill(ctx, story, fplan)  # a replace starts afresh: its Characters are made new
+    if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link or people):
         types = {t["slug"]: t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types"))}
         for needed in ("beat", "speech-line") + (("chapter",) if plan["chapters"] else ()):
             if needed not in types:
@@ -814,6 +949,9 @@ def import_beats(job: dict, ctx: Context) -> dict:
         for rec, missing in fill:  # a chapter made before chapters held their own text and summary gets them; a PATCH replaces dataJson, so send it whole
             data = {**(rec.get("dataJson") or {}), **missing}
             payload = json.dumps({"title": rec.get("title"), "slug": rec["slug"], "dataJson": data}).encode()
+            marvin_api.request(ctx.creds, f"/api/platform/entries/{rec['id']}", method="PATCH", data=payload, content_type="application/json")
+        for rec, missing in people:  # a Character made before Age and Sex were fields gets them from the screenplay (a PATCH replaces dataJson, so send it whole)
+            payload = json.dumps({"title": rec.get("title"), "slug": rec["slug"], "dataJson": {**(rec.get("dataJson") or {}), **missing}}).encode()
             marvin_api.request(ctx.creds, f"/api/platform/entries/{rec['id']}", method="PATCH", data=payload, content_type="application/json")
         for slug, record_id in plan["trash"]:  # DELETE moves an entry to the Trash, where it can be restored
             marvin_api.request(ctx.creds, f"/api/platform/entries/{record_id}", method="DELETE")

@@ -85,3 +85,25 @@ def test_the_story_timeline_lets_a_made_still_be_kept_or_redone_in_place():
         raise AssertionError("story-timeline")
     requeue = json.dumps(_flow("screenplay-requeue-redo"))
     assert '"redo"' in requeue  # the status the Redo button writes is the one the requeue workflow acts on
+
+
+def test_writing_the_beat_details_asks_once_then_queues_the_job_and_the_cast_has_age_and_sex_fields():
+    flow = _flow("screenplay-write-beat-details")["actions"]
+    assert [a.get("id") for a in flow if a.get("kind") == "approval"] == ["none", "spend"]
+    job = next(a for a in flow if a.get("kind") == "entry")
+    assert job["data"]["kind"] == "write-beat-details" and job["when"]["op"] == "gte"
+    for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]:
+        if b.get("slug") == "cast-member":
+            keys = [f["key"] for f in b["payload"]["schema_json"]["fields"]]
+            assert {"age", "sex", "age_state"} <= set(keys) and keys.index("age") < keys.index("speaker")
+
+
+def test_a_still_is_told_the_changes_from_earlier_beats_and_the_beat_has_the_field_for_them():
+    acts = _flow("screenplay-take-still")["actions"]
+    changes = next(a for a in acts if a.get("id") == "changes")
+    assert {"field": "number", "op": "lte", "value": "${entry.data.number}"} in changes["query"]["where"]  # this beat's own note counts too
+    prompt = next(a for a in acts if a.get("kind") == "integration")["args"]["prompt"]
+    assert prompt.index("CHANGES THAT HOLD") < prompt.index("THIS MOMENT: ") and "steps.changes.output.text" in prompt
+    for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]:
+        if b.get("slug") == "beat":
+            assert "changes" in [f["key"] for f in b["payload"]["schema_json"]["fields"]]

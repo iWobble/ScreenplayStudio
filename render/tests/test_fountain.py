@@ -875,6 +875,9 @@ def test_the_import_makes_the_characters_and_scenes_and_puts_each_beat_in_its_sc
     assert valerie["speaker"] == "valerie" and valerie["story"] == "s" and valerie["status"] == "draft" and "actor" not in valerie
     assert valerie["role"].startswith("Woman, 40s. CAPTAIN VALERIE") and by["s-chet"]["dataJson"]["role"].startswith("Man, 20s.")
     assert by["s-hand"]["dataJson"]["role"] == ""  # not introduced: nothing is made up
+    assert (valerie["age"], valerie["sex"], valerie["age_state"]) == ("40s", "female", "mid")  # what the screenplay says, as fields
+    assert (by["s-chet"]["dataJson"]["age"], by["s-chet"]["dataJson"]["sex"], by["s-chet"]["dataJson"]["age_state"]) == ("20s", "male", "young")
+    assert not {"age", "sex", "age_state"} & set(by["s-hand"]["dataJson"])  # and nothing for someone it says nothing of
     reef, cabin = by["s-the-reef"]["dataJson"], by["s-captains-cabin"]["dataJson"]
     assert by["s-the-reef"]["entryTypeId"] == "T-scene" and reef["place"] == "The Reef (exterior)" and reef["look"] == "Night, Dawn" and "ambience_muffled" not in reef
     assert cabin["ambience_muffled"] is True
@@ -890,7 +893,9 @@ def test_a_second_import_leaves_the_characters_and_scenes_that_are_there(casting
     fake.on_hand["scene"]["s-the-reef"] = {"id": "sc1", "slug": "s-the-reef", "title": "Reef", "dataJson": {"story": "s"}}
     done = run(ctx)
     assert done["result"]["characters_made"] == ["s-chet", "s-hand"] and done["result"]["scenes_made"] == ["s-captains-cabin"]
-    assert fake.patched == [p for p in fake.patched if p[0] == "e0"]  # nothing that exists is rewritten
+    patched = {p[0]: p[1]["dataJson"] for p in fake.patched if p[0] != "e0"}
+    assert set(patched) == {"c1"}  # the only change to what exists: the Character gets the age and sex the screenplay says of her
+    assert patched["c1"] == {"story": "s", "speaker": "valerie", "actor": "nell", "age": "40s", "sex": "female", "age_state": "mid"}  # nothing else touched
 
 
 def test_a_preview_makes_none_of_them_but_says_so(casting):
@@ -1366,3 +1371,23 @@ def test_a_character_is_introduced_by_a_comma_age_as_well_as_a_bracketed_one():
     who = {c["handle"]: c for c in fountain.cut(fountain.parse(text)).characters}
     assert (who["Valerie"]["age"], who["Valerie"]["sex"]) == ("40s", "female") and "clouded eye" in who["Valerie"]["description"]
     assert who["Chet"]["age"] == "20s" and "logbook" in who["Chet"]["description"]
+
+
+@pytest.mark.parametrize("age, state", [("20s", "young"), ("29", "young"), ("30s", "mid"), ("40", "mid"), ("mid-50s", "mid"), ("60s", "old"), ("70", "old"), ("", ""), (None, ""), ("elderly", "")])
+def test_an_age_the_screenplay_gives_says_which_of_the_actors_ages_the_master_is_made_from(age, state):
+    assert fountain.age_state(age) == state
+
+
+def test_a_character_keeps_an_age_state_or_sex_a_person_set_and_only_empty_fields_are_filled(casting):
+    fake, ctx = casting(CAST_TEXT)
+    fake.on_hand["cast-member"]["s-valerie"] = {"id": "c1", "slug": "s-valerie", "title": "Vale", "dataJson": {"story": "s", "speaker": "valerie", "age_state": "old", "sex": "female"}}
+    run(ctx)
+    patched = {p[0]: p[1]["dataJson"] for p in fake.patched if p[0] != "e0"}
+    assert patched["c1"]["age_state"] == "old" and patched["c1"]["age"] == "40s"  # the person's Age state stays; the empty Age is filled
+
+
+def test_a_replace_makes_its_characters_new_so_it_fills_none_of_the_old_ones(casting):
+    fake, ctx = casting(CAST_TEXT)
+    fake.on_hand["cast-member"]["s-valerie"] = {"id": "c1", "slug": "s-valerie", "title": "Vale", "dataJson": {"story": "s", "speaker": "valerie"}}
+    run(ctx, fresh="yes")
+    assert not [p for p in fake.patched if p[0] == "c1"]
