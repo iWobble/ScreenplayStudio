@@ -371,7 +371,7 @@ def _fountain_text(ctx: Context, story: str, story_data: dict) -> tuple[str, str
     raise JobError(f"nothing to read: {story} has no Fountain. Write or paste it in the story's Fountain field, or upload a .fountain file")
 
 
-def _implied(ctx: Context, story: str, fplan, plan: dict, link: list) -> list[tuple[str, tuple[str, str, dict]]]:
+def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link: list) -> list[tuple[str, tuple[str, str, dict]]]:
     """The characters and scenes a screenplay implies: a Character for each speaker, with what the screenplay says of them (name, age, sex, the sentences
     that introduce them), and a Scene for each place its headings name (inside or outside, the time of day), which the new beats are put in. One that
     exists is left as it is. Nothing is cast, dressed or lit: what the writer did not say is left empty."""
@@ -397,6 +397,10 @@ def _implied(ctx: Context, story: str, fplan, plan: dict, link: list) -> list[tu
             slug = f"{story}-sound-{number}-{i}"
             if slug not in have_sounds:
                 out.append(("sound", (slug, cue["title"], {"story": story, "kind": cue["kind"], "prompt": cue["prompt"], "source": "generated", "status": "draft"})))
+    score = f"{story}-score"
+    if not str((story_row.get("dataJson") or {}).get("music") or "").strip() and score not in have_sounds:  # a placeholder for the music under the film: delete it if there is no score
+        said = " ".join(c.summary for c in fplan.chapters if c.summary)
+        out.append(("sound", (score, f"{story_row.get('title') or story} score", {"story": story, "kind": "music", "prompt": f"Background music for the film “{story_row.get('title') or story}”." + (f" What happens: {said}" if said else ""), "source": "generated", "loop": True, "status": "draft"})))
     for slug_key, place in fplan.places.items():
         slug = f"{story}-{slug_key}"
         if slug not in want or slug in have_scenes:
@@ -535,7 +539,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
                 add["sounds"] = [{"sound": f"{story}-sound-{number}-{i}", "at": 0} for i, _c in enumerate(beat["sounds"], 1)]
             if rec and add:
                 link.append((rec, add))
-        extra = _implied(ctx, story, fplan, plan, link)
+        extra = _implied(ctx, story, story_row, fplan, plan, link)
     if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link):
         types = {t["slug"]: t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types"))}
         for needed in ("beat", "speech-line") + (("chapter",) if plan["chapters"] else ()):
@@ -631,6 +635,8 @@ def import_beats(job: dict, ctx: Context) -> dict:
         other = "\n".join(f"{k}: {v}" for k, v in meta.items() if k not in ("title", "credit", "author", "source", "draft_date", "contact", "copyright"))
         if other and not str(story_data.get("title_page_other") or "").strip():
             story_data["title_page_other"] = other
+        if any(t == "sound" and r[0] == f"{story}-score" for t, r in extra) and not dry and not str(story_data.get("music") or "").strip():
+            story_data["music"] = f"{story}-score"  # the placeholder is the story's music until a recording or a generated take replaces it, or it is deleted
         if fplan.front.strip() and not str(story_data.get("fountain_front") or "").strip():
             story_data["fountain_front"] = fplan.front  # what the writer put before the first beat, as written: the export writes it back first
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")

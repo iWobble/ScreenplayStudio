@@ -950,3 +950,17 @@ def test_the_import_makes_a_sound_to_fill_in_for_each_and_places_it_on_its_beat(
     placed = [d["sounds"] for m in fake.made if m["entryTypeId"] == "T-beat" for d in [m["dataJson"]] if d.get("sounds")]
     assert placed and all(p["sound"] in sounds and p["at"] == 0 for group in placed for p in group)
     assert len(done["result"]["sounds_made"]) == len(sounds)
+
+
+def test_a_score_placeholder_is_made_and_set_as_the_storys_music_unless_it_has_one(casting):
+    fake, ctx = casting(SOUND_TEXT)
+    done = run(ctx)
+    score = next(m for m in fake.made if m["slug"] == "s-score")
+    assert score["entryTypeId"] == "T-sound" and score["dataJson"]["kind"] == "music" and score["dataJson"]["status"] == "draft" and score["dataJson"]["loop"] is True
+    assert "s-score" in done["result"]["sounds_made"]
+    assert [p[1]["dataJson"].get("music") for p in fake.patched if p[0] == "e0"] == ["s-score"]
+    own, ctx2 = casting(SOUND_TEXT)
+    own.story["dataJson"]["music"] = "my-theme"
+    run(ctx2)
+    assert not any(m["slug"] == "s-score" for m in own.made)
+    assert [p[1]["dataJson"]["music"] for p in own.patched if p[0] == "e0"] == ["my-theme"]
