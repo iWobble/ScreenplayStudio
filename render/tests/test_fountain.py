@@ -409,3 +409,15 @@ def test_a_note_over_several_lines_is_still_the_writers_and_dropped():
 def test_contd_is_not_an_extension_and_the_name_stays_the_name():
     els = [e for e in fountain.parse(PIRATES) if e["t"] == "dialogue"]
     assert [(e["name"], e["ext"]) for e in els] == [("CHET", ""), ("VALERIE", "")]
+
+
+def test_fountain_handed_over_in_a_code_fence_reads_as_if_it_were_not():
+    fenced = "```fountain\n" + PIRATES + "```\n"
+    assert fountain.parse(fenced) == fountain.parse(PIRATES)
+    plan = fountain.cut(fountain.parse(fenced))
+    assert fountain.chapter_texts(fenced, plan) == fountain.chapter_texts(PIRATES, fountain.cut(fountain.parse(PIRATES)))
+
+
+def test_a_fence_in_the_middle_of_the_script_is_left_alone():
+    text = "INT. PORCH - DAY\n\n```\nnot a fence round the whole\n\nGranny rocks.\n"
+    assert any("```" in e.get("text", "") for e in fountain.parse(text))

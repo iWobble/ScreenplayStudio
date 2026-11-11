@@ -53,9 +53,22 @@ def _words(text: str) -> int:
 # --- reading ------------------------------------------------------------------------------------------------------------------------
 
 
-def _clean(text: str) -> str:
+_FENCE = re.compile(r"^\s*```[A-Za-z]*\s*$")
+
+
+def _normal(text: str) -> str:
+    """The text with plain line breaks, no byte order mark, and no code fence round it: an AI (or a chat window) hands Fountain over wrapped in ```."""
     text = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("﻿")
-    return _NOTE.sub("", _BONEYARD.sub("", text))  # a boneyard and a note are the writer's, not the story's
+    lines = text.split("\n")
+    first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
+    last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
+    if first is not None and last is not None and first < last and _FENCE.match(lines[first]) and _FENCE.match(lines[last]):
+        lines = lines[:first] + lines[first + 1 : last] + lines[last + 1 :]
+    return "\n".join(lines)
+
+
+def _clean(text: str) -> str:
+    return _NOTE.sub("", _BONEYARD.sub("", _normal(text)))  # a boneyard and a note are the writer's, not the story's
 
 
 def _blocks_at(text: str) -> list[tuple[int, list[str]]]:
@@ -481,7 +494,7 @@ def chapter_texts(text: str, plan: Plan) -> "dict[int, str] | None":
     """Each chapter's own slice of the Fountain text, as the writer wrote it (notes, boneyard and layout kept): from the section or scene heading that
     starts the chapter to the one that starts the next. The title page is not in any slice. Chapter numbers are the keys.
     None when the text cannot be matched to the chapters the plan found, scene heading for scene heading: better no slice than a wrong one."""
-    norm = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("﻿")
+    norm = _normal(text)
     scenes = _scenes(parse(_blank_comments(norm), lines=True))
     if [s.heading for s in scenes] != [s.heading for ch in plan.chapters for s in ch.scenes]:
         return None
