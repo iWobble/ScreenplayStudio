@@ -567,3 +567,16 @@ def test_every_element_of_the_fountain_spec_is_read_as_the_spec_says():
         ("dialogue", "GRANNY", "", [], "Done."),  # (CONT'D) is not an extension
         ("action", "THE END"),
     ]
+
+
+def test_a_synopsis_right_under_a_scene_heading_is_the_writers_and_is_not_in_the_beat():
+    text = "EXT. SHOALS - NIGHT\n= The brigantine fights a losing battle.\n\nA violent storm rages.\n\n.THE DECK - NIGHT\n= Introduce the environment.\n\nLightning flashes.\n"
+    els = fountain.parse(text)
+    assert [(e["t"], e["text"]) for e in els] == [("scene", "EXT. SHOALS - NIGHT"), ("action", "A violent storm rages."), ("scene", "THE DECK - NIGHT"), ("action", "Lightning flashes.")]
+    assert not any("=" in b["picture"] for _c, _n, b in fountain.cut(els).rows())
+
+
+def test_centred_text_written_with_empty_markers_round_it_is_just_the_words():
+    els = fountain.parse("INT. DECK - NIGHT\n\n> <\n**THE DEVIL'S SHOALS**\n> <\n\nWaves.\n")
+    assert [e["text"] for e in els if e["t"] == "action"] == ["THE DEVIL'S SHOALS", "Waves."]
+    assert [e["text"] for e in fountain.parse("INT. DECK - NIGHT\n\n> THE END <\n") if e["t"] == "action"] == ["THE END"]

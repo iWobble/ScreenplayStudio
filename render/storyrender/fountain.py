@@ -143,7 +143,16 @@ def _plain_elements(els: list[dict]) -> list[dict]:
     return els
 
 
+_SYNOPSIS_LINE = re.compile(r"^=(?!=)")
+_EMPTY_CENTRE = re.compile(r"^>\s*<$")
+
+
 def _block_elements(block: list[str]) -> list[dict]:
+    # A synopsis (`= text`) is the writer's note even when it sits right under a scene heading, and a centred block an AI wrote as `> <`, the text,
+    # `> <` has empty markers round the words: neither belongs in a beat's picture.
+    block = [ln for ln in block if not _SYNOPSIS_LINE.match(ln.strip()) and not _EMPTY_CENTRE.match(ln.strip())]
+    if not block:
+        return []
     first = block[0].strip()
     if first.startswith("==="):
         return []
