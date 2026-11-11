@@ -51,7 +51,7 @@ Copyright: (c) 2026 Jared. All rights reserved.
 
 ## 4. Characters
 
-Introduce each person **once**, in capitals, the first time they appear in the action, with their age and the sentences that say what they look like. The import copies those sentences into the Character's Role, reads the age, and reads the sex from the pronouns or a word like *boy*, *woman*, *lad* in them.
+Introduce each person **once**, in capitals, the first time they appear in the action, with their age and the sentences that say what they look like. The import copies those sentences into the Character's Role, reads the age and the sex (from the pronouns or a word like *boy*, *woman*, *lad* in them) into the Character's **Age** and **Sex** fields, and sets **Age state** (young under 30, mid under 55, old after) from the age, which picks the actor's picture of that age for the master. A Character made before these fields existed gets them on the next import, only where they are empty.
 
 ```
 CAPTAIN VALERIE "THE VULTURE" VANE (40s) stands over the desk. She wears a rain-soaked tricorn hat and a long leather coat. One eye is clouded over with a cataract. She jams a compass into her belt.

@@ -562,6 +562,16 @@ def _piece(lines: list[str], start: int, stop: int) -> str:
 _NAMEWORD = r"""(?:[A-Z][A-Z0-9'’.\-]*|"[^"]+"|“[^”]+”)"""
 _AGE_WORDS = r"(?:early |mid-?|late )?\d{1,3}s?"
 _INTRO = re.compile(rf"({_NAMEWORD}(?:\s+{_NAMEWORD})*)\s*(?:\(({_AGE_WORDS})\)|,\s*({_AGE_WORDS})(?=\s*[,.]))")  # `CAPTAIN VALERIE "THE VULTURE" VANE (40s)` or `CHET, 20s, clutches a logbook`
+def age_state(age) -> str:
+    """`young`, `mid` or `old` from an age the screenplay gives (`20s`, `40`, `mid-30s`), which picks the actor's picture of that age for the master;
+    empty when there is no number to go by (up to 29 young, up to 54 mid, older old)."""
+    found = re.search(r"\d{1,3}", str(age or ""))
+    if not found:
+        return ""
+    years = int(found.group())
+    return "young" if years < 30 else "mid" if years < 55 else "old"
+
+
 _HOLD_NOTE = re.compile(r"\bHold:\s*(\d+(?:\.\d+)?)\s*s\b")
 _SENTENCES = re.compile(r"(?<=[.!?])\s+")
 _FEMALE = re.compile(r"\b(?:she|herself|woman|girl|lady|madam)\b", re.I)  # who a sentence is about, not whom it is done to: `frowns at her` says nothing of the one who frowns
