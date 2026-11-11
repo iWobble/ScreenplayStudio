@@ -14,6 +14,7 @@ a beat is numbered chapter x 1000 + its place, so adding to one chapter never re
 
 from __future__ import annotations
 
+import difflib
 import math
 import re
 from dataclasses import dataclass, field
@@ -402,8 +403,11 @@ class Plan:
     characters: list = field(default_factory=list)  # who the screenplay introduces (see `characters`)
     places: dict = field(default_factory=dict)  # place slug -> the place the scene headings name (see `places_of`)
     ambience: dict = field(default_factory=dict)  # place slug -> the bed its beats' action asks for (see `ambience_of`)
+    renumber: dict = field(default_factory=dict)  # (chapter number, position) -> the number a beat keeps in a revision (see `align`)
 
     def number(self, chapter: Chapter, i: int) -> str:
+        if (chapter.number, i) in self.renumber:  # a revision: a beat keeps the number of the beat it is, and a new one is numbered after the beat before it (1002a)
+            return self.renumber[(chapter.number, i)]
         return f"{i:02d}" if self.single else str(chapter.number * 1000 + i)
 
     def rows(self) -> list[tuple[Chapter | None, str, dict]]:
@@ -733,6 +737,80 @@ def ambience_of(beats: list[dict], name: str) -> "dict | None":
         return None
     return {"kind": "ambience", "title": f"{name} ambience", "prompt": f"Ambience for {name}: " + " ".join(said[:3])}
 
+
+
+# --- revisions -----------------------------------------------------------------------------------------------------------------------
+
+REWORDED = 0.55  # how alike two beats' text must be for the new one to be the old one reworded rather than a new beat
+_NOTE_TEXT = re.compile(r"\[\[.*?\]\]", re.S)
+
+
+def _sameness(text: str) -> str:
+    """A beat's piece of the Fountain as it is compared in a revision: its words, without notes, scene numbers, page breaks or spacing."""
+    text = _NOTE_TEXT.sub(" ", text or "")
+    text = re.sub(r"(?m)^\s*(?:===+|#{1,6}\s.*|=.*|\.[^.].*|(?:INT|EXT|EST|I/E|INT\.?/EXT)\b.*)$", " ", text, flags=re.I)  # a page break, a section, a synopsis, a scene heading: structure, not what the beat says
+    text = re.sub(r"#[^#\s]+#", " ", text)
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def _after(number: str) -> str:
+    """The number a beat inserted after `number` takes: 1002 -> 1002a, 1002a -> 1002b."""
+    m = re.fullmatch(r"(\d+)([a-z]?)", number)
+    if not m:
+        raise ValueError(f"beat number “{number}” cannot be followed by an inserted beat")
+    digits, letter = m.groups()
+    if letter == "z":
+        raise ValueError(f"more than 26 beats were inserted after beat {digits}: add a `#` section line or number the story again")
+    return digits + (chr(ord(letter) + 1) if letter else "a")
+
+
+def align(plan: Plan, existing: dict[str, str]) -> "dict | None":
+    """Fit a revised Fountain to the beats already made from it, by what they say and not by where they stand. `existing` is each made beat's number and
+    its own piece of the Fountain. A beat whose words are unchanged keeps its number (and with it its picture, recording and sounds); one reworded keeps it
+    too, to be updated or flagged as a refresh does; one that is new is numbered after the beat before it (`1002a`), so nothing after it is renumbered; a beat
+    gone from the text is simply not in the plan, so a refresh trashes it or keeps it flagged. Returns what it found, or None when the plan holds no
+    pieces to compare (not read with line numbers) or nothing was made yet."""
+    if not existing or not plan.chapters or any(not b.get("fountain") for c in plan.chapters for b in c.beats):
+        return None
+    found = {"same": 0, "reworded": 0, "new": [], "removed": []}
+    key = lambda n: (int(re.match(r"\d+", n).group()), n[-1] if n[-1:].isalpha() else "")  # noqa: E731
+    for chapter in plan.chapters:
+        mine = [n for n in existing if re.fullmatch(r"\d+[a-z]?", n) and (plan.single or int(re.match(r"\d+", n).group()) // 1000 == chapter.number)]
+        old = sorted(mine, key=key)
+        old_text = [_sameness(existing[n]) for n in old]
+        new_text = [_sameness(b["fountain"]) for b in chapter.beats]
+        taken: dict[int, str] = {}  # position of a new beat (0-based) -> the number it keeps
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old_text, new_text, autojunk=False).get_opcodes():
+            if tag == "equal":
+                for k in range(i2 - i1):
+                    taken[j1 + k] = old[i1 + k]
+                found["same"] += i2 - i1
+            elif tag == "replace":
+                at = i1
+                for j in range(j1, j2):  # in order: each new beat takes the nearest old one that is alike enough
+                    best = max(range(at, i2), key=lambda i: difflib.SequenceMatcher(None, old_text[i], new_text[j]).ratio(), default=None)
+                    if best is not None and difflib.SequenceMatcher(None, old_text[best], new_text[j]).ratio() >= REWORDED:
+                        taken[j] = old[best]
+                        found["removed"] += old[at:best]
+                        at = best + 1
+                        found["reworded"] += 1
+                found["removed"] += old[at:i2]
+            elif tag == "delete":
+                found["removed"] += old[i1:i2]
+        used = set(old) | set(taken.values())
+        previous = f"{chapter.number * 1000}" if not plan.single else "00"
+        for j in range(len(chapter.beats)):
+            if j in taken:
+                number = taken[j]
+            else:
+                number = _after(previous)
+                while number in used:
+                    number = _after(number)
+                used.add(number)
+                found["new"].append(number)
+            plan.renumber[(chapter.number, j + 1)] = number
+            previous = number
+    return found
 
 def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: float = MAX_CHAPTER_PAGES, text: "str | None" = None) -> Plan:
     """The chapters, beats and lines of a screenplay. Given the `text` it was read from (and the elements read with `lines=True`), each beat and each

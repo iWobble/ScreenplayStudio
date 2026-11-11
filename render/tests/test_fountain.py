@@ -1,6 +1,7 @@
 """A Fountain screenplay cut into chapters and beats (no AI), read back by the importer, and brought in a piece at a time by the job."""
 
 import json
+import re
 
 import pytest
 
@@ -1043,3 +1044,69 @@ def test_a_re_run_gives_records_made_earlier_their_own_piece_of_the_fountain_and
     assert lines and all(d.get("fountain") for d in lines)
     beats = [d for i, d in patched.items() if "-beat-" in i and i != recs[keep]["id"]]
     assert beats and all(d.get("fountain") for d in beats)
+
+
+# --- revisions: a revised Fountain is fitted to the beats already made, by what they say --------------------------------------------------
+
+
+def _pieces(text):
+    plan = fountain.cut(fountain.parse(text, lines=True), text=text)
+    return plan, {n: b["fountain"] for _c, n, b in plan.rows()}
+
+
+REVISED = ".THE GALLEY\n\nA pot on a table.\n\n===\n\nA cook enters.\n\nCOOK\nHello.\n\n===\n\nA hand.\n\n===\n\nThe lid.\n"
+
+
+def test_an_unchanged_fountain_keeps_every_number():
+    plan, made = _pieces(REVISED)
+    again, _ = _pieces(REVISED)
+    found = fountain.align(again, made)
+    assert found == {"same": 4, "reworded": 0, "new": [], "removed": []}
+    assert [n for _c, n, _b in again.rows()] == ["01", "02", "03", "04"]
+
+
+def test_a_beat_inserted_in_the_middle_is_numbered_after_the_beat_before_it_and_nothing_else_moves():
+    _plan, made = _pieces(REVISED)
+    revised = REVISED.replace("===\n\nA hand.", "===\n\nThe cook looks up at the sky.\n\n===\n\nA hand.")
+    plan, _ = _pieces(revised)
+    found = fountain.align(plan, made)
+    assert found["new"] == ["02a"] and found["same"] == 4 and found["reworded"] == 0
+    assert [n for _c, n, _b in plan.rows()] == ["01", "02", "02a", "03", "04"]
+    two = fountain.align(_pieces(revised.replace("The cook looks up at the sky.", "The cook looks up.\n\n===\n\nThe sky darkens."))[0], made)
+    assert two["new"] == ["02a", "02b"]
+
+
+def test_a_beat_inserted_at_the_start_comes_before_the_first():
+    _plan, made = _pieces(REVISED)
+    plan, _ = _pieces(".THE GALLEY\n\nA wide shot of the sea.\n\n===\n\nA pot on a table.\n\n===\n\nA cook enters.\n\nCOOK\nHello.\n\n===\n\nA hand.\n\n===\n\nThe lid.\n")
+    found = fountain.align(plan, made)
+    assert found["new"] == ["00a"] and [n for _c, n, _b in plan.rows()][:2] == ["00a", "01"]
+
+
+def test_a_reworded_beat_keeps_its_number_and_a_removed_one_is_named():
+    _plan, made = _pieces(REVISED)
+    plan, _ = _pieces(REVISED.replace("A pot on a table.", "A large iron pot on a scarred wooden table.").replace("===\n\nThe lid.\n", ""))
+    found = fountain.align(plan, made)
+    assert found["reworded"] == 1 and found["removed"] == ["04"] and found["new"] == []
+    assert [n for _c, n, _b in plan.rows()] == ["01", "02", "03"]
+
+
+def test_with_nothing_made_yet_or_no_positions_there_is_nothing_to_fit():
+    plan, _ = _pieces(REVISED)
+    assert fountain.align(plan, {}) is None
+    assert fountain.align(fountain.cut(fountain.parse(REVISED)), {"01": "x"}) is None  # read without line numbers: no pieces to compare
+
+
+def test_a_revised_import_adds_only_the_new_beat_and_keeps_the_numbers_of_the_rest(casting):
+    first, ctx = casting(CAST_TEXT)
+    run(ctx)
+    made = {m["slug"]: {"id": f"id-{m['slug']}", "slug": m["slug"], "title": m["title"], "dataJson": dict(m["dataJson"])} for m in first.made if m["entryTypeId"] in ("T-beat", "T-line")}
+    revised = CAST_TEXT.replace("INT. CAPTAIN'S CABIN - NIGHT\n\nLamps swing.", "NARRATOR\nForty days at sea.\n\n===\n\nThe lamps are all that is left of the daylight.\n\n===\n\nINT. CAPTAIN'S CABIN - NIGHT\n\nLamps swing.")
+    again, ctx2 = casting(revised)
+    again.records = dict(made)
+    done = run(ctx2, mode="refresh")
+    assert done["result"]["revision"]["new"] and done["result"]["revision"]["same"] >= 2
+    new_beats = [m["slug"] for m in again.made if m["entryTypeId"] == "T-beat"]
+    assert new_beats and all(re.search(r"-beat-\d+[a-z]$", s) for s in new_beats)
+    assert not any(p for p in again.patched if p[0] in {r["id"] for s, r in made.items() if "-beat-" in s} and p[1]["dataJson"].get("number") != made[[k for k, v in made.items() if v["id"] == p[0]][0]]["dataJson"].get("number"))
+    assert [e for e in again.deleted] == []  # nothing is trashed: the old beats are all still in the text
