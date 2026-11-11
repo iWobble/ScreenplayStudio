@@ -557,7 +557,7 @@ def test_every_element_of_the_fountain_spec_is_read_as_the_spec_says():
         ("dialogue", "BOB", "", [], "I'm here."),
         ("dialogue", "ANN", "", [], "Wait for me."),
         ("action", "CENTERED"),  # `> text <` is centred action
-        ("action", "Willy wanna go home Willy wanna go home"),  # lyrics (`~`) are kept as the words, without the mark
+        ("lyrics", "Willy wanna go home Willy wanna go home"),  # lyrics (`~`) are the words, without the mark
         ("transition", "CUT TO:"),
         ("transition", "FADE OUT."),  # `>` forces a transition
         ("section", 1, "ACT TWO"),
@@ -580,3 +580,22 @@ def test_centred_text_written_with_empty_markers_round_it_is_just_the_words():
     els = fountain.parse("INT. DECK - NIGHT\n\n> <\n**THE DEVIL'S SHOALS**\n> <\n\nWaves.\n")
     assert [e["text"] for e in els if e["t"] == "action"] == ["THE DEVIL'S SHOALS", "Waves."]
     assert [e["text"] for e in fountain.parse("INT. DECK - NIGHT\n\n> THE END <\n") if e["t"] == "action"] == ["THE END"]
+
+
+SONG = "INT. PORCH - DUSK\n\nGranny rocks.\n\n~Row, row, row your boat\n~Gently down the stream\n\nGRANNY\nListen to this.\n~Merrily, merrily\n~Life is but a dream\n\nThe dog howls.\n"
+
+
+def test_lyrics_are_not_described_in_the_picture_and_a_sung_line_of_a_speech_has_no_mark():
+    els = fountain.parse(SONG)
+    assert [(e["t"], e.get("text")) for e in els if e["t"] in ("lyrics", "dialogue")] == [("lyrics", "Row, row, row your boat Gently down the stream"), ("dialogue", "Listen to this. Merrily, merrily Life is but a dream")]
+    plan = fountain.cut(els)
+    assert not any("Row, row" in b["picture"] for _c, _n, b in plan.rows())
+
+
+def test_a_sung_line_travels_with_its_beat_as_a_sound_note_and_the_cut_still_loses_nothing():
+    plan = fountain.cut(fountain.parse(SONG))
+    assert fountain.check(plan) == []
+    kind, rows = beat_import.parse_any(plan.sheet())
+    first = rows[0]
+    assert "Row, row, row your boat" in beat_import.notes_of(first) and "Sound:" in beat_import.notes_of(first)
+    assert [l["text"] for r in rows for l in r["lines"]] == ["Listen to this. Merrily, merrily Life is but a dream"]

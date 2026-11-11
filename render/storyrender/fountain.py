@@ -175,9 +175,11 @@ def _block_elements(block: list[str]) -> list[dict]:
         paren, speech = [], []
         for ln in block[1:]:
             s = ln.strip()
-            (paren if s.startswith("(") and s.endswith(")") else speech).append(s.strip("()") if s.startswith("(") and s.endswith(")") else s)
+            (paren if s.startswith("(") and s.endswith(")") else speech).append(s.strip("()") if s.startswith("(") and s.endswith(")") else s.lstrip("~").strip())  # a sung line of a speech is the words, not the mark
         if speech:
             return [{"t": "dialogue", "name": _cue_name(first), "ext": (ext.group(1) if ext else ""), "paren": paren, "text": " ".join(speech).strip()}]
+    if all(ln.strip().startswith("~") for ln in block):  # lyrics: words that are sung, not described and not (yet) anyone's line
+        return [{"t": "lyrics", "text": " ".join(ln.strip().lstrip("~").strip() for ln in block).strip()}]
     text_ = " ".join(ln.strip().lstrip("!~") for ln in block).strip()
     text_ = re.sub(r"^>\s*(.*?)\s*<$", r"\1", text_)  # centred text is action
     return [{"t": "action", "text": text_}] if text_ else []
@@ -242,7 +244,7 @@ def _lines_of(el: dict) -> int:
     t = el["t"]
     if t == "scene":
         return 2
-    if t == "action":
+    if t in ("action", "lyrics"):
         return math.ceil(len(el["text"]) / 60) + 1
     if t == "dialogue":
         return math.ceil(len(el["text"]) / 35) + 2 + len(el["paren"])
@@ -400,6 +402,8 @@ class Plan:
                 out += ["| Beat | Time | Audio | Single still / composition |", "| --- | --- | --- | --- |"]
             for i, b in enumerate(ch.beats, 1):
                 audio = f" {LINE_SEP} ".join(f"{ln['speaker']}: {cell(ln['text'])}" for ln in b["lines"]) or "No speech."
+                if b.get("sung"):  # sung words are a cue for the sound library (a song, a hummed tune), kept with the beat as a note
+                    audio += f" {LINE_SEP} Sound: sung: " + cell(" / ".join(b["sung"]))
                 out.append(f"| {self.number(ch, i)} | — | {audio} | {cell(b['picture'])} |")
             out.append("")
         return "\n".join(out).rstrip() + "\n"
@@ -435,7 +439,7 @@ def _beats_for(scenes: list[Scene], names: dict[str, str]) -> list[dict]:
         for el in scene.elements:
             t = el["t"]
             if t == "scene":
-                cur = {"picture": el["text"], "lines": [], "notes": []}
+                cur = {"picture": el["text"], "lines": [], "notes": [], "sung": []}
                 out.append(cur)
                 fresh_scene = True
             elif t == "action":
@@ -444,15 +448,15 @@ def _beats_for(scenes: list[Scene], names: dict[str, str]) -> list[dict]:
                     joined = f"{cur['picture']}. {el['text']}" if fresh_scene else f"{cur['picture']} {el['text']}"
                     cur["picture"] = joined
                 else:
-                    cur = {"picture": el["text"], "lines": [], "notes": []}
+                    cur = {"picture": el["text"], "lines": [], "notes": [], "sung": []}
                     out.append(cur)
                 fresh_scene = False
             elif t == "dialogue":
                 if cur is None:
-                    cur = {"picture": scene.heading or "Continues", "lines": [], "notes": []}
+                    cur = {"picture": scene.heading or "Continues", "lines": [], "notes": [], "sung": []}
                     out.append(cur)
                 if len(cur["lines"]) >= LINES_PER_BEAT:
-                    cur = {"picture": f"(continued) {cur['picture'][:80]}", "lines": [], "notes": []}
+                    cur = {"picture": f"(continued) {cur['picture'][:80]}", "lines": [], "notes": [], "sung": []}
                     out.append(cur)
                 who = names.get(el["name"], el["name"].capitalize())
                 cur["lines"].append({"speaker": who, "text": el["text"]})
@@ -460,6 +464,11 @@ def _beats_for(scenes: list[Scene], names: dict[str, str]) -> list[dict]:
                 if note:
                     cur["notes"].append(f"{who} ({note})")
                 fresh_scene = False
+            elif t == "lyrics":
+                if cur is None:
+                    cur = {"picture": scene.heading or "Continues", "lines": [], "notes": [], "sung": []}
+                    out.append(cur)
+                cur["sung"].append(el["text"])
             elif t == "transition":
                 cur = None
     for b in out:
