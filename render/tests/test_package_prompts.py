@@ -287,3 +287,15 @@ def test_the_fountain_check_is_a_workflow_a_story_field_and_a_step_before_the_sp
     by_text = blueprints["screenplay-check-fountain-text"]["payload"]["definition"]
     assert by_story["kind"] == "check-fountain" and by_story["args"] == {"story": "${entry.slug}"}
     assert by_text["actions"][0]["data"]["args"] == {"text": "${input.text}"} and by_text["trigger"]["inputs"][0]["type"] == "text"
+
+
+def test_a_take_is_drawn_as_a_waveform_on_the_timeline_from_peaks_the_worker_writes():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    for slug in ("sound", "speech-line", "take"):
+        field = next(f for f in blueprints[slug]["payload"]["schema_json"]["fields"] if f["key"] == "waveform")
+        assert field["type"] == "json" and field["readOnly"] is True
+    lanes = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}
+    assert lanes["lines"]["waveform"] == lanes["sounds"]["waveform"] == "waveform"
+    flow = blueprints["screenplay-make-waveform"]["payload"]["definition"]
+    assert {"field": "entry.data.audio", "op": "changed"} in flow["conditions"]  # a new take, not the job writing its own result back
+    assert flow["actions"][0]["data"]["kind"] == "make-waveform" and flow["actions"][0]["data"]["args"]["wave_field"] == "waveform"

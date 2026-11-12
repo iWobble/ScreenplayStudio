@@ -13,7 +13,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import audio_convert, audio_measure, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, numbering, ready, script, validate, voices
+from . import audio_convert, audio_measure, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, numbering, ready, script, validate, voices, waveform
 
 
 def story_of(job: dict) -> str:
@@ -198,6 +198,45 @@ def measure_level(job: dict, ctx: Context) -> dict:
         raise JobError(f"could not read “{name}” as sound: {e}") from e
     marvin_api.update_entry(ctx.creds, slug, {level_field: level, peak_field: peak})
     return {"result": {"entry": slug, "field": field, "level_db": level, "peak_db": peak}, "log": f"{name}: average {level:.1f} dB, peak {peak:.1f} dB, written to {level_field} and {peak_field} on {slug}"}
+
+
+@job_kind(
+    "make-waveform",
+    description="Work out a recording's waveform and write it to the entry: the loudest and quietest point of each of 240 stretches, in the audiowaveform JSON format, so the Timeline can draw the take in its block. Nothing is changed in the file.",
+    inputs={
+        "entry": {"type": "string", "description": "the entry's slug, e.g. the sound or the line holding the recording"},
+        "field": {"type": "string", "required": False, "description": "the field holding the recording (audio by default)"},
+        "wave_field": {"type": "string", "required": False, "description": "the field the waveform is written to (waveform by default)"},
+    },
+    produces=[],
+    needs=["ffmpeg"],
+)
+def make_waveform(job: dict, ctx: Context) -> dict:
+    """A recording in an entry's asset field → its peaks, written to the entry's json field."""
+    args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
+    slug = str(args.get("entry") or "").strip()
+    field = str(args.get("field") or "audio").strip()
+    target = str(args.get("wave_field") or "waveform").strip()
+    if not slug:
+        raise JobError("this kind of job needs args.entry (the entry's slug)")
+    row = next(iter(marvin_api.query(ctx.creds, {"entries": slug}, limit=1)), None)
+    if row is None:
+        raise JobError(f"no entry “{slug}”")
+    held = (row.get("dataJson") or row.get("data") or {}).get(field)
+    if not held or not isinstance(held, str):
+        raise JobError(f"“{slug}” has nothing in “{field}”: record or upload a sound there first")
+    source = marvin_api.asset(ctx.creds, held)
+    name = source.get("name") or source.get("slug") or "recording"
+    if not audio_convert.is_audio(source.get("mimeType"), name):
+        raise JobError(f"“{name}” ({source.get('mimeType') or 'unknown type'}) is not a sound")
+    src = ctx.work / f"wave{Path(name).suffix or '.bin'}"
+    marvin_api.download_asset(ctx.creds, source.get("id") or held, src)
+    try:
+        wave = waveform.peaks(src)
+    except ffmpeg.FfmpegError as e:
+        raise JobError(f"could not read “{name}” as sound: {e}") from e
+    marvin_api.update_entry(ctx.creds, slug, {target: wave})
+    return {"result": {"entry": slug, "field": field, "wave_field": target, "points": wave["length"]}, "log": f"{name}: {wave['length']} peaks written to {target} on {slug}"}
 
 
 SCRIPT_FILES = {"fountain": "text/plain", "pdf": "application/pdf", "html": "text/html", "breakdown": "text/html"}
