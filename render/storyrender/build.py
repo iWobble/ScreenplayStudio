@@ -7,6 +7,7 @@ caption file needs no path escaping.
 """
 
 import functools
+import re
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -214,6 +215,8 @@ class Bed:
     start: float
     end: float
     levels: list[tuple[float, float, float]] = field(default_factory=list)  # (from, to, volume) in timeline seconds
+    level_expr: str | None = None  # the whole level over time, when it eases between shots (the story's bed, a scene turns it down): film seconds
+    muffle_expr: str | None = None  # 0 (heard as it is) to 1 (heard from inside) over time: the bed crossfades between the two, so there is no seam
 
 
 def beds(timeline: Timeline) -> list[Bed]:
@@ -236,13 +239,15 @@ def beds(timeline: Timeline) -> list[Bed]:
 
 def _level(bed: Bed) -> str:
     """The bed's volume over time as one ffmpeg expression (a step per shot), in the bed's own clock."""
+    if bed.level_expr:
+        return bed.level_expr
     expr = f"{bed.levels[-1][2]:.4f}"
     for begin, end, volume in reversed(bed.levels[:-1]):
         expr = f"if(lt(t,{end - bed.start:.4f}),{volume:.4f},{expr})"
     return expr
 
 
-def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path, end_fade: float | None = None, start_fade: float | None = None) -> None:
+def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path, end_fade: float | None = None, start_fade: float | None = None, duck: str | None = None) -> None:
     """Lay each bed under the narration: looped to length, muffled if heard from inside, at the level each shot asks for, faded in and
     out so a change of place is a crossfade. The narration is the base: nothing here makes the cut longer."""
     inputs, chains, labels = [], [], []
@@ -255,30 +260,55 @@ def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path, end_fad
         fade_out = min(bed.ambience.fade_out or BED_FADE, length / 2)
         if end_fade and bed.end >= total - 1e-6 and not bed.ambience.fade_out_set:  # the bed that runs to the end of the film fades out over the story's setting, unless the story's ambience or the beat set its own
             fade_out = min(end_fade, length / 2)
-        shifted = Bed(bed.ambience, begin, end, [(max(b, begin), e, v) for b, e, v in bed.levels])
+        shifted = Bed(bed.ambience, begin, end, [(max(b, begin), e, v) for b, e, v in bed.levels], level_expr=bed.level_expr, muffle_expr=bed.muffle_expr)
         shifted.levels[0] = (begin, shifted.levels[0][1], shifted.levels[0][2])
         inputs += ["-stream_loop", "-1", "-i", str(bed.ambience.audio)]
-        muffle = f",lowpass=f={MUFFLE_HZ}" if bed.ambience.muffled else ""
-        chains.append(
-            f"[{n}:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo{muffle},atrim=0:{length:.3f},asetpts=PTS-STARTPTS,"
-            f"volume='{_level(shifted)}':eval=frame,afade=t=in:st=0:d={fade_in:.3f},afade=t=out:st={length - fade_out:.3f}:d={fade_out:.3f},"
-            f"adelay={round(begin * 1000)}:all=1[b{n}]"
-        )
-        labels.append(f"[b{n}]")
+        level = _level(shifted)
+        speech = f"*({_shifted(duck, begin)})" if duck else ""  # every bed goes down under a spoken line, when the story asks for it
+        tail = f"afade=t=in:st=0:d={fade_in:.3f},afade=t=out:st={length - fade_out:.3f}:d={fade_out:.3f},adelay={round(begin * 1000)}:all=1"
+        head = f"[{n}:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo"
+        if bed.muffle_expr:
+            # The bed heard from inside in some scenes and not in others: the same sound twice, as it is and low-passed, each at its share of the level, so the
+            # change is a crossfade between the two and the sound itself never restarts.
+            m = _shifted(bed.muffle_expr, begin)
+            chains += [
+                f"{head},atrim=0:{length:.3f},asetpts=PTS-STARTPTS,asplit=2[d{n}][w{n}]",
+                f"[d{n}]volume='({level})*(1-({m})){speech}':eval=frame,{tail}[b{n}a]",
+                f"[w{n}]lowpass=f={MUFFLE_HZ},volume='({level})*({m}){speech}':eval=frame,{tail}[b{n}b]",
+            ]
+            labels += [f"[b{n}a]", f"[b{n}b]"]
+        else:
+            muffle = f",lowpass=f={MUFFLE_HZ}" if bed.ambience.muffled else ""
+            chains.append(f"{head}{muffle},atrim=0:{length:.3f},asetpts=PTS-STARTPTS,volume='({level}){speech}':eval=frame,{tail}[b{n}]")
+            labels.append(f"[b{n}]")
     mix = f"[0:a]{''.join(labels)}amix=inputs={len(labels) + 1}:normalize=0:duration=first[out]"
     ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(narration), *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), str(out)])
 
 
-def _with_ambience(timeline: Timeline, narration: Path, end_fade: float | None = None, story_bed: Ambience | None = None, start_fade: float | None = None) -> Path:
+def _with_ambience(
+    timeline: Timeline, narration: Path, end_fade: float | None = None, story_bed: Ambience | None = None, start_fade: float | None = None, ambience_duck: str = ""
+) -> Path:
     """The narration with its ambience beds under it (the same file when there are none). The story's own bed runs under the whole film and
     plays together with the beds of the beats and scenes, which layer over it."""
     runs = beds(timeline)
     if story_bed is not None and timeline.duration > 0:
-        runs.insert(0, Bed(story_bed, 0.0, timeline.duration, [(0.0, timeline.duration, story_bed.volume)]))
+        runs.insert(
+            0,
+            Bed(
+                story_bed,
+                0.0,
+                timeline.duration,
+                [(0.0, timeline.duration, story_bed.volume)],
+                level_expr=story_bed_level(timeline, story_bed.volume),  # a scene or a beat turns it down: eased, the bed itself never stops
+                muffle_expr=story_bed_muffle(timeline),
+            ),
+        )
     if not runs:
         return narration
+    depth = DUCK_DEPTH.get(ambience_duck)
+    duck = duck_gain(speech_windows(timeline), depth) if depth else None
     mixed = narration.with_name("narration-mixed.wav")
-    _mix_beds(narration, runs, timeline.duration, mixed, end_fade, start_fade)
+    _mix_beds(narration, runs, timeline.duration, mixed, end_fade, start_fade, duck)
     return mixed
 
 
@@ -350,7 +380,7 @@ def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | N
             wavs.append(wav)
         _join(_video_parts(clips, timeline, edges, work, fps, draft=draft), work / "video.mp4", work, kind="video")
         _join(wavs, work / "narration.wav", work, kind="audio")
-        mixed = _with_ambience(timeline, work / "narration.wav", manifest.end_fade, manifest.ambience, manifest.start_fade)
+        mixed = _with_ambience(timeline, work / "narration.wav", manifest.end_fade, manifest.ambience, manifest.start_fade, manifest.ambience_duck)
         if mixed != work / "narration.wav":
             mixed.replace(work / "narration.wav")  # the final encode reads narration.wav
         (work / "captions.ass").write_text(captions.ass(timeline, size, manifest.caption))
@@ -397,24 +427,47 @@ def duck_gain(windows: list[tuple[float, float]], depth: float) -> str | None:
     return f"1-{1 - depth:.3f}*({ramps})"
 
 
-def music_level(timeline: Timeline, base: float, ramp: float = MUSIC_RAMP) -> str | None:
-    """The music's volume over the film as one ffmpeg expression, or None when no shot asks for a level of its own. A shot's `music_volume`
-    replaces the story's level while it plays (0 = silence); the level eases between shots over `ramp` seconds, centred on the cut, and a ramp
-    never outlasts the shorter shot beside it."""
-    spans = [(p.start, p.start + p.duration, p.shot.music_volume if p.shot.music_volume is not None else base) for p in timeline.shots]
+def _eased(spans: list[tuple[float, float, float]], base: float, ramp: float) -> str | None:
+    """A value over the film as one ffmpeg expression from (start, end, value) spans, or None when it stays at `base` throughout. Neighbours at the
+    same value are one run; the value eases between runs over `ramp` seconds, centred on the cut, and a ramp never outlasts the shorter run beside it."""
     runs: list[tuple[float, float, float]] = []
-    for begin, end, level in spans:  # neighbours at the same level are one run
+    for begin, end, level in spans:
         if runs and abs(runs[-1][2] - level) < 1e-9:
             runs[-1] = (runs[-1][0], end, level)
         else:
             runs.append((begin, end, level))
-    if len(runs) == 1 and abs(runs[0][2] - base) < 1e-9:
+    if not runs or (len(runs) == 1 and abs(runs[0][2] - base) < 1e-9):
         return None
     expr = f"{runs[0][2]:.4f}"
     for before, after in zip(runs, runs[1:], strict=False):
         r = max(0.05, min(ramp, before[1] - before[0], after[1] - after[0]))
         expr += f"+({after[2] - before[2]:.4f})*clip((t-{after[0] - r / 2:.4f})/{r:.4f},0,1)"
     return expr
+
+
+def music_level(timeline: Timeline, base: float, ramp: float = MUSIC_RAMP) -> str | None:
+    """The music's volume over the film as one ffmpeg expression, or None when no shot asks for a level of its own. A shot's `music_volume`
+    replaces the story's level while it plays (0 = silence); the level eases between shots over `ramp` seconds, centred on the cut."""
+    return _eased([(p.start, p.start + p.duration, p.shot.music_volume if p.shot.music_volume is not None else base) for p in timeline.shots], base, ramp)
+
+
+BED_RAMP = 1.0  # seconds a change of the story's bed (its level, its muffling) takes at a scene's edge: slow enough to be a place changing, never a seam
+
+
+def story_bed_level(timeline: Timeline, base: float, ramp: float = BED_RAMP) -> str | None:
+    """The story's own ambience bed's level over the film, or None when no shot turns it up or down: a shot's `bed_volume` replaces the story's level
+    while it plays. The bed itself runs on without a seam; only its level eases."""
+    return _eased([(p.start, p.start + p.duration, p.shot.bed_volume if p.shot.bed_volume is not None else base) for p in timeline.shots], base, ramp)
+
+
+def story_bed_muffle(timeline: Timeline, ramp: float = BED_RAMP) -> str | None:
+    """How far the story's bed is heard from inside over the film (0 as it is, 1 muffled), or None when no shot is indoors."""
+    return _eased([(p.start, p.start + p.duration, 1.0 if p.shot.bed_muffled else 0.0) for p in timeline.shots], 0.0, ramp)
+
+
+def _shifted(expr: str, begin: float) -> str:
+    """A film-time expression in a bed's own clock, for a bed that starts `begin` seconds into the film (its filters count from the bed's start)."""
+    return re.sub(r"\bt\b", f"(t+{begin:.4f})", expr) if begin > 1e-9 else expr
 
 
 def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, fps, *, draft: bool) -> None:
@@ -470,7 +523,7 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
             _narration(planned, wav)
             wavs.append(wav)
         _join(wavs, work / "narration.wav", work, kind="audio")
-        heard = _with_ambience(timeline, work / "narration.wav", manifest.end_fade, manifest.ambience, manifest.start_fade)
+        heard = _with_ambience(timeline, work / "narration.wav", manifest.end_fade, manifest.ambience, manifest.start_fade, manifest.ambience_duck)
         ffmpeg.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-i", str(heard), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-q:a", "2", str(out)]
         )

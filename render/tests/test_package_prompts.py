@@ -134,3 +134,16 @@ def test_recording_a_take_shows_its_words_and_direction_large_to_read_from():
             break
     else:
         raise AssertionError("takes-of-a-line")
+
+
+def test_a_scene_and_a_beat_can_set_the_story_bed_and_the_story_can_duck_its_ambience():
+    fields = {}
+    for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]:
+        if b["kind"] == "entry_type" and b["slug"] in ("scene", "beat", "story"):
+            fields[b["slug"]] = {f["key"]: f for f in b["payload"]["schema_json"]["fields"]}
+    for owner in ("scene", "beat"):
+        level = fields[owner]["story_ambience_volume"]
+        assert (level["type"], level["min"], level["max"]) == ("number", 0, 1)
+    assert fields["scene"]["story_ambience_muffled"]["type"] == "boolean"
+    assert fields["story"]["ambience_ducking"]["options"] == ["none", "light", "strong"]
+    assert "story_ambience_muffled" not in fields["beat"]  # indoors is the scene's to say, not a beat's
