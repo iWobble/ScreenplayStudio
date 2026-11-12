@@ -201,3 +201,23 @@ def test_every_bounded_level_field_has_a_drag_slider_beside_its_box():
                 assert f.get("slider") is True, (b["slug"], f["key"])  # a level from 0 to 1, or a speed from 0.7 to 1.2
             if f.get("slider"):
                 assert f.get("min") is not None and f.get("max") is not None, (b["slug"], f["key"])  # Marvin refuses a slider without both ends
+
+
+def test_the_sounds_setup_starts_from_what_the_story_has_and_every_field_workflow_and_status_it_names_exists():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    wizard = blueprints["sounds-for-a-story"]["payload"]
+    steps = {s["id"]: s for s in wizard["steps"]}
+    order = [s["id"] for s in wizard["steps"]]
+    assert order.index("story") < order.index("found") < order.index("beds") < order.index("make") < order.index("keep") < order.index("check")
+    sound = {f["key"]: f for f in blueprints["sound"]["payload"]["schema_json"]["fields"]}
+    scene = {f["key"] for f in blueprints["scene"]["payload"]["schema_json"]["fields"]}
+    story = {f["key"] for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
+    assert set(steps["found"]["add"]["fields"]) <= set(sound) and set(steps["beds"]["columns"]) <= scene and set(steps["bed"]["fields"]) <= story
+    statuses = set(sound["status"]["options"])
+    wanted = {b["data"]["status"] for b in steps["found"]["add"]["buttons"]} | {a["set"]["status"] for a in steps["found"]["card_actions"]}
+    wanted |= {c["query"]["fields"]["status"] for c in steps["check"]["checks"] if "status" in c["query"]["fields"]}
+    assert wanted <= statuses  # a button or a check can only name a status the Sound type has
+    for slug in [*steps["found"]["approve"], steps["make"]["workflow"], steps["keep"]["workflow"]]:
+        assert blueprints[slug]["kind"] == "workflow", slug
+    assert [b["data"]["source"] for b in steps["found"]["add"]["buttons"]] == ["uploaded", "generated", "generated"]  # an own file is never sent to ElevenLabs
+    assert wizard["button"]["step"] in steps and wizard["open"]["view"] in blueprints
