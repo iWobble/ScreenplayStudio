@@ -181,12 +181,12 @@ def test_the_unused_screenplay_and_beat_sheet_blueprint_is_gone_and_the_story_ty
 def test_the_types_that_carry_sound_group_it_the_same_way_so_each_has_one_folded_section():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     group = lambda slug, key: next(f for f in blueprints[slug]["payload"]["schema_json"]["fields"] if f["key"] == key).get("group")  # noqa: E731
-    assert group("story", "ambience") == group("story", "loudness") == "Sound and language"
+    assert group("story", "ambience") == "Ambience" and group("story", "music") == "Music" and group("story", "loudness") == "Where it is going"
     for owner in ("scene", "beat"):
-        assert group(owner, "ambience") == group(owner, "ambience_volume") == group(owner, "story_ambience_volume") == "Sound"
-        assert group(owner, "overlay") == group(owner, "overlay_delay") == "Overlay"  # the same name the story uses
-    assert group("beat", "music_volume") == group("beat", "sounds") == "Sound"
-    assert group("scene", "story_ambience_muffled") == "Sound"
+        assert group(owner, "ambience") == group(owner, "ambience_volume") == group(owner, "story_ambience_volume") == "Ambience"  # the same names the story uses
+        assert group(owner, "overlay") == group(owner, "overlay_delay") == "Overlay"
+    assert group("beat", "music_volume") == "Music" and group("beat", "sounds") == "Sound effects"
+    assert group("scene", "story_ambience_muffled") == "Ambience" and group("scene", "music_volume") == "Music"
     assert group("sound", "loop") == group("sound", "fade_out") == "Playback" and group("sound", "model") == "Making it"  # its volume is out in the open, beside the take's meters
     for owner in ("speech-line", "take", "cast-member", "actor"):
         assert group(owner, "voice") == "Voice"
@@ -363,3 +363,28 @@ def test_the_fields_that_hold_fountain_are_declared_fountain_so_their_preview_dr
     assert declared == {("beat", "fountain"), ("chapter", "fountain"), ("speech-line", "fountain"), ("story", "fountain"), ("story", "fountain_front"), ("revision", "proposed"), ("revision", "before")}
     story = {f["key"]: f for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
     assert "format" not in story["fountain_check"]  # the check's report is plain text, not a screenplay
+
+
+def test_every_forms_groups_are_in_one_piece_with_the_plain_fields_first():
+    blueprints = [b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"] if b["kind"] == "entry_type"]
+    for blueprint in blueprints:
+        runs: list[str | None] = []
+        for field in blueprint["payload"]["schema_json"]["fields"]:
+            group = field.get("group")
+            if not runs or runs[-1] != group:
+                runs.append(group)
+        named = [g for g in runs if g]
+        assert len(named) == len(set(named)), f"{blueprint['slug']}: a group is split into pieces: {runs}"  # a group appears once
+        if None in runs:
+            assert runs.index(None) == 0 and runs.count(None) == 1, f"{blueprint['slug']}: the plain fields are not all at the top: {runs}"
+
+
+def test_the_story_form_keeps_what_belongs_together_together():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    story = {f["key"]: f.get("group") for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
+    assert {story[k] for k in ("camera", "transition", "transition_seconds", "scene_break_seconds")} == {"Camera and transitions"}  # the transition's length is with the transition
+    assert {story[k] for k in ("music", "music_volume", "music_fade_in", "music_fade_out", "music_ducking")} == {"Music"}
+    assert {story[k] for k in ("ambience", "ambience_volume", "ambience_fade_in", "ambience_fade_out", "ambience_ducking")} == {"Ambience"}
+    assert {story[k] for k in ("format", "platform", "loudness", "target_seconds")} == {"Where it is going"}
+    labels = {f["key"]: f["label"] for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
+    assert "camera move" in labels["camera"].lower()  # a person looking for the camera moves finds them by that name
