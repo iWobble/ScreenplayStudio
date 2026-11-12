@@ -266,3 +266,9 @@ def test_a_scene_has_an_inside_or_outside_field_with_the_three_values_the_headin
     assert fields["inside_outside"]["type"] == "select" and fields["inside_outside"]["options"] == ["interior", "exterior", "both"]
     keys = list(fields)
     assert keys.index("inside_outside") == keys.index("place") + 1  # right under the place it says something about
+
+
+def test_a_beat_has_a_time_of_day_field_next_to_its_scene():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    keys = [f["key"] for f in blueprints["beat"]["payload"]["schema_json"]["fields"]]
+    assert keys[keys.index("scene") + 1] == "time_of_day"

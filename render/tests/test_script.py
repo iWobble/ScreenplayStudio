@@ -229,3 +229,26 @@ def test_a_scene_with_no_ambience_is_still_pulled_as_a_scene_and_a_beat_with_one
     monkeypatch.setattr(api, "entries", lambda creds: rows)
     got = script.pull_records("s", ("u", "t"))
     assert sorted(got["scenes"]) == ["the-hold", "the-reef"]
+
+
+def test_a_beats_time_of_day_is_written_into_the_heading_and_a_change_of_time_in_the_same_place_is_a_new_heading_that_reads_back():
+    from storyrender import fountain
+
+    def beat(number, scene, when):
+        return _row(f"s-beat-{number}", number=number, story="s", scene=scene, time_of_day=when, picture=f"Picture {number}.")
+
+    records = {
+        "story": _row("s", "S"),
+        "scenes": {"s-reef": _row("s-reef", "Reef", story="s", place="Reef", inside_outside="exterior"), "s-hold": _row("s-hold", "Hold", story="s", place="Hold", inside_outside="interior")},
+        "beats": [beat("01", "s-reef", "Night"), beat("02", "s-reef", "Night"), beat("03", "s-reef", "Dawn"), beat("04", "s-hold", "")],
+        "lines": {}, "sounds": {}, "chapters": {}, "characters": [], "revisions": [],
+    }  # fmt: skip
+    expected = {
+        script.fountain: ["EXT. REEF - NIGHT #1#", "EXT. REEF - DAWN #3#", "INT. HOLD #4#"],  # the production script numbers a heading by its first beat
+        script.fountain_complete: ["EXT. REEF - NIGHT #1#", "EXT. REEF - DAWN #1#", "INT. HOLD #2#"],  # the complete one by scene: the same place keeps its number
+    }
+    for write, want in expected.items():
+        text = write(records)
+        assert [ln for ln in text.splitlines() if ln.startswith(("EXT.", "INT."))] == want, write.__name__
+    plan = fountain.cut(fountain.parse(script.fountain_complete(records)))  # and the complete script reads back with the same times
+    assert [fountain.place_of(b.get("place", ""))["time"] for _c, _n, b in plan.rows()] == ["Night", "Night", "Dawn", ""]

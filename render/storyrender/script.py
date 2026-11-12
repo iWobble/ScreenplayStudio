@@ -66,11 +66,12 @@ def _without_lead_heading(picture: str, name: str) -> str:
     return plain(picture)[m.end() :] if m else picture
 
 
-def _heading_line(heading: str, tag: str, scene: dict) -> str:
+def _heading_line(heading: str, tag: str, scene: dict, when: str = "") -> str:
     """A scene's heading line: `INT. CAPTAIN'S CABIN #2#` when the scene says whether it is inside or outside (its Inside or outside field: the
     other way from what the import reads), else a forced heading (`.CAPTAIN'S CABIN #2#`) as before."""
     prefix = fountain_mod.kind_prefix(_data(scene).get("inside_outside"))
-    return f"{prefix} {heading}{tag}" if prefix else f".{heading}{tag}"
+    time = f" - {_clean(when).upper()}" if _clean(when) else ""  # the beat's time of day, as the heading had it
+    return f"{prefix} {heading}{time}{tag}" if prefix else f".{heading}{time}{tag}"
 
 
 def _sound_line(placed: dict, sounds: dict) -> str:
@@ -103,17 +104,18 @@ def fountain(records: dict) -> str:
         out.append(f"Notes: about {seconds} long")
     out.append("")  # screenplain starts the script on a new page after the title page by itself (a `===` here would leave a blank one)
 
-    scene_now, bed_now = None, None
+    scene_now, bed_now, time_now = None, None, ""
     for beat in records.get("beats", []):
         d = _data(beat)
         number = str(d.get("number") or "").strip()
         scene_slug = d.get("scene")
-        if scene_slug and scene_slug != scene_now:
-            scene_now = scene_slug
+        when = _clean(d.get("time_of_day"))
+        if scene_slug and (scene_slug != scene_now or (when and when != time_now)):  # a new place, or the same place at another time of day
+            scene_now, time_now = scene_slug, when
             scene = scenes.get(str(scene_slug), {})
             heading = _clean(scene.get("title") or _slug_words(str(scene_slug))).upper()
             tag = f" #{int(number)}#" if number.isdigit() else ""
-            out += [_heading_line(heading, tag, scene), ""]
+            out += [_heading_line(heading, tag, scene, when), ""]
             sd = _data(scene)
             setting = " ".join(x for x in (_clean(sd.get("place")), _clean(sd.get("look"))) if x)
             if setting:
@@ -171,7 +173,7 @@ def fountain_complete(records: dict) -> str:
         bits = [x for x in (_say("Role", cd.get("role")), _say("Costume", cd.get("costume")), _say("Props", cd.get("props")), _say("Rules", cd.get("rules")), _say("Played by", cd.get("actor"))) if x]
         out += [f"[[{_clean(cd.get('speaker') or ch.get('title') or '').upper()} is {_clean(ch.get('title'))}. " + " ".join(bits) + "]]", ""]
 
-    scene_now, bed_now, chapter_now, first = None, None, None, True
+    scene_now, bed_now, chapter_now, first, time_now = None, None, None, True, ""
     scene_numbers: dict[str, int] = {}
     for beat in records.get("beats", []):
         d = _data(beat)
@@ -182,17 +184,18 @@ def fountain_complete(records: dict) -> str:
             title = _clean((chapters.get(str(chapter_slug)) or {}).get("title") or _slug_words(str(chapter_slug)))
             out += [f"# {title}", ""]
         scene_slug = d.get("scene")
-        new_scene = bool(scene_slug) and scene_slug != scene_now
+        when = _clean(d.get("time_of_day"))
+        new_scene = bool(scene_slug) and (scene_slug != scene_now or bool(when and when != time_now))  # a new place, or the same place at another time of day
         if not first:
             out += ["===", ""]  # each beat is its own picture
             if _clean(d.get("transition_text")):
                 out += [_clean(d["transition_text"]), ""]  # the transition written before this beat (CUT TO:), as it was
         if new_scene:
-            scene_now = scene_slug
+            scene_now, time_now = scene_slug, when
             scene = scenes.get(str(scene_slug), {})
             heading = _clean(scene.get("title") or _slug_words(str(scene_slug))).upper()
             scene_numbers[str(scene_slug)] = scene_numbers.get(str(scene_slug), len(scene_numbers) + 1)
-            out += [_heading_line(heading, f" #{scene_numbers[str(scene_slug)]}#", scene), ""]
+            out += [_heading_line(heading, f" #{scene_numbers[str(scene_slug)]}#", scene, when), ""]
             sc = _data(scene)
             said = [x for x in (_say("Place", sc.get("place")), _say("Light", sc.get("look")), _say("Set dressing", sc.get("set_dressing")), _say("Continuity", sc.get("continuity"))) if x]
             if said:
