@@ -14,6 +14,7 @@ class Preset(NamedTuple):
     start: tuple[float, float, float]  # x, y, zoom
     end: tuple[float, float, float]
     what: str
+    rock: tuple[float, float, float] | None = None  # roll in degrees, seconds for one sway, heave as a share of the picture's height
 
 
 PRESETS: dict[str, Preset] = {
@@ -30,6 +31,8 @@ PRESETS: dict[str, Preset] = {
     "pedestal-down": Preset("Pedestal down", (0.5, 0.4, 1.1), (0.5, 0.6, 1.1), "sinks straight down"),
     "truck-left": Preset("Truck left", (0.6, 0.5, 1.15), (0.4, 0.5, 1.15), "slides left alongside the action"),
     "truck-right": Preset("Truck right", (0.4, 0.5, 1.15), (0.6, 0.5, 1.15), "slides right alongside the action"),
+    "rocking": Preset("Rocking", (0.5, 0.5, 1.12), (0.5, 0.5, 1.12), "rolls gently from side to side, like a ship at sea", rock=(2.5, 6.0, 0.012)),
+    "heavy-rocking": Preset("Heavy rocking", (0.5, 0.5, 1.16), (0.5, 0.5, 1.16), "rolls hard and heaves, like a ship in a storm", rock=(6.0, 4.0, 0.03)),
     "drift": Preset("Drift", (0.46, 0.52, 1.08), (0.54, 0.48, 1.12), "a slow, small float that gives the picture life"),
 }
 
@@ -46,7 +49,12 @@ def key_of(name: object) -> str:
 def move_of(name: object) -> dict | None:
     """The manifest `move` ({from, to}) for a preset's name, or None for a name that is not one (a typo keeps the render's own default move)."""
     preset = PRESETS.get(key_of(name))
-    return {"from": _point(preset.start), "to": _point(preset.end)} if preset else None
+    if not preset:
+        return None
+    move = {"from": _point(preset.start), "to": _point(preset.end)}
+    if preset.rock:
+        move["rock"] = {"degrees": preset.rock[0], "seconds": preset.rock[1], "heave": preset.rock[2]}
+    return move
 
 
 def pick(beat: dict, scene: dict | None, story: dict) -> str | None:

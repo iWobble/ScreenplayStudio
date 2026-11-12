@@ -388,3 +388,9 @@ def test_the_story_form_keeps_what_belongs_together_together():
     assert {story[k] for k in ("format", "platform", "loudness", "target_seconds")} == {"Where it is going"}
     labels = {f["key"]: f["label"] for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
     assert "camera move" in labels["camera"].lower()  # a person looking for the camera moves finds them by that name
+
+
+def test_the_scene_has_one_reference_picture_field_and_the_unused_photo_id_is_gone():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    scene = {f["key"]: f for f in blueprints["scene"]["payload"]["schema_json"]["fields"]}
+    assert "anchor" in scene and "photo_ref" not in scene  # the still workflow reads the anchor; nothing ever read the ChatGPT file id
