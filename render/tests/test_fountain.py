@@ -1523,3 +1523,12 @@ def test_a_scenes_first_picture_says_where_in_words_and_the_sounds_and_beds_do_n
     assert pictures[0].startswith("Interior: Hold, night. Water rushes in.") and pictures[1].startswith("Exterior: Deck, day. Rain falls")
     assert "INT." not in " ".join(pictures) and "EXT." not in " ".join(pictures)
     assert fountain._without_heading(pictures[0], "INT. HOLD - NIGHT").lstrip(". ").startswith("Water rushes in")  # stripped, whichever way it was written
+
+
+def test_the_import_gives_a_beat_the_time_of_day_its_heading_had_and_none_when_it_had_none():
+    text = "INT. HOLD - NIGHT\n\nWater rushes in.\n\n===\n\nA hand.\n\nEXT. DECK - CONTINUOUS\n\nRain falls.\n\nEXT. QUAY\n\nGulls.\n"
+    plan = fountain.cut(fountain.parse(text))
+    imp = {"beats": [(f"b{n}", "t", {"number": n}) for _c, n, _b in plan.rows()], "lines": []}
+    fountain.attach_source(imp, plan, "s")
+    times = [d.get("time_of_day") for _s, _t, d in imp["beats"]]
+    assert times == ["Night", "Night", "Continuous", None]  # every beat of a heading has its time; a heading with none sets none

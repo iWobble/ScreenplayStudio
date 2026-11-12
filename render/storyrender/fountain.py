@@ -1077,6 +1077,8 @@ def attach_source(imp: dict, plan: Plan, story: str) -> None:
         place = place_of(beat.get("place", "")) if beat else None
         if place:
             data["scene"] = f"{story}-{place['slug']}"
+            if place["time"]:
+                data["time_of_day"] = place["time"]  # the heading's time as written (Night, Dawn, Continuous), so the script can write it back
         held = _HOLD_NOTE.search(" ".join(re.findall(r"\[\[(.*?)\]\]", beat.get("fountain") or "", re.S))) if beat else None
         if held and not data.get("hold_seconds"):  # a note on the beat (`[[Hold: 6s.]]`) says how long its picture stays when nobody speaks
             data["hold_seconds"] = float(held.group(1))
