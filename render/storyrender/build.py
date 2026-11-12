@@ -427,20 +427,23 @@ def duck_gain(windows: list[tuple[float, float]], depth: float) -> str | None:
     return f"1-{1 - depth:.3f}*({ramps})"
 
 
-def _eased(spans: list[tuple[float, float, float]], base: float, ramp: float) -> str | None:
+def _eased(spans: list[tuple[float, float, float]], base: float, ramp: float, ramps: list[tuple[float | None, float | None]] | None = None) -> str | None:
     """A value over the film as one ffmpeg expression from (start, end, value) spans, or None when it stays at `base` throughout. Neighbours at the
-    same value are one run; the value eases between runs over `ramp` seconds, centred on the cut, and a ramp never outlasts the shorter run beside it."""
-    runs: list[tuple[float, float, float]] = []
-    for begin, end, level in spans:
+    same value are one run; the value eases between runs over `ramp` seconds, centred on the cut, and a ramp never outlasts the shorter run beside it.
+    `ramps` (one (in, out) pair per span, seconds or None) lets a span ask for its own: the later run's `in` if it has one, else the earlier run's `out`."""
+    runs: list[tuple[float, float, float, float | None, float | None]] = []
+    for i, (begin, end, level) in enumerate(spans):
+        enter, leave = ramps[i] if ramps else (None, None)
         if runs and abs(runs[-1][2] - level) < 1e-9:
-            runs[-1] = (runs[-1][0], end, level)
+            runs[-1] = (runs[-1][0], end, level, runs[-1][3], leave)
         else:
-            runs.append((begin, end, level))
+            runs.append((begin, end, level, enter, leave))
     if not runs or (len(runs) == 1 and abs(runs[0][2] - base) < 1e-9):
         return None
     expr = f"{runs[0][2]:.4f}"
     for before, after in zip(runs, runs[1:], strict=False):
-        r = max(0.05, min(ramp, before[1] - before[0], after[1] - after[0]))
+        wanted = after[3] if after[3] is not None else before[4] if before[4] is not None else ramp
+        r = max(0.05, min(wanted, before[1] - before[0], after[1] - after[0]))
         expr += f"+({after[2] - before[2]:.4f})*clip((t-{after[0] - r / 2:.4f})/{r:.4f},0,1)"
     return expr
 
@@ -448,7 +451,12 @@ def _eased(spans: list[tuple[float, float, float]], base: float, ramp: float) ->
 def music_level(timeline: Timeline, base: float, ramp: float = MUSIC_RAMP) -> str | None:
     """The music's volume over the film as one ffmpeg expression, or None when no shot asks for a level of its own. A shot's `music_volume`
     replaces the story's level while it plays (0 = silence); the level eases between shots over `ramp` seconds, centred on the cut."""
-    return _eased([(p.start, p.start + p.duration, p.shot.music_volume if p.shot.music_volume is not None else base) for p in timeline.shots], base, ramp)
+    return _eased(
+        [(p.start, p.start + p.duration, p.shot.music_volume if p.shot.music_volume is not None else base) for p in timeline.shots],
+        base,
+        ramp,
+        [(p.shot.music_fade_in, p.shot.music_fade_out) for p in timeline.shots],
+    )
 
 
 BED_RAMP = 1.0  # seconds a change of the story's bed (its level, its muffling) takes at a scene's edge: slow enough to be a place changing, never a seam
@@ -476,8 +484,8 @@ def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, 
     chain: list[str] = []
     if manifest.music:
         cmd += ["-stream_loop", "-1", "-i", manifest.music["audio"]]
-        fade_out = float(manifest.end_fade or manifest.music.get("fade_out") or 2.0)  # the music fades out at the end: the story's setting, else the sound's, else 2 s
-        fade_in = float(manifest.start_fade or manifest.music.get("fade_in") or 0)  # the story's setting, else the sound's own, else none
+        fade_out = float(manifest.music.get("story_fade_out") or manifest.end_fade or manifest.music.get("fade_out") or 2.0)  # the music fades out at the end: the story's music setting, else the story's for every bed, else the sound's, else 2 s
+        fade_in = float(manifest.music.get("story_fade_in") or manifest.start_fade or manifest.music.get("fade_in") or 0)  # the same order, else none
         fade_at = max(0.0, timeline.duration - fade_out)
         rise = f"afade=t=in:st=0:d={min(fade_in, timeline.duration / 2):.3f}," if fade_in > 0 else ""
         level = music_level(timeline, float(manifest.music["volume"]))
@@ -525,7 +533,7 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
         _join(wavs, work / "narration.wav", work, kind="audio")
         heard = _with_ambience(timeline, work / "narration.wav", manifest.end_fade, manifest.ambience, manifest.start_fade, manifest.ambience_duck)
         ffmpeg.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(heard), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-q:a", "2", str(out)]
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(heard), "-af", f"loudnorm=I={manifest.loudness:g}:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-q:a", "2", str(out)]
         )
     return {
         "output": str(out),
