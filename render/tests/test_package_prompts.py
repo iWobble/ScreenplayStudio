@@ -236,3 +236,12 @@ def test_a_sound_shows_its_takes_loudness_as_meters_beside_its_volume_slider_and
     assert {"field": "entry.data.audio", "op": "changed"} in flow["conditions"]  # a new or replaced take, and not the job writing its own result back
     args = flow["actions"][0]["data"]["args"]
     assert flow["actions"][0]["data"]["kind"] == "measure-level" and args["level_field"] in by_key and args["peak_field"] in by_key
+
+
+def test_the_ambience_and_sound_fades_have_a_slider_from_nothing_to_ten_seconds_in_tenths():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    for slug, keys in (("story", ("ambience_fade_in", "ambience_fade_out")), ("beat", ("ambience_fade_in", "ambience_fade_out")), ("sound", ("fade_in", "fade_out"))):
+        fields = {f["key"]: f for f in blueprints[slug]["payload"]["schema_json"]["fields"]}
+        for key in keys:
+            f = fields[key]
+            assert f["slider"] is True and (f["min"], f["max"], f["step"]) == (0, 10, 0.1), (slug, key)  # thirty seconds would make a drag too coarse
