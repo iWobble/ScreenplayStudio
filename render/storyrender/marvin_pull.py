@@ -191,10 +191,12 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             shot["hold"] = float(data(beat).get("hold_seconds") or DEFAULT_HOLD)  # a sound-only or silent beat lasts its hold, else the default the Timeline also draws it at (a spoken one, as long as its audio)
         if data(beat).get("chapter"):
             shot["chapter"] = str(data(beat)["chapter"])  # the chapter's slug, as the chapter list below names it
-        if isinstance(data(beat).get("move"), dict):
+        if chosen := camera.move_of(camera.pick(data(beat), None, {})):
+            shot["move"] = chosen  # the beat chose a camera by name: that, even when numbers are also written out
+        elif isinstance(data(beat).get("move"), dict):
             shot["move"] = data(beat)["move"]  # where the camera looks: {"from": {x, y, zoom}, "to": {...}}, so one still can serve several beats
-        elif preset := camera.move_of(camera.pick(data(beat), data(scene_row) if scene_row else None, data(story_row))):
-            shot["move"] = preset  # no move of its own: the camera preset of the beat, else its scene, else the story
+        elif preset := camera.move_of(camera.pick({}, data(scene_row) if scene_row else None, data(story_row))):
+            shot["move"] = preset  # nothing of its own: the camera preset of its scene, else the story
         if data(beat).get("still"):
             still = _fetch_asset(creds, str(data(beat)["still"]), out / "stills" / f"b{number}", "png")
             shot["still"] = str(still.relative_to(out))
