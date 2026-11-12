@@ -394,3 +394,12 @@ def test_the_scene_has_one_reference_picture_field_and_the_unused_photo_id_is_go
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     scene = {f["key"]: f for f in blueprints["scene"]["payload"]["schema_json"]["fields"]}
     assert "anchor" in scene and "photo_ref" not in scene  # the still workflow reads the anchor; nothing ever read the ChatGPT file id
+
+
+def test_a_beats_camera_is_chosen_in_one_place_and_the_numbers_field_has_no_presets_of_its_own():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    beat = {f["key"]: f for f in blueprints["beat"]["payload"]["schema_json"]["fields"]}
+    assert "presets" not in beat["move"]  # a second dropdown of moves fills the numbers and leaves Camera blank: one way to choose a named move
+    assert "exact numbers" in beat["move"]["label"].lower() and "advanced" in beat["move"]["label"].lower()
+    for owner in ("scene", "story"):
+        assert "move" not in {f["key"] for f in blueprints[owner]["payload"]["schema_json"]["fields"]}  # numbers belong to one picture
