@@ -234,6 +234,16 @@ def fountain_complete(records: dict) -> str:
     return "\n".join(out).rstrip("\n") + "\n"
 
 
+_SCENE_ONLY = ("place", "set_dressing", "inside_outside", "continuity", "ambience_muffled", "story_ambience_muffled")
+
+
+def _is_scene(row: dict, story: str) -> bool:
+    """Whether an entry of the story is one of its scenes: it carries a field only a scene has (a beat also has an ambience, and a number). A scene
+    with no ambience of its own is still a scene (it was left out, and then written as a bare `.HEADING` under its slug)."""
+    d = _data(row)
+    return d.get("story") == story and "number" not in d and ("ambience" in d or any(k in d for k in _SCENE_ONLY))
+
+
 def pull_records(story: str, creds: tuple[str, str]) -> dict:
     """The story's records from Marvin, in the shape `fountain()` reads."""
     from marvin_worker import marvin_api
@@ -250,7 +260,7 @@ def pull_records(story: str, creds: tuple[str, str]) -> dict:
         "story": story_row,
         "beats": beats,
         "lines": lines,
-        "scenes": {e["slug"]: e for e in rows if _data(e).get("story") == story and "ambience" in _data(e)},
+        "scenes": {e["slug"]: e for e in rows if _is_scene(e, story)},
         "sounds": {e["slug"]: e for e in rows if e.get("slug", "").find("-sound-") >= 0 or (_data(e).get("story") == story and "kind" in _data(e) and "source" in _data(e))},
         "chapters": {e["slug"]: e for e in rows if e.get("slug", "").startswith(f"{story}-chapter-") and _data(e).get("story") == story},
         "revisions": sorted((e for e in rows if _data(e).get("story") == story and _data(e).get("status") == "applied" and _data(e).get("applied_at")), key=lambda e: float(_data(e).get("number") or 0)),
