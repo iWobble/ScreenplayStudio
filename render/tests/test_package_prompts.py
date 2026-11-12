@@ -333,3 +333,12 @@ def test_a_story_has_a_takes_button_that_opens_the_takes_setup_on_its_character_
     assert buttons["speech-line"]["step"] == "takes" and buttons["story"] == {"entry_type": "story", "label": "Takes", "key": "story", "step": "character"}
     steps = [s["id"] for s in payload["steps"]]
     assert steps[0] == "story" and steps[1] == "character"  # the story is already chosen, so the setup opens on the next step
+
+
+def test_a_story_has_buttons_for_casting_and_narrating_that_open_past_the_choices_its_own_fields_answer():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    for slug, label, step in (("casting-call", "Casting", "roles"), ("narrate-a-story", "Narrate", "details")):
+        button = blueprints[slug]["payload"]["button"]
+        steps = [s["id"] for s in blueprints[slug]["payload"]["steps"]]
+        assert (button["entry_type"], button["label"], button["key"], button["step"]) == ("story", label, "story", step)
+        assert button["also"]["world"] == "world" and steps.index("world") < steps.index("story") < steps.index(step)  # world and story are already answered when it opens
