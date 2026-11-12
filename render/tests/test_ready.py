@@ -134,3 +134,31 @@ def test_beats_are_named_in_the_order_they_play():
     beats = [{"number": n, "cast": "", "expression": "x", "focus": "y"} for n in ("3002", "1001a", "1001", "1001aa", "1001b")]
     said = [t for _, _, t in run(beats=beats) if "nobody" in t][0]
     assert said.endswith("1001, 1001a, 1001b, 1001aa, 3002")
+
+
+def _plan_story(**more):
+    lines = [{"speaker": "valerie", "voice": "v1", "text": "x" * 600, "source": "generated"}, {"speaker": "valerie", "voice": "v1", "text": "y" * 400, "source": "generated", "audio": "a1"}]
+    return run(lines=lines, **more)
+
+
+def test_without_a_plan_the_check_says_nothing_about_it():
+    assert not [f for f in _plan_story() if "plan" in f[2]]
+
+
+def test_the_lines_still_to_record_are_counted_against_the_characters_left_and_a_recorded_line_is_not():
+    found = _plan_story(plan={"tier": "starter", "characters_left": "5000", "resets_at": "2026-12-01T00:00:00+00:00"})
+    assert ("look", "Voices", "the 1 lines still to record need about 600 of the 5,000 characters the starter plan has left, until it resets on 2026-12-01") in found
+    short = _plan_story(plan={"tier": "free", "characters_left": "300"})
+    assert any(f[0] == "fix" and "need about 600 characters and the free plan has 300 left" in f[2] and "stop partway" in f[2] for f in short)
+
+
+def test_a_library_voice_is_refused_on_a_free_plan_only():
+    voices = {"v1": {"elevenlabs_voice_id": "abc", "category": "professional"}}
+    free = run(voices=voices, plan={"tier": "free", "characters_left": "10000"})
+    assert ("fix", "Voices", "the free ElevenLabs plan refuses library voices when a recording is asked for: v1") in free
+    assert not [f for f in run(voices=voices, plan={"tier": "creator", "characters_left": "10000"}) if "library voices" in f[2]]
+
+
+def test_a_plan_that_could_not_be_read_adds_nothing_and_the_job_passes_the_plan_it_was_given(monkeypatch, tmp_path):
+    assert not [f for f in run(plan={"tier": "", "characters_left": "n/a"}) if "plan" in f[2]]
+    assert jobs._plan_of({}) is None and jobs._plan_of({"plan_tier": "free", "plan_characters_left": "12"}) == {"tier": "free", "characters_left": "12", "resets_at": ""}

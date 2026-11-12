@@ -35,6 +35,7 @@ def check(
     lines: list[dict],
     scenes: list[dict],
     sounds: list[dict],
+    plan: dict | None = None,
 ) -> list[tuple[str, str, str]]:
     """Findings as (level, area, sentence). Each record is its dataJson plus `slug` (so a name can be given)."""
     out: list[tuple[str, str, str]] = []
@@ -133,7 +134,32 @@ def check(
     again = [f"“{names[0]}” ×{len(names)}" for names in same.values() if len(names) > 1]
     if again:
         look("Sounds", f"the same sound is described more than once ({_names(again)}): one sound can be used in several beats")
+    if plan:
+        _voice_plan(plan, characters, lines, voices, fix, look)
     return out
+
+
+def _voice_plan(plan: dict, characters: list[dict], lines: list[dict], voices: dict[str, dict], fix, look) -> None:
+    """What the ElevenLabs plan allows, from what its usage lookup said (`tier`, `characters_left`, `resets_at`): whether the lines still to record fit
+    in what is left, and whether a library voice is used on a free plan, which refuses it only when a recording is asked for."""
+    tier = str(plan.get("tier") or "").strip().lower()
+    try:
+        left = int(plan.get("characters_left"))
+    except (TypeError, ValueError):
+        left = None
+    to_record = [ln for ln in lines if str(ln.get("source") or "generated") == "generated" and not str(ln.get("audio") or "").strip() and str(ln.get("text") or "").strip()]
+    needed = sum(len(str(ln.get("text"))) for ln in to_record)
+    resets = f", until it resets on {str(plan['resets_at'])[:10]}" if plan.get("resets_at") else ""
+    if left is not None and needed:
+        if needed > left:
+            fix("Voices", f"the {len(to_record)} lines still to record need about {needed:,} characters and the {tier or 'ElevenLabs'} plan has {left:,} left{resets}: a recording would stop partway")
+        else:
+            look("Voices", f"the {len(to_record)} lines still to record need about {needed:,} of the {left:,} characters the {tier or 'ElevenLabs'} plan has left{resets}")
+    if tier == "free":
+        used = {str(c.get("voice")) for c in characters if str(c.get("voice") or "").strip()} | {str(ln.get("voice")) for ln in lines if str(ln.get("voice") or "").strip()}
+        library = sorted(v for v in used if str((voices.get(v) or {}).get("category") or "").lower() == "professional")
+        if library:
+            fix("Voices", f"the free ElevenLabs plan refuses library voices when a recording is asked for: {', '.join(library[:SHOWN])}")
 
 
 AREAS = ("Story", "Characters", "Voices", "Beats", "Scenes", "Sounds")
