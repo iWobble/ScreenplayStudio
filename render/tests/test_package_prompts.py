@@ -107,3 +107,19 @@ def test_a_still_is_told_the_changes_from_earlier_beats_and_the_beat_has_the_fie
     for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]:
         if b.get("slug") == "beat":
             assert "changes" in [f["key"] for f in b["payload"]["schema_json"]["fields"]]
+
+
+def test_the_plan_check_looks_at_elevenlabs_for_free_then_queues_the_readiness_job_with_what_it_found():
+    flow = _flow("screenplay-check-ready-plan")["actions"]
+    look = flow[0]
+    assert (look["kind"], look["integration"], look["action"]) == ("integration", "elevenlabs", "get_usage")  # the free usage lookup, nothing that records
+    args = next(a for a in flow if a.get("kind") == "entry")["data"]["args"]
+    assert args["plan_tier"] == "${steps.plan.output.tier}" and args["plan_characters_left"] == "${steps.plan.output.characters_left}"
+    assert not [a for a in flow if a.get("kind") == "approval"]  # free: nothing to approve
+
+
+def test_an_actor_sheet_may_ask_for_its_own_picture_size_and_says_so_in_the_approval():
+    flow = _flow("screenplay-make-actor-sheet")
+    assert any(i["name"] == "size" and i["required"] is False for i in flow["trigger"]["inputs"])
+    assert next(a for a in flow["actions"] if a.get("kind") == "integration")["args"]["size"] == '${input.size|default:""}'  # empty: the connection's, as before
+    assert "Picture size:" in next(a for a in flow["actions"] if a.get("id") == "spend")["message"]

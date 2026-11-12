@@ -678,10 +678,24 @@ def write_beat_details(job: dict, ctx: Context) -> dict:
     return {"result": {"story": story, "written": written, "skipped": skipped, "left": left}, "log": log + "\n\n" + "\n".join(shown)}
 
 
+def _plan_of(args: dict) -> dict | None:
+    """The plan the run was given (a workflow looked it up), or None when it was not asked: the check then says nothing about the plan."""
+    left = str(args.get("plan_characters_left") or "").strip()
+    tier = str(args.get("plan_tier") or "").strip()
+    if not left and not tier:
+        return None
+    return {"tier": tier, "characters_left": left, "resets_at": str(args.get("plan_resets_at") or "").strip()}
+
+
 @job_kind(
     "check-ready",
     description="Say whether a story is ready to have pictures and voices made, and change nothing but the story's Readiness note: what stops a picture or a recording (no World, no actor, no voice, a voice ElevenLabs has no id for) and what is worth a look (no costume, no set dressing, sounds with no length). It makes no picture, calls no AI and spends nothing",
-    inputs={"story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"}},
+    inputs={
+        "story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"},
+        "plan_tier": {"type": "string", "required": False, "description": "the ElevenLabs plan (from its free usage lookup): with plan_characters_left, the check says whether the lines still to record fit"},
+        "plan_characters_left": {"type": "string", "required": False, "description": "characters left on the plan this period"},
+        "plan_resets_at": {"type": "string", "required": False, "description": "when the plan's allowance resets"},
+    },
     produces=[],
 )
 def check_ready(job: dict, ctx: Context) -> dict:
@@ -697,7 +711,7 @@ def check_ready(job: dict, ctx: Context) -> dict:
     scenes, sounds = of_story("scene"), of_story("sound")
     found = ready.check(
         row(story_row), worlds=set(everywhere("world")), characters=characters, actors=everywhere("actor"), voices=everywhere("voice"),
-        beats=beats, lines=lines, scenes=scenes, sounds=sounds,
+        beats=beats, lines=lines, scenes=scenes, sounds=sounds, plan=_plan_of(job.get("args") or {}),
     )
     counts = {"Characters": len(characters), "beats": len(beats), "lines": len(lines), "scenes": len(scenes), "sounds": len(sounds)}
     when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
