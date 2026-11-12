@@ -30,6 +30,23 @@ class ManifestError(ValueError):
 
 
 @dataclass(frozen=True)
+class Rock:
+    """A ship's rocking over the still: the frame rolls from side to side and rises and falls a little, in a steady rhythm that carries on across cuts
+    (it runs on the film's clock), so a deck rocks through every beat, not afresh at each one."""
+
+    degrees: float = 0.0
+    """The most the frame tilts either way."""
+    seconds: float = 6.0
+    """One whole sway: over and back."""
+    heave: float = 0.0
+    """How far it rises and falls, as a share of the picture's height."""
+
+
+MAX_ROCK_DEGREES = 15.0
+MAX_ROCK_HEAVE = 0.1
+
+
+@dataclass(frozen=True)
 class Move:
     """A camera position over the still: the centre (0–1 of the picture) and a zoom of 1 or more (1 = the whole frame)."""
 
@@ -115,6 +132,8 @@ class Shot:
     hold: float = 0.0
     move_from: Move = Move()
     move_to: Move = Move(zoom=1.08)
+    rock: Rock | None = None
+    """A rocking (a ship's roll and heave) added to the move, or None for a steady frame."""
     lines: list[Line] = field(default_factory=list)
     sfx: list[Sfx] = field(default_factory=list)
     lead: float = LEAD
@@ -194,6 +213,15 @@ class Timeline:
         return sum(s.duration for s in self.shots)
 
 
+def _rock(raw: dict | None, where: str) -> Rock | None:
+    if not raw:
+        return None
+    rock = Rock(float(raw.get("degrees", 0)), float(raw.get("seconds", 6)), float(raw.get("heave", 0)))
+    if not (0 <= rock.degrees <= MAX_ROCK_DEGREES and 1 <= rock.seconds <= 30 and 0 <= rock.heave <= MAX_ROCK_HEAVE):
+        raise ManifestError(f"{where}: rock is degrees 0–{MAX_ROCK_DEGREES:g}, seconds 1–30 and heave 0–{MAX_ROCK_HEAVE:g} (got {raw})")
+    return rock if (rock.degrees or rock.heave) else None
+
+
 def _move(raw: dict | None, default: Move, where: str) -> Move:
     if raw is None:
         return default
@@ -259,6 +287,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             hold=float(s.get("hold") or 0),
             move_from=_move(move.get("from"), Move(), f"{where} move.from"),
             move_to=_move(move.get("to"), Move(zoom=1.08), f"{where} move.to"),
+            rock=_rock(move.get("rock"), f"{where} move.rock"),
             lead=float(s.get("lead", LEAD)),
             gap=float(s.get("gap", GAP)),
             tail=float(s.get("tail", TAIL)),

@@ -7,6 +7,7 @@ caption file needs no path escaping.
 """
 
 import functools
+import math
 import re
 import subprocess
 import tempfile
@@ -14,17 +15,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import captions, ffmpeg
-from .manifest import MAX_SHORT_SECONDS, Ambience, Manifest, Move, Overlay, PlannedShot, Timeline, plan
+from .manifest import MAX_SHORT_SECONDS, Ambience, Manifest, Move, Overlay, PlannedShot, Rock, Timeline, plan
 
 SUPERSAMPLE = 2  # zoompan on a larger picture moves smoothly instead of in whole-pixel steps
 SAMPLE_RATE = 48000
 
 
 def zoompan_filter(planned: PlannedShot, size: tuple[int, int], fps: int) -> str:
-    """cover-fit the still to the frame, then ease the camera from the shot's first position to its second."""
+    """cover-fit the still to the frame, then ease the camera from the shot's first position to its second (and rock it, when the shot says so)."""
     width, height = size
     frames = max(2, round(planned.duration * fps))
     a, b = planned.shot.move_from, planned.shot.move_to
+    rock = planned.shot.rock
     p = f"(0.5-0.5*cos(PI*on/{frames - 1}))"  # eased 0 → 1 over the shot
 
     def mix(x: float, y: float) -> str:
@@ -32,13 +34,32 @@ def zoompan_filter(planned: PlannedShot, size: tuple[int, int], fps: int) -> str
 
     zoom = mix(a.zoom, b.zoom)
     cx, cy = mix(a.x, b.x), mix(a.y, b.y)
+    if rock and rock.heave:
+        cy = f"({cy}+{rock.heave}*sin(2*PI*({planned.start:.4f}+on/{fps})/{rock.seconds * HEAVE_PERIOD:.4f}))"  # rises and falls a little out of step with the roll
     x = f"max(0,min(iw-iw/({zoom}),{cx}*iw-iw/(2*{zoom})))"
     y = f"max(0,min(ih-ih/({zoom}),{cy}*ih-ih/(2*{zoom})))"
     big = (width * SUPERSAMPLE, height * SUPERSAMPLE)
-    return (
+    chain = (
         f"scale={big[0]}:{big[1]}:force_original_aspect_ratio=increase,crop={big[0]}:{big[1]},"
-        f"zoompan=z='{zoom}':x='{x}':y='{y}':d=1:s={width}x{height}:fps={fps},format=yuv420p"
+        f"zoompan=z='{zoom}':x='{x}':y='{y}':d=1:s={width}x{height}:fps={fps}"
     )
+    if rock and rock.degrees:
+        chain += f",{rock_filter(rock, planned.start, size)}"
+    return chain + ",format=yuv420p"
+
+
+HEAVE_PERIOD = 0.8  # the heave runs a little faster than the roll, so the two do not move as one
+
+
+def rock_filter(rock: Rock, start: float, size: tuple[int, int]) -> str:
+    """The roll: the frame is scaled up just enough that, turned as far as it goes, it still covers the frame (no black corners), rolled by a sine on the film's
+    clock (`start` seconds in, so a rocking carries on across cuts), and cut back to the frame."""
+    width, height = size
+    most = math.radians(rock.degrees)
+    cover = max((width * math.cos(most) + height * math.sin(most)) / width, (width * math.sin(most) + height * math.cos(most)) / height)
+    wide, high = 2 * math.ceil(width * cover / 2), 2 * math.ceil(height * cover / 2)
+    angle = f"{most:.5f}*sin(2*PI*({start:.4f}+t)/{rock.seconds:g})"
+    return f"scale={wide}:{high},rotate=a='{angle}':ow=iw:oh=ih:c=black,crop={width}:{height}"
 
 
 BLEND_FILTERS = {"screen": "screen", "multiply": "multiply", "overlay": "overlay", "lighten": "lighten", "addition": "addition"}
