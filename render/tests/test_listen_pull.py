@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from storyrender import build, ffmpeg, manifest, marvin_pull
+from storyrender import build, camera, ffmpeg, manifest, marvin_pull
 
 needs_ffmpeg = pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg not installed")
 
@@ -240,6 +240,30 @@ def test_pull_passes_a_beats_camera_move_and_keeps_a_silent_held_beat(marvin, tm
     assert "b05" not in shots
     assert shots["b04"]["hold"] == 4 and shots["b04"]["lines"] == [] and shots["b04"]["move"]["to"]["zoom"] == 1.8
     assert "move" not in shots["b01"]  # a beat with no move keeps the render's default
+
+
+def test_pull_gives_each_beat_its_camera_preset_from_itself_else_its_scene_else_the_story_and_a_move_of_its_own_wins(marvin, tmp_path):
+    rows = [dict(r) for r in _ROWS]
+    rows[0] = {**rows[0], "dataJson": {"camera": "drift"}}  # the story's own
+    rows += [
+        {"slug": f"{S}-ledge", "dataJson": {"story": S, "camera": "tilt-up"}},
+        {"slug": f"{S}-beat-04", "dataJson": {"story": S, "number": "04", "hold_seconds": 2, "camera": "pan-left", "scene": f"{S}-ledge"}},
+        {"slug": f"{S}-beat-05", "dataJson": {"story": S, "number": "05", "hold_seconds": 2, "scene": f"{S}-ledge"}},
+        {"slug": f"{S}-beat-06", "dataJson": {"story": S, "number": "06", "hold_seconds": 2}},
+        {"slug": f"{S}-beat-07", "dataJson": {"story": S, "number": "07", "hold_seconds": 2, "camera": "push-in", "move": {"from": {"x": 0.2, "y": 0.2, "zoom": 1.5}, "to": {"x": 0.3, "y": 0.2, "zoom": 1.5}}}},
+        {"slug": f"{S}-beat-08", "dataJson": {"story": S, "number": "08", "hold_seconds": 2, "camera": "wobble"}},
+    ]
+    _FakeMarvin.rows = rows
+    try:
+        marvin_pull.pull("the-last-onion", tmp_path, creds=(marvin, "tok"))
+    finally:
+        _FakeMarvin.rows = _ROWS
+    shots = {s["id"]: s for s in json.loads((tmp_path / "manifest.json").read_text())["shots"]}
+    assert shots["b04"]["move"] == camera.move_of("pan-left")  # the beat's own preset
+    assert shots["b05"]["move"] == camera.move_of("tilt-up")  # else its scene's
+    assert shots["b06"]["move"] == camera.move_of("drift")  # else the story's
+    assert shots["b07"]["move"]["from"]["x"] == 0.2  # a move written out beats any preset
+    assert shots["b08"]["move"] == camera.move_of("drift")  # a name that is no preset is skipped, so the story's holds
 
 
 def test_a_beat_with_a_picture_and_nothing_else_plays_for_the_default_hold_and_a_beat_with_nothing_is_named_as_left_out(marvin, tmp_path, monkeypatch):

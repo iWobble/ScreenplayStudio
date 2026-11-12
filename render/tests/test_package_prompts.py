@@ -342,3 +342,24 @@ def test_a_story_has_buttons_for_casting_and_narrating_that_open_past_the_choice
         steps = [s["id"] for s in blueprints[slug]["payload"]["steps"]]
         assert (button["entry_type"], button["label"], button["key"], button["step"]) == ("story", label, "story", step)
         assert button["also"]["world"] == "world" and steps.index("world") < steps.index("story") < steps.index(step)  # world and story are already answered when it opens
+
+def test_the_camera_choices_are_the_worker_presets_and_the_timeline_has_a_camera_lane_reading_them():
+    from storyrender import camera
+
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    for owner in ("beat", "scene", "story"):
+        field = {f["key"]: f for f in blueprints[owner]["payload"]["schema_json"]["fields"]}["camera"]
+        assert field["type"] == "select" and field["options"] == [p.label for p in camera.PRESETS.values()]  # one table: the options are the presets, as plain text (a select holds text)
+        assert all(camera.key_of(option) in camera.PRESETS for option in field["options"])
+    lane = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}["camera"]
+    assert lane["marks"]["field"] == "camera" and lane["marks"]["via"] == "scene" and lane["marks"]["other"]["field"] == "move"
+    assert set(lane["marks"]["icons"]) == {p.label for p in camera.PRESETS.values()}
+    assert len(blueprints["story-timeline"]["payload"]["lanes"]) <= 6  # Marvin's lane limit
+
+
+def test_the_fields_that_hold_fountain_are_declared_fountain_so_their_preview_draws_a_screenplay():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    declared = {(slug, f["key"]) for slug in ("beat", "chapter", "speech-line", "story", "revision") for f in blueprints[slug]["payload"]["schema_json"]["fields"] if f.get("format") == "fountain"}
+    assert declared == {("beat", "fountain"), ("chapter", "fountain"), ("speech-line", "fountain"), ("story", "fountain"), ("story", "fountain_front"), ("revision", "proposed"), ("revision", "before")}
+    story = {f["key"]: f for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
+    assert "format" not in story["fountain_check"]  # the check's report is plain text, not a screenplay
