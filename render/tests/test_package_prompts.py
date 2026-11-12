@@ -324,3 +324,21 @@ def test_music_has_a_level_at_the_story_the_scene_and_the_beat_and_fades_like_am
     assert not any("music" in key and "muffled" in key for key in scene)  # a score is not heard through a wall
     bed = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}["music"]["bed"]
     assert (bed["volume"], bed["item_volume"], bed["entry_fade_in"], bed["entry_fade_out"]) == ("music_volume", "music_volume", "music_fade_in", "music_fade_out")
+
+
+def test_a_story_has_a_takes_button_that_opens_the_takes_setup_on_its_character_step():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    payload = blueprints["takes-of-a-line"]["payload"]
+    buttons = {b["entry_type"]: b for b in payload["button"]}
+    assert buttons["speech-line"]["step"] == "takes" and buttons["story"] == {"entry_type": "story", "label": "Takes", "key": "story", "step": "character"}
+    steps = [s["id"] for s in payload["steps"]]
+    assert steps[0] == "story" and steps[1] == "character"  # the story is already chosen, so the setup opens on the next step
+
+
+def test_a_story_has_buttons_for_casting_and_narrating_that_open_past_the_choices_its_own_fields_answer():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    for slug, label, step in (("casting-call", "Casting", "roles"), ("narrate-a-story", "Narrate", "details")):
+        button = blueprints[slug]["payload"]["button"]
+        steps = [s["id"] for s in blueprints[slug]["payload"]["steps"]]
+        assert (button["entry_type"], button["label"], button["key"], button["step"]) == ("story", label, "story", step)
+        assert button["also"]["world"] == "world" and steps.index("world") < steps.index("story") < steps.index(step)  # world and story are already answered when it opens
