@@ -678,10 +678,10 @@ def test_a_transition_belongs_to_the_beat_that_comes_after_it_in_the_words_the_v
     plan = fountain.cut(fountain.parse(DEVILS))
     beats = [b for _c, _n, b in plan.rows()]
     assert [(b["picture"][:12], b.get("transition"), b.get("transition_text")) for b in beats] == [
-        ("EXT. SHOALS ", None, None),
-        ("INT. CABIN -", "dissolve", "CROSSFADE TO:"),
-        ("INT. HOLD - ", "fade", "FADE OUT."),  # written at the end of the last chapter, it belongs to the first beat of the next
-        ("EXT. DECK - ", "cut", "CUT TO:"),
+        ("Exterior: Sh", None, None),  # the heading in words, not INT./EXT.
+        ("Interior: Ca", "dissolve", "CROSSFADE TO:"),
+        ("Interior: Ho", "fade", "FADE OUT."),  # written at the end of the last chapter, it belongs to the first beat of the next
+        ("Exterior: De", "cut", "CUT TO:"),
     ]
 
 
@@ -879,8 +879,9 @@ def test_the_import_makes_the_characters_and_scenes_and_puts_each_beat_in_its_sc
     assert (by["s-chet"]["dataJson"]["age"], by["s-chet"]["dataJson"]["sex"], by["s-chet"]["dataJson"]["age_state"]) == ("20s", "male", "young")
     assert not {"age", "sex", "age_state"} & set(by["s-hand"]["dataJson"])  # and nothing for someone it says nothing of
     reef, cabin = by["s-the-reef"]["dataJson"], by["s-captains-cabin"]["dataJson"]
-    assert by["s-the-reef"]["entryTypeId"] == "T-scene" and reef["place"] == "The Reef (exterior)" and reef["look"] == "Night, Dawn" and "ambience_muffled" not in reef
-    assert cabin["ambience_muffled"] is True
+    assert by["s-the-reef"]["entryTypeId"] == "T-scene" and reef["place"] == "The Reef" and reef["inside_outside"] == "exterior" and reef["look"] == "Night, Dawn" and "ambience_muffled" not in reef
+    assert cabin["inside_outside"] == "interior" and cabin["ambience_muffled"] is True and cabin["story_ambience_muffled"] is True  # heard from inside
+    assert "story_ambience_muffled" not in reef
     beats = {m["slug"]: m["dataJson"] for m in fake.made if m["entryTypeId"] == "T-beat"}
     assert {d["scene"] for d in beats.values()} == {"s-the-reef", "s-captains-cabin"}
     assert sorted(done["result"]["characters_made"]) == ["s-chet", "s-hand", "s-valerie"] and sorted(done["result"]["scenes_made"]) == ["s-captains-cabin", "s-the-reef"]
@@ -980,7 +981,7 @@ def test_a_score_placeholder_is_made_and_set_as_the_storys_music_unless_it_has_o
 def test_a_page_break_starts_the_next_picture():
     text = ".THE GALLEY\n\nA pot on a table.\n\n===\n\nA cook enters.\n\n===\n\nA hand.\n\nCOOK\nHello.\n"
     plan = fountain.cut(fountain.parse(text))
-    assert [b["picture"] for _c, _n, b in plan.rows()] == ["THE GALLEY. A pot on a table.", "A cook enters.", "A hand."]
+    assert [b["picture"] for _c, _n, b in plan.rows()] == ["The Galley. A pot on a table.", "A cook enters.", "A hand."]
     merged = fountain.cut(fountain.parse(text.replace("===\n\n", "")))
     assert len(merged.rows()) == 1  # without the breaks small actions are one picture, as before
 
@@ -1489,3 +1490,36 @@ def test_a_line_made_before_lines_named_their_character_gets_it_without_losing_i
     patched = {p[0]: p[1]["dataJson"] for p in fake.patched if p[0] != "e0"}
     changed = {fake.records[slug]["id"]: slug for slug in fake.records if slug.startswith("s-line-")}
     assert changed and all(patched[i]["character"].startswith("s-") and patched[i].get("fountain") for i in changed), patched  # both at once: one change to each record
+
+
+@pytest.mark.parametrize(
+    ("heading", "words"),
+    [
+        ("INT. CAPTAIN'S CABIN - NIGHT #2#", "Interior: Captain's Cabin, night"),
+        ("EXT. THE DEVIL'S SHOALS - NIGHT", "Exterior: The Devil's Shoals, night"),
+        ("INT. CAPTAIN'S CABIN - CONTINUOUS #2#", "Interior: Captain's Cabin"),  # when in the story is not what the light is
+        ("EXT. THE WRECK - LATER", "Exterior: The Wreck"),
+        ("INT./EXT. DOORWAY - DAY", "Interior and exterior: Doorway, day"),
+        (".UNDERWATER - CONTINUOUS", "Underwater"),  # a forced heading says no inside or outside
+    ],
+)
+def test_a_scene_heading_becomes_words_for_the_picture_text(heading, words):
+    assert fountain.heading_words(heading) == words
+
+
+@pytest.mark.parametrize("kind", ["interior", "exterior", "both"])
+def test_inside_or_outside_goes_both_ways_between_the_heading_and_the_field(kind):
+    heading = f"{fountain.kind_prefix(kind)} THE REEF - NIGHT"
+    assert fountain.place_of(heading)["kind"] == kind  # what the script writes, the import reads back as the same
+    assert fountain.kind_of_places([kind]) == kind
+    assert fountain.kind_prefix("") == "" and fountain.kind_prefix(None) == "" and fountain.kind_prefix("sideways") == ""
+    assert fountain.kind_of_places(["interior", "exterior"]) == "both" and fountain.kind_of_places([]) == ""
+
+
+def test_a_scenes_first_picture_says_where_in_words_and_the_sounds_and_beds_do_not_read_the_heading_as_story():
+    text = "INT. HOLD - NIGHT\n\nWater rushes in. A hush follows.\n\nEXT. DECK - DAY\n\nRain falls on the planks.\n"
+    plan = fountain.cut(fountain.parse(text))
+    pictures = [b["picture"] for _c, _n, b in plan.rows()]
+    assert pictures[0].startswith("Interior: Hold, night. Water rushes in.") and pictures[1].startswith("Exterior: Deck, day. Rain falls")
+    assert "INT." not in " ".join(pictures) and "EXT." not in " ".join(pictures)
+    assert fountain._without_heading(pictures[0], "INT. HOLD - NIGHT").lstrip(". ").startswith("Water rushes in")  # stripped, whichever way it was written

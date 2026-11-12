@@ -187,3 +187,30 @@ def test_pulling_a_story_takes_its_characters_but_not_its_castings(monkeypatch):
     monkeypatch.setattr(api, "entries", lambda creds: rows)
     got = script.pull_records("the-last-onion", ("u", "t"))
     assert [c["slug"] for c in got["characters"]] == ["pirate-captain"]
+
+
+def test_a_scene_that_says_inside_or_outside_is_written_with_INT_or_EXT_and_one_that_does_not_keeps_its_forced_heading():
+    def scene(kind):
+        return {"dataJson": {"inside_outside": kind}} if kind is not None else {"dataJson": {}}
+
+    assert script._heading_line("CAPTAIN'S CABIN", " #2#", scene("interior")) == "INT. CAPTAIN'S CABIN #2#"
+    assert script._heading_line("THE REEF", " #3#", scene("exterior")) == "EXT. THE REEF #3#"
+    assert script._heading_line("DOORWAY", "", scene("both")) == "INT./EXT. DOORWAY"
+    assert script._heading_line("THE MESS", " #5#", scene(None)) == ".THE MESS #5#"
+    assert script._heading_line("THE MESS", " #5#", scene("sideways")) == ".THE MESS #5#"
+
+
+@pytest.mark.parametrize(
+    ("picture", "name", "action"),
+    [
+        ("EXT. THE DEVIL'S SHOALS - NIGHT. Black rocks break the surface.", "The Devil's Shoals", "Black rocks break the surface."),
+        ("Interior: Captain's Cabin. A lantern hangs.", "Captain's Cabin", "A lantern hangs."),
+        ("Interior and exterior: Doorway, day. A cat waits.", "Doorway", "A cat waits."),
+        ("INT. HOLD - NIGHT. Water rushes in.", "Hold", "Water rushes in."),
+        ("A cook enters.", "Galley", "A cook enters."),
+        ("EXT. THE GALLEY, a wide shot of a pot.", "Galley", "EXT. THE GALLEY, a wide shot of a pot."),  # only begins like a heading: still a picture
+        ("INT. HOLD - NIGHT. Water rushes in.", "Cabin", "INT. HOLD - NIGHT. Water rushes in."),  # another scene's heading is not this one's
+    ],
+)
+def test_the_exported_action_does_not_say_the_scenes_own_heading_again(picture, name, action):
+    assert script._without_lead_heading(picture, name) == action

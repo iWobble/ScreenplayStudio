@@ -519,10 +519,11 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
         slug = f"{story}-{slug_key}"
         if slug not in want or slug in have_scenes:
             continue
-        where = " and ".join(place["kinds"])
-        data = {"story": story, "place": place["name"] + (f" ({where})" if where else ""), "look": ", ".join(place["times"]), "status": "draft"}
-        if place["kinds"] == ["interior"]:
+        kind = fountain.kind_of_places(place["kinds"])  # INT. / EXT. kept as a field of its own, not as words in the place
+        data = {"story": story, "place": place["name"], "inside_outside": kind, "look": ", ".join(place["times"]), "status": "draft"}
+        if kind == "interior":  # heard from inside: its own bed and the story's run on muffled, until someone unticks them
             data["ambience_muffled"] = True
+            data["story_ambience_muffled"] = True
         bed = fplan.ambience.get(slug_key)
         if bed:  # the bed under the place: a Sound of its own, made once and named by the scene
             bed_slug = f"{story}-ambience-{slug_key}"

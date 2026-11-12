@@ -123,6 +123,16 @@ def parse_any(markdown: str) -> tuple[str, list[dict]]:
     return (kind, _drop_directions(rows)) if rows else ("", [])
 
 
+_HEADING_LEAD = re.compile(r"^(?:Interior and exterior|Interior|Exterior): [^.]*\.\s+")  # a first picture of a scene begins with its heading in words
+
+
+def _action_of(picture: str) -> str:
+    """The picture without the place heading it may begin with (`Interior: Captain's Cabin. A lantern hangs…` -> `A lantern hangs…`), for a title; the
+    whole picture when nothing follows the heading."""
+    m = _HEADING_LEAD.match(picture or "")
+    return (picture[m.end() :] or picture) if m else (picture or "")
+
+
 def _short(text: str) -> str:
     return text if len(text) <= TITLE_CHARS else text[:TITLE_CHARS].rstrip()
 
@@ -197,7 +207,7 @@ def import_plan(story: str, rows: list[dict], existing: "dict[str, dict] | set[s
             else:
                 plan["chapters"].append((chapter_slug, heading["title"], {"story": story, "number": heading["number"]}))
         first = row["lines"][0] if row["lines"] else None
-        title = f"Beat {number}: {_short((first['speaker'] + ': ' + first['text']) if first else (row['picture'] or 'held picture'))}"
+        title = f"Beat {number}: {_short((first['speaker'] + ': ' + first['text']) if first else _action_of(row['picture']) or 'held picture')}"
         data = {"story": story, "number": number, "status": "draft"}
         if row["picture"]:
             data["picture"] = row["picture"]

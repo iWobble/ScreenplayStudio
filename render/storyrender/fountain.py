@@ -512,11 +512,11 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
             sc = scene.start if ln is not None else None
             if t == "scene":
                 here[0] = el["text"]
-                cur = start(el["text"], ln, sc)
+                cur = start(heading_words(el["text"]), ln, sc)  # the heading in words: Interior: Captain's Cabin, night
                 fresh_scene = True
             elif t == "action":
                 # Action with no speech between it and the last action is the same picture (up to a paragraph's worth); after speech it is a new one.
-                if cur is not None and not cur["lines"] and (cur["picture"] == scene.heading or len(cur["picture"]) + len(el["text"]) <= PICTURE_CHARS):
+                if cur is not None and not cur["lines"] and (cur["picture"] == heading_words(scene.heading) or len(cur["picture"]) + len(el["text"]) <= PICTURE_CHARS):
                     joined = f"{cur['picture']}. {el['text']}" if fresh_scene else f"{cur['picture']} {el['text']}"
                     cur["picture"] = joined
                 else:
@@ -685,6 +685,41 @@ def place_of(heading: str) -> "dict | None":
     return {"slug": slug, "name": name, "kind": kind, "time": time} if slug else None
 
 
+INSIDE_OUTSIDE = ("interior", "exterior", "both")
+_KIND_PREFIX = {"interior": "INT.", "exterior": "EXT.", "both": "INT./EXT."}
+_KIND_WORDS = {"interior": "Interior", "exterior": "Exterior", "both": "Interior and exterior"}
+_QUIET_TIME = re.compile(r"later|continuous|same|moments", re.I)  # a time that says when in the story, not what the light is
+
+
+def kind_prefix(kind: object) -> str:
+    """The other way: `interior` -> `INT.`, `exterior` -> `EXT.`, `both` -> `INT./EXT.`; anything else (not said) -> nothing."""
+    return _KIND_PREFIX.get(str(kind or "").strip().lower(), "")
+
+
+def kind_of_places(kinds: list[str]) -> str:
+    """The one value a place's headings add up to: interior or exterior if they all agree, `both` if they differ or say so, nothing if none says."""
+    return kinds[0] if len(kinds) == 1 and kinds[0] in INSIDE_OUTSIDE else "both" if kinds else ""
+
+
+def heading_words(heading: str) -> str:
+    """`INT. CAPTAIN'S CABIN - NIGHT #2#` -> `Interior: Captain's Cabin, night`: the heading in words, for the text a picture is made from (an image
+    model reads words, not screenplay shorthand). A time that only says when in the story (continuous, later) is left out; a heading with no INT. or
+    EXT. is the place and its time alone. Not a place at all -> the text as it was."""
+    p = place_of(heading)
+    if not p:
+        return str(heading or "")
+    said = p["name"] + (f", {p['time'].lower()}" if p["time"] and not _QUIET_TIME.search(p["time"]) else "")
+    return f"{_KIND_WORDS[p['kind']]}: {said}" if p["kind"] in _KIND_WORDS else said
+
+
+def _without_heading(picture: str, heading: str) -> str:
+    """A beat's picture without the place heading its first picture starts with, whether that was kept as written or put in words."""
+    if heading and heading in picture:
+        return picture.replace(heading, "", 1)
+    words = heading_words(heading) if heading else ""
+    return picture.replace(words, "", 1) if words else picture
+
+
 def places_of(scenes: list[Scene]) -> dict[str, dict]:
     """The places a screenplay's scene headings name, once each, with whether each is inside or outside and the times of day it is seen at."""
     out: dict[str, dict] = {}
@@ -697,7 +732,7 @@ def places_of(scenes: list[Scene]) -> dict[str, dict]:
             rec = out.setdefault(p["slug"], {"name": p["name"], "kinds": [], "times": []})
             if p["kind"] and p["kind"] not in rec["kinds"]:
                 rec["kinds"].append(p["kind"])
-            if p["time"] and not re.search(r"later|continuous|same", p["time"], re.I) and p["time"] not in rec["times"]:
+            if p["time"] and not _QUIET_TIME.search(p["time"]) and p["time"] not in rec["times"]:
                 rec["times"].append(p["time"])
     return out
 
@@ -728,7 +763,7 @@ def sound_cues(beat: dict, avoid: "set[str]") -> list[dict]:
     picture = (beat.get("picture") or "").split(" Delivery:")[0]
     here = beat.get("place", "")
     if here:
-        picture = picture.replace(here, "", 1)
+        picture = _without_heading(picture, here)
     picture = re.sub(r"^[\s.]+", "", picture)
     sentences = _sentences(picture)
     if beat.get("sung"):
@@ -770,7 +805,7 @@ def ambience_of(beats: list[dict], name: str) -> "dict | None":
     """The bed under a place: what its beats' action says of the weather and water (rain, thunder, waves, wind), as one placeholder for an ambience Sound."""
     said: list[str] = []
     for b in beats:
-        picture = re.sub(r"^[\s.]+", "", (b.get("picture") or "").split(" Delivery:")[0].replace(b.get("place", ""), "", 1) if b.get("place") else (b.get("picture") or ""))
+        picture = re.sub(r"^[\s.]+", "", _without_heading((b.get("picture") or "").split(" Delivery:")[0], b.get("place", "")) if b.get("place") else (b.get("picture") or ""))
         said += [x for x in _sentences(picture) if _WEATHER.search(x) and x not in said]
     if not said:
         return None

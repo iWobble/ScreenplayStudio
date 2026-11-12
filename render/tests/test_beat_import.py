@@ -181,3 +181,11 @@ ORPHANS = {
     "s-chapter-01": _rec("s-chapter-01", number="01"),
     "s-chapter-09": _rec("s-chapter-09", number="09"),  # no beat is in it any more
 }
+
+
+def test_a_beat_title_skips_the_scene_heading_its_first_picture_begins_with():
+    assert beat_import._action_of("Interior: Captain's Cabin. A lantern hangs at an angle.") == "A lantern hangs at an angle."
+    assert beat_import._action_of("Exterior: The Devil's Shoals, night. Black rocks break the surface.") == "Black rocks break the surface."
+    assert beat_import._action_of("Interior and exterior: Doorway. A cat waits.") == "A cat waits."
+    assert beat_import._action_of("Interior: Hold.") == "Interior: Hold."  # nothing follows it: the whole picture is the title
+    assert beat_import._action_of("A cook enters.") == "A cook enters." and beat_import._action_of("") == ""
