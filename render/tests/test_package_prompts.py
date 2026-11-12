@@ -123,3 +123,14 @@ def test_an_actor_sheet_may_ask_for_its_own_picture_size_and_says_so_in_the_appr
     assert any(i["name"] == "size" and i["required"] is False for i in flow["trigger"]["inputs"])
     assert next(a for a in flow["actions"] if a.get("kind") == "integration")["args"]["size"] == '${input.size|default:""}'  # empty: the connection's, as before
     assert "Picture size:" in next(a for a in flow["actions"] if a.get("id") == "spend")["message"]
+
+
+def test_recording_a_take_shows_its_words_and_direction_large_to_read_from():
+    for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]:
+        if b.get("slug") == "takes-of-a-line":
+            takes = next(s for s in b["payload"]["steps"] if s["id"] == "takes")
+            assert takes["add"]["file"]["script"] == ["spoken", "direction"]
+            assert set(takes["add"]["file"]["script"]) <= set(takes["add"]["fields"])  # both are fields of the form the take is made in
+            break
+    else:
+        raise AssertionError("takes-of-a-line")
