@@ -35,9 +35,26 @@ def _clean(text: object) -> str:
     return " ".join(str(text or "").split())
 
 
-def _cue(speaker: str) -> str:
+_EXTENSION = re.compile(r"^(?:V\.?O\.?|O\.?S\.?|O\.?C\.?|CONT[\u2019']?D)$", re.I)  # a speaker's extension (V.O.), not a parenthetical
+
+
+def _cue(speaker: str, extension: str = "") -> str:
     name = _clean(speaker).upper() or "VOICE"
+    if extension:
+        return f"{name} ({extension})"
     return f"{name} (V.O.)" if _clean(speaker).lower() == NARRATOR else name
+
+
+def _deliveries(picture: str) -> list[tuple[str, list[str]]]:
+    """How the beat's lines are said, from the note its picture ends with (`... Delivery: Mara (without looking up); Narrator (V.O.).`): [(speaker,
+    [what was written with them: parentheticals and an extension])], in the order of the lines they belong to."""
+    tail = picture.split(" Delivery:", 1)[1] if " Delivery:" in picture else ""
+    out: list[tuple[str, list[str]]] = []
+    for item in [x.strip() for x in tail.strip().rstrip(".").split("; ") if x.strip()]:
+        m = re.match(r"^(.*?) \((.*)\)$", item)
+        if m:
+            out.append((m.group(1).strip().lower(), [t.strip() for t in m.group(2).split(", ") if t.strip()]))
+    return out
 
 
 def _slug_words(slug: str) -> str:
@@ -159,7 +176,10 @@ def fountain_complete(records: dict) -> str:
     lines_by_beat = records.get("lines", {})
     out: list[str] = [f"Title: {_clean(story.get('title') or story.get('slug'))}", f"Credit: {_clean(sd.get('credit')) or 'A Storyworld film'}"]
     for key, label in (("author", "Author"), ("source", "Source"), ("draft_date", "Draft date"), ("contact", "Contact"), ("copyright", "Copyright")):
-        if _clean(sd.get(key)):
+        raw = [ln.strip() for ln in str(sd.get(key) or "").splitlines() if ln.strip()]
+        if len(raw) > 1:  # a value that runs over several lines continues on lines indented by four spaces (a contact's name and address)
+            out += [f"{label}:"] + [f"    {ln}" for ln in raw]
+        elif _clean(sd.get(key)):
             out.append(f"{label}: {_clean(sd[key])}")
     for key, label in (("premise", "Premise"), ("setting", "Setting"), ("world", "World"), ("format", "Format"), ("music", "Music"), ("platform", "Platform")):
         if _clean(sd.get(key)):
@@ -179,17 +199,22 @@ def fountain_complete(records: dict) -> str:
         d = _data(beat)
         number = str(d.get("number") or "").strip()
         chapter_slug = d.get("chapter")
-        if chapter_slug and chapter_slug != chapter_now:
-            chapter_now = chapter_slug
-            title = _clean((chapters.get(str(chapter_slug)) or {}).get("title") or _slug_words(str(chapter_slug)))
-            out += [f"# {title}", ""]
+        new_chapter = bool(chapter_slug) and chapter_slug != chapter_now
         scene_slug = d.get("scene")
         when = _clean(d.get("time_of_day"))
         new_scene = bool(scene_slug) and (scene_slug != scene_now or bool(when and when != time_now))  # a new place, or the same place at another time of day
         if not first:
-            out += ["===", ""]  # each beat is its own picture
+            if not new_chapter:
+                out += ["===", ""]  # each beat is its own picture (a chapter heading starts one itself)
             if _clean(d.get("transition_text")):
-                out += [_clean(d["transition_text"]), ""]  # the transition written before this beat (CUT TO:), as it was
+                out += [_clean(d["transition_text"]), ""]  # the transition written before this beat (CUT TO:), as it was: above a chapter heading, which a transition below it would not leave one
+        if new_chapter:
+            chapter_now = chapter_slug
+            title = _clean((chapters.get(str(chapter_slug)) or {}).get("title") or _slug_words(str(chapter_slug)))
+            out += [f"# {title}", ""]
+            summary = _clean(_data(chapters.get(str(chapter_slug)) or {}).get("summary"))
+            if summary:
+                out += [f"= {summary}", ""]  # a section's synopsis, as the writer gave it
         if new_scene:
             scene_now, time_now = scene_slug, when
             scene = scenes.get(str(scene_slug), {})
@@ -199,7 +224,7 @@ def fountain_complete(records: dict) -> str:
             sc = _data(scene)
             said = [x for x in (_say("Place", sc.get("place")), _say("Light", sc.get("look")), _say("Set dressing", sc.get("set_dressing")), _say("Continuity", sc.get("continuity"))) if x]
             if said:
-                out += ["= " + " ".join(said), ""]
+                out += [f"[[Scene {_clean(scene.get('title') or _slug_words(str(scene_slug)))}. " + " ".join(said) + "]]", ""]  # a note: a synopsis would be read as the writer's own
             if sc.get("ambience") != bed_now:
                 bed_now = sc.get("ambience")
             if sc.get("ambience"):
@@ -207,7 +232,8 @@ def fountain_complete(records: dict) -> str:
                 level = f", level {sc['ambience_volume']}" if sc.get("ambience_volume") not in (None, "") else ""
                 muffled = ", muffled (indoors)" if sc.get("ambience_muffled") else ""
                 out += [f"[[Ambience: {_clean(bed.get('title') or _slug_words(str(sc['ambience'])))}{level}{muffled}. {_clean(_data(bed).get('prompt'))}]]", ""]
-        picture = _clean(d.get("picture")).split(" Delivery:")[0].strip()  # how a line is said is kept with the line, not in the action
+        deliveries = _deliveries(_clean(d.get("picture")))  # how each line is said: written again as its extension and parenthetical
+        picture = _clean(d.get("picture")).split(" Delivery:")[0].strip()  # and not left in the action
         if new_scene:
             picture = _without_lead_heading(picture, _clean(scene.get("title") or _slug_words(str(scene_slug)))).strip()
         if picture and (fountain_mod._is_scene(picture) or fountain_mod._is_transition(picture) or picture.isupper() or picture[0] in "@#=~>!."):
@@ -218,6 +244,10 @@ def fountain_complete(records: dict) -> str:
         for placed in d.get("sounds") if isinstance(d.get("sounds"), list) else []:
             if isinstance(placed, dict) and placed.get("sound"):
                 snd = sounds.get(str(placed["sound"]), {})
+                sung = re.search(r"Sung, as written:\s*(.+)$", str(_data(snd).get("prompt") or ""), re.S)
+                if sung:  # the words that were sung go back as lyrics (a line that starts with ~), not as a sound note
+                    out += [f"~ {_clean(sung.group(1)).rstrip(' ~').strip()}", ""]
+                    continue
                 at = f" at {_seconds(placed.get('at'))}" if _seconds(placed.get("at")) else ""
                 name, prompt = _clean(snd.get("title") or _slug_words(str(placed["sound"]))), _clean(_data(snd).get("prompt"))
                 words = prompt if prompt and prompt.lower().startswith(name.lower().rstrip(".")[:40]) else f"{name}. {prompt}".rstrip(". ") + "."
@@ -227,9 +257,17 @@ def fountain_complete(records: dict) -> str:
             spoken = _clean(ld.get("text"))
             if not spoken:
                 continue
-            out.append(_cue(ld.get("speaker") or ""))
+            who = _clean(ld.get("speaker")).lower()
+            said = next((tokens for name, tokens in deliveries if name == who), [])
+            if said:
+                deliveries.remove(next(x for x in deliveries if x[0] == who))
+            ext = next((tok for tok in said if _EXTENSION.match(tok)), "")
+            paren = [tok for tok in said if not _EXTENSION.match(tok)]
+            out.append(_cue(ld.get("speaker") or "", ext))
             if _clean(ld.get("direction")):
                 out.append(f"({_clean(ld['direction']).rstrip('.').lower()})")
+            elif paren:
+                out.append(f"({', '.join(paren)})")  # as the writer had it
             out.append(spoken)
             extra = [x for x in (_say("Delivery", ld.get("delivery_text")), _say("Voice", ld.get("voice")), _say("Note", ld.get("take_notes"))) if x]
             out += ([f"[[{' '.join(extra)}]]"] if extra else []) + [""]
