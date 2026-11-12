@@ -63,3 +63,25 @@ def test_a_file_that_is_not_sound_still_says_so(tmp_path):
     junk.write_bytes(b"not audio at all")
     with pytest.raises(ffmpeg.FfmpegError):
         ffmpeg.duration(junk)
+
+
+def test_the_level_and_peak_of_a_tone_are_what_it_was_made_at_and_a_louder_one_reads_louder(tmp_path):
+    quiet = _tone(tmp_path / "quiet.wav", 1.0, "-af", "volume=-12dB")
+    loud = _tone(tmp_path / "loud.wav", 1.0)
+    (q_mean, q_peak), (l_mean, l_peak) = audio_measure.levels(quiet), audio_measure.levels(loud)
+    assert l_peak - q_peak == pytest.approx(12, abs=1)  # 12 dB lower reads 12 dB lower
+    assert l_mean - q_mean == pytest.approx(12, abs=1)
+    assert q_peak < 0 and l_peak < 0 and q_mean < q_peak  # below full scale; the average of a tone is under its peak
+    assert l_peak - l_mean == pytest.approx(3, abs=1)  # a sine's peak is 3 dB above its average
+
+
+def test_a_silent_recording_reads_at_the_floor_not_minus_infinity(tmp_path):
+    silent = tmp_path / "silent.wav"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "1", str(silent)], check=True)
+    assert audio_measure.levels(silent) == (audio_measure.LEVEL_FLOOR, audio_measure.LEVEL_FLOOR)
+
+
+def test_a_file_that_is_not_sound_cannot_have_a_level(tmp_path):
+    (tmp_path / "x.txt").write_text("not sound")
+    with pytest.raises(ffmpeg.FfmpegError):
+        audio_measure.levels(tmp_path / "x.txt")
