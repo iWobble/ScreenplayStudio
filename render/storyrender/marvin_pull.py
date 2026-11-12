@@ -12,7 +12,7 @@ from pathlib import Path
 
 from marvin_worker import marvin_api
 
-from . import captions, cards, ffmpeg, formats, numbering
+from . import camera, captions, cards, ffmpeg, formats, numbering
 
 CREDENTIALS = Path.home() / ".marvin" / "credentials.json"
 
@@ -136,7 +136,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         by_beat.setdefault(str(data(line).get("beat")), []).append(line)
 
     chapters = chapter_rows(rows, story, data)
-    scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and ("ambience" in data(e) or "overlay" in data(e) or "story_ambience_volume" in data(e) or "story_ambience_muffled" in data(e) or "music_volume" in data(e))}  # scenes that name an ambience or an overlay, or say how the story's own bed is heard in them
+    scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and ("ambience" in data(e) or "overlay" in data(e) or "story_ambience_volume" in data(e) or "story_ambience_muffled" in data(e) or "music_volume" in data(e) or "camera" in data(e))}  # scenes that name an ambience or an overlay, or say how the story's own bed is heard in them
     # Sounds belong to the library, not to a story: each is found by the slug a beat or scene names, whichever story made it.
     wanted = {str(item.get("sound")) for b in beats for item in (data(b).get("sounds") if isinstance(data(b).get("sounds"), list) else []) if isinstance(item, dict)}
     wanted |= {str(data(sc).get("ambience")) for sc in scenes.values() if data(sc).get("ambience")}
@@ -193,6 +193,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             shot["chapter"] = str(data(beat)["chapter"])  # the chapter's slug, as the chapter list below names it
         if isinstance(data(beat).get("move"), dict):
             shot["move"] = data(beat)["move"]  # where the camera looks: {"from": {x, y, zoom}, "to": {...}}, so one still can serve several beats
+        elif preset := camera.move_of(camera.pick(data(beat), data(scene_row) if scene_row else None, data(story_row))):
+            shot["move"] = preset  # no move of its own: the camera preset of the beat, else its scene, else the story
         if data(beat).get("still"):
             still = _fetch_asset(creds, str(data(beat)["still"]), out / "stills" / f"b{number}", "png")
             shot["still"] = str(still.relative_to(out))

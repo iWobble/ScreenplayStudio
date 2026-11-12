@@ -342,3 +342,15 @@ def test_a_story_has_buttons_for_casting_and_narrating_that_open_past_the_choice
         steps = [s["id"] for s in blueprints[slug]["payload"]["steps"]]
         assert (button["entry_type"], button["label"], button["key"], button["step"]) == ("story", label, "story", step)
         assert button["also"]["world"] == "world" and steps.index("world") < steps.index("story") < steps.index(step)  # world and story are already answered when it opens
+
+def test_the_camera_choices_are_the_worker_presets_and_the_timeline_has_a_camera_lane_reading_them():
+    from storyrender import camera
+
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    for owner in ("beat", "scene", "story"):
+        field = {f["key"]: f for f in blueprints[owner]["payload"]["schema_json"]["fields"]}["camera"]
+        assert field["type"] == "select" and [o["value"] for o in field["options"]] == list(camera.PRESETS)  # one table: the options are the presets
+    lane = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}["camera"]
+    assert lane["marks"]["field"] == "camera" and lane["marks"]["via"] == "scene" and lane["marks"]["other"]["field"] == "move"
+    assert set(lane["marks"]["icons"]) == set(lane["marks"]["labels"]) == set(camera.PRESETS)
+    assert len(blueprints["story-timeline"]["payload"]["lanes"]) <= 6  # Marvin's lane limit
