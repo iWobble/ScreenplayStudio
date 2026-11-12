@@ -247,3 +247,14 @@ def test_the_ambience_and_sound_fades_have_a_slider_from_nothing_to_ten_seconds_
         for key in keys:
             f = fields[key]
             assert f["slider"] is True and (f["min"], f["max"], f["step"]) == (0, 10, 0.1), (slug, key)  # thirty seconds would make a drag too coarse
+
+
+def test_a_new_line_is_linked_to_its_character_by_speaker_so_the_takes_setup_finds_it():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    flow = blueprints["screenplay-line-character"]["payload"]["definition"]
+    assert flow["trigger"]["event"] == "entry_created"
+    assert {"field": "entry.data.character", "op": "exists", "value": False} in flow["conditions"]  # one the line already has is kept
+    who, setter = flow["actions"]
+    assert who["query"]["entry_type"] == "cast-member" and who["query"]["data"] == {"story": "${entry.data.story}", "speaker": "${entry.data.speaker}"}
+    assert setter["data"] == {"character": "${steps.who.output.rows.0.slug}"}
+    assert "character" in [f["key"] for f in blueprints["speech-line"]["payload"]["schema_json"]["fields"]]
