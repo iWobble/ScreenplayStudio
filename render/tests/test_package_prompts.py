@@ -147,3 +147,12 @@ def test_a_scene_and_a_beat_can_set_the_story_bed_and_the_story_can_duck_its_amb
     assert fields["scene"]["story_ambience_muffled"]["type"] == "boolean"
     assert fields["story"]["ambience_ducking"]["options"] == ["none", "light", "strong"]
     assert "story_ambience_muffled" not in fields["beat"]  # indoors is the scene's to say, not a beat's
+
+
+def test_the_story_timeline_names_where_the_story_bed_is_adjusted_and_the_new_level_fields_have_a_slider():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    bed = next(lane for lane in blueprints["story-timeline"]["payload"]["lanes"] if lane["id"] == "ambience")["bed"]
+    assert (bed["entry_item_volume"], bed["entry_via_volume"], bed["entry_via_muffled"]) == ("story_ambience_volume", "story_ambience_volume", "story_ambience_muffled")
+    for owner in ("scene", "beat"):
+        level = next(f for f in blueprints[owner]["payload"]["schema_json"]["fields"] if f["key"] == "story_ambience_volume")
+        assert level["slider"] is True and (level["min"], level["max"]) == (0, 1)  # a slider needs both ends
