@@ -84,6 +84,7 @@ MAX_TRANSITION = 5.0
 DEFAULT_TRANSITION_SECONDS = 0.5
 PLAYS = ("", "loop", "once")
 MAX_OVERLAY_FADE = 10.0
+MAX_MUSIC_FADE = 30.0  # seconds: the longest a beat or the story may take to ease the music
 MAX_OVERLAY_DELAY = 60.0
 BLENDS = ("normal", "screen", "multiply", "overlay", "lighten", "addition")
 MAX_END_FADE = 30.0
@@ -122,6 +123,10 @@ class Shot:
     ambience: Ambience | None = None
     overlay: Overlay | None = None
     music_volume: float | None = None
+    music_fade_in: float | None = None
+    """Seconds the music takes to ease to this shot's level as it starts (when that differs from the shot before); None leaves the default half second."""
+    music_fade_out: float | None = None
+    """Seconds the music takes to ease away from this shot's level as it ends; None leaves the default half second."""
     bed_volume: float | None = None
     """The level of the story's own ambience bed while this shot plays (a scene or a beat turns it down: 0 = silence); None keeps the story's level."""
     bed_muffled: bool = False
@@ -293,6 +298,12 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             shot.music_volume = float(s["music_volume"])
             if not 0 <= shot.music_volume <= 1:
                 raise ManifestError(f"{where}: music_volume is 0–1 (got {shot.music_volume})")
+        for key in ("music_fade_in", "music_fade_out"):
+            if s.get(key) not in (None, ""):
+                seconds = float(s[key])
+                if not 0 <= seconds <= MAX_MUSIC_FADE:
+                    raise ManifestError(f"{where}: {key} is 0–{MAX_MUSIC_FADE:g} seconds (got {seconds:g})")
+                setattr(shot, key, seconds)
         if s.get("bed_volume") not in (None, ""):
             shot.bed_volume = float(s["bed_volume"])
             if not 0 <= shot.bed_volume <= 1:
@@ -335,6 +346,9 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
     music = raw.get("music")
     if music:
         music = {**music, "audio": str(audio_path(music.get("audio") or "", "music")), "volume": float(music.get("volume", 0.12))}
+        for key in ("story_fade_in", "story_fade_out"):
+            if music.get(key) not in (None, "") and not 0 <= float(music[key]) <= MAX_MUSIC_FADE:
+                raise ManifestError(f"music: {key} is 0–{MAX_MUSIC_FADE:g} seconds (got {music[key]})")
         if music.get("duck") not in (None, "") and music["duck"] not in DUCKS:
             raise ManifestError(f"music: duck is {' or '.join(DUCKS)} (got {music['duck']})")
     size = tuple(raw.get("size") or DEFAULT_SIZE)

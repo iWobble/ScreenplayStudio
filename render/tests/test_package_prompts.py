@@ -311,3 +311,16 @@ def test_a_lines_volume_and_muffling_are_its_own_fields_the_take_points_back_to_
     assert line["beat"]["ref"] == "beat" and line["beat"]["ref_match"] == {"story": "story"} and line["beat"]["label"] == "Beat"  # moving a line is choosing its beat
     lanes = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}
     assert lanes["lines"]["volume"] == "volume"
+
+
+def test_music_has_a_level_at_the_story_the_scene_and_the_beat_and_fades_like_ambience():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    fields = lambda slug: {f["key"]: f for f in blueprints[slug]["payload"]["schema_json"]["fields"]}  # noqa: E731
+    story, scene, beat = fields("story"), fields("scene"), fields("beat")
+    for owner in (story, scene, beat):
+        assert (owner["music_volume"]["min"], owner["music_volume"]["max"], owner["music_volume"]["slider"]) == (0, 1, True)
+    for key in ("music_fade_in", "music_fade_out"):
+        assert story[key]["slider"] and beat[key]["slider"] and beat[key]["max"] == 10
+    assert not any("music" in key and "muffled" in key for key in scene)  # a score is not heard through a wall
+    bed = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}["music"]["bed"]
+    assert (bed["volume"], bed["item_volume"], bed["entry_fade_in"], bed["entry_fade_out"]) == ("music_volume", "music_volume", "music_fade_in", "music_fade_out")

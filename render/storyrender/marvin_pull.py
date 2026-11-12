@@ -136,7 +136,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         by_beat.setdefault(str(data(line).get("beat")), []).append(line)
 
     chapters = chapter_rows(rows, story, data)
-    scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and ("ambience" in data(e) or "overlay" in data(e) or "story_ambience_volume" in data(e) or "story_ambience_muffled" in data(e))}  # scenes that name an ambience or an overlay, or say how the story's own bed is heard in them
+    scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and ("ambience" in data(e) or "overlay" in data(e) or "story_ambience_volume" in data(e) or "story_ambience_muffled" in data(e) or "music_volume" in data(e))}  # scenes that name an ambience or an overlay, or say how the story's own bed is heard in them
     # Sounds belong to the library, not to a story: each is found by the slug a beat or scene names, whichever story made it.
     wanted = {str(item.get("sound")) for b in beats for item in (data(b).get("sounds") if isinstance(data(b).get("sounds"), list) else []) if isinstance(item, dict)}
     wanted |= {str(data(sc).get("ambience")) for sc in scenes.values() if data(sc).get("ambience")}
@@ -185,8 +185,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         cover = _info_overlay(creds, out, data(beat), number, size) or _overlay(creds, out, data(beat), scenes, data(story_row), data, videos)
         if cover:
             shot["overlay"] = cover
-        if (level := _unit(data(beat).get("music_volume"))) is not None:
-            shot["music_volume"] = level  # the music's level for this beat only (0 = silence)
+        scene_row = scenes.get(str(data(beat).get("scene")))
+        shot.update(music_in(data(beat), data(scene_row) if scene_row else {}))
         if not spoken and (data(beat).get("hold_seconds") or has_still):
             shot["hold"] = float(data(beat).get("hold_seconds") or DEFAULT_HOLD)  # a sound-only or silent beat lasts its hold, else the default the Timeline also draws it at (a spoken one, as long as its audio)
         if data(beat).get("chapter"):
@@ -262,13 +262,16 @@ def music_of(creds, out: Path, story_data: dict, data) -> dict | None:
     if row is None or not data(row).get("audio"):
         return None
     file = _fetch_asset(creds, str(data(row)["audio"]), out / "audio" / "sounds" / name, "mp3")
-    volume = data(row).get("volume")
+    volume = _unit(story_data.get("music_volume"))  # the story's own level, else the sound's, else 0.12
+    if volume is None:
+        volume = data(row).get("volume")
     duck = str(story_data.get("music_ducking") or "").strip()  # lower the bed while someone speaks: light or strong
     return {
         "audio": str(file.relative_to(out)),
         "volume": float(volume if volume not in (None, "") else 0.12),
         "id": name,
         **fades_of(data(row)),
+        **{f"story_{k}": v for k, v in fades_of({"fade_in": story_data.get("music_fade_in"), "fade_out": story_data.get("music_fade_out")}).items()},
         **({"duck": duck} if duck in ("light", "strong") else {}),
     }
 
@@ -342,6 +345,21 @@ def transition_of(beat: dict, story: dict) -> dict:
         return {}
     seconds = _positive(beat.get("transition_seconds")) or _positive(story.get("transition_seconds"))
     return {"transition": kind, **({"transition_seconds": seconds} if seconds else {})}
+
+
+def music_in(beat: dict, scene: dict) -> dict:
+    """How the music is heard in this beat: its level (the beat's own, else its scene's; the story's level and the sound's are the bed's, see `music_of`)
+    and how long it takes to ease to and from that level. Nothing when none is set, so the bed stays where the story put it."""
+    out: dict = {}
+    level = _unit(beat.get("music_volume"))
+    if level is None:
+        level = _unit(scene.get("music_volume"))
+    if level is not None:
+        out["music_volume"] = level  # 0 is silence
+    for key in ("music_fade_in", "music_fade_out"):
+        if (seconds := _positive(beat.get(key))) is not None:
+            out[key] = seconds
+    return out
 
 
 def story_bed_in(beat: dict, scene: dict | None) -> dict:
