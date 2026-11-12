@@ -1391,3 +1391,74 @@ def test_a_replace_makes_its_characters_new_so_it_fills_none_of_the_old_ones(cas
     fake.on_hand["cast-member"]["s-valerie"] = {"id": "c1", "slug": "s-valerie", "title": "Vale", "dataJson": {"story": "s", "speaker": "valerie"}}
     run(ctx, fresh="yes")
     assert not [p for p in fake.patched if p[0] == "c1"]
+
+
+LINTED = """Title: Test
+Author: Me
+
+# ACT I
+
+EXT. REEF - NIGHT
+
+CHET (O.S.)
+The hull is groaning!
+
+NARRATOR (V.O.)
+(softly)
+It was a long night.
+
+MRS. HUDSON
+Well?
+
+CRUNCH.
+
+The bow is buried against the reef.
+
+THE PLAGUE OF THE SEA RISES AGAIN.
+The sailors hold their breath.
+
+UNDERWATER - CONTINUOUS
+
+A pale skull faces upward.
+
+SUPER: THE DEVIL'S SHOALS
+
+CUT TO:
+
+THE END
+"""
+
+
+def test_lint_names_a_capitals_line_that_would_be_read_as_a_speaker_and_the_line_it_is_on():
+    said = fountain.lint(LINTED)
+    crunch = next(w for w in said if "`CRUNCH.`" in w)
+    assert crunch.startswith("line 18:") and "!CRUNCH." in crunch and "nothing to say" in crunch  # alone in capitals
+    plague = next(w for w in said if "PLAGUE" in w)
+    assert plague.startswith("line 22:") and "read as a speaker" in plague and "!THE PLAGUE" in plague  # capitals above text
+
+
+def test_lint_says_a_place_and_a_time_in_capitals_without_int_or_ext_is_not_a_scene():
+    heading = next(w for w in fountain.lint(LINTED) if "UNDERWATER" in w)
+    assert heading.startswith("line 25:") and "EXT. UNDERWATER - CONTINUOUS" in heading and ".UNDERWATER - CONTINUOUS" in heading
+    assert not fountain.lint("INT. CABIN - NIGHT\n\nA lamp.\n\n.UNDERWATER - CONTINUOUS\n\nA skull.\n")  # a heading, or a forced one, is fine
+
+
+def test_lint_leaves_real_cues_titles_transitions_the_title_page_and_forced_action_alone():
+    said = " ".join(fountain.lint(LINTED))
+    for fine in ("CHET (O.S.)", "NARRATOR (V.O.)", "MRS. HUDSON", "SUPER:", "CUT TO:", "THE END", "Title: Test", "Author: Me"):
+        assert fine not in said
+    assert not fountain.lint("EXT. REEF - NIGHT\n\n!CRUNCH.\n\nThe bow is buried.\n\n!THE PLAGUE OF THE SEA RISES.\n")
+
+
+def test_lint_keeps_line_numbers_through_notes_and_boneyards_and_stops_at_a_dozen():
+    text = "EXT. REEF - NIGHT\n\n[[a note\nover two lines]]\n\n/* cut\nthis */\n\nCRUNCH.\n"
+    assert fountain.lint(text)[0].startswith("line 9:")
+    many = "EXT. REEF - NIGHT\n\n" + "\n\n".join(f"BANG{n}." for n in range(20)) + "\n"
+    said = fountain.lint(many)
+    assert len(said) == 13 and said[-1] == "and 8 more like these"
+
+
+def test_the_import_report_carries_the_checks_under_check(casting):
+    fake, ctx = casting(LINTED)
+    done = run(ctx, dry_run="yes")
+    assert "Check:" in done["log"] and "line 18: `CRUNCH.`" in done["log"] and "UNDERWATER - CONTINUOUS" in done["log"]

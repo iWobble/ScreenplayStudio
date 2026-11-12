@@ -148,7 +148,7 @@ FADE OUT.
 1. Title page has Title, Credit, Author, Source, Draft date, Format, **Setting** and **Premise**.
 2. Every `#` act line is there; every scene heading starts INT./EXT. and has a `=` synopsis.
 3. Every person is introduced once, in capitals, with age, a sex word or pronoun, clothes and a mark.
-4. No capitals line stands above action; no heading lacks INT./EXT.
+4. No capitals line stands above action; no heading lacks INT./EXT. (the import's report, under **Check:**, names each such line by its number and says how to fix it: a capitals line alone or ending in a full stop is read as a speaker, so start it with `!`; a place-and-time line without INT./EXT. is not a scene)
 5. Every silent picture that should not be 4 seconds has a `[[Hold:]]`; every sound that matters has a `[[Sound:]]`.
 6. A page break `===` sits wherever the picture must change.
 7. Run the import as a **preview**: it reports chapters, beats, lines, Characters, scenes, sounds, and what the story still lacks (World, Setting, Premise), before anything is made.
