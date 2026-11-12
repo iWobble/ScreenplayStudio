@@ -1462,3 +1462,30 @@ def test_the_import_report_carries_the_checks_under_check(casting):
     fake, ctx = casting(LINTED)
     done = run(ctx, dry_run="yes")
     assert "Check:" in done["log"] and "line 18: `CRUNCH.`" in done["log"] and "UNDERWATER - CONTINUOUS" in done["log"]
+
+
+def test_every_spoken_line_names_its_character_so_a_setup_can_offer_just_one_characters_lines(casting):
+    fake, ctx = casting(CAST_TEXT)
+    run(ctx)
+    lines = [m for m in fake.made if m["entryTypeId"] == "T-line"]
+    assert lines and all(m["dataJson"]["character"] == f"s-{m['dataJson']['speaker']}" for m in lines)  # the slug the import gives the Character it makes
+
+
+def test_a_line_names_the_characters_real_slug_when_the_character_was_made_another_way(casting):
+    fake, ctx = casting(CAST_TEXT)
+    fake.on_hand["cast-member"]["s-the-captain"] = {"id": "c1", "slug": "s-the-captain", "title": "Captain", "dataJson": {"story": "s", "speaker": "valerie"}}
+    run(ctx)
+    said = {m["dataJson"]["speaker"]: m["dataJson"]["character"] for m in fake.made if m["entryTypeId"] == "T-line"}
+    assert said["valerie"] == "s-the-captain" and said["chet"] == "s-chet"
+
+
+def test_a_line_made_before_lines_named_their_character_gets_it_without_losing_its_own_piece_of_the_text(revising):
+    fake, ctx = revising(CAST_TEXT, CAST_TEXT)
+    for record in fake.records.values():
+        record["dataJson"].pop("character", None)  # lines as an older import made them
+        if record["slug"].startswith("s-line-"):
+            record["dataJson"].pop("fountain", None)  # and one that also lacks its own piece of the text
+    run(ctx)
+    patched = {p[0]: p[1]["dataJson"] for p in fake.patched if p[0] != "e0"}
+    changed = {fake.records[slug]["id"]: slug for slug in fake.records if slug.startswith("s-line-")}
+    assert changed and all(patched[i]["character"].startswith("s-") and patched[i].get("fountain") for i in changed), patched  # both at once: one change to each record

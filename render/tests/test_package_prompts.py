@@ -156,3 +156,14 @@ def test_the_story_timeline_names_where_the_story_bed_is_adjusted_and_the_new_le
     for owner in ("scene", "beat"):
         level = next(f for f in blueprints[owner]["payload"]["schema_json"]["fields"] if f["key"] == "story_ambience_volume")
         assert level["slider"] is True and (level["min"], level["max"]) == (0, 1)  # a slider needs both ends
+
+
+def test_the_takes_setup_can_choose_one_character_and_then_lists_just_their_lines():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    steps = {s["id"]: s for s in blueprints["takes-of-a-line"]["payload"]["steps"]}
+    order = [s["id"] for s in blueprints["takes-of-a-line"]["payload"]["steps"]]
+    assert order.index("story") < order.index("character") < order.index("line")  # chosen before the lines are listed
+    assert steps["character"]["optional"] is True and steps["character"]["entry_type"] == "cast-member" and steps["character"]["as"] == "character"
+    assert steps["line"]["scope"] == {"story": "${story}", "beat": "${beat}", "character": "${character}"}  # a skipped step narrows nothing
+    assert steps["line"]["subtitle"] == "status"  # so what is left to record shows in the list
+    assert "character" in [f["key"] for f in blueprints["speech-line"]["payload"]["schema_json"]["fields"]]

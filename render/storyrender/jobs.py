@@ -414,6 +414,12 @@ def _story_gaps(story_data: dict) -> list[str]:
     return [why for key, why in asked if not str(story_data.get(key) or "").strip()]
 
 
+def _character_slug(story: str, speaker: str, people: dict) -> str:
+    """The Character a speaker is: the story's cast-member whose `speaker` is this handle, else the slug the import gives a Character it makes."""
+    found = people.get(str(speaker).lower())
+    return str(found["slug"]) if found and found.get("slug") else f"{story}-{str(speaker).lower()}"
+
+
 def _people_fill(ctx: Context, story: str, fplan) -> list[tuple[dict, dict]]:
     """Characters made before they had Age, Sex and Age state as fields, given what the screenplay says of them. Only a field that is empty is
     filled (never one a person set), and only when the screenplay says it (a sex only when the pronouns or a word like boy or woman do)."""
@@ -934,12 +940,20 @@ def import_beats(job: dict, ctx: Context) -> dict:
         for i, ln in enumerate(beat.get("lines") or [], 1):
             line_rec = have.get(f"{story}-line-{number}-{i}")
             held = str((line_rec.get("dataJson") or {}).get("fountain") or "").strip() if line_rec else ""
+            line_add: dict = {}
             if line_rec and ln.get("fountain") and (not held or (revision is not None and held != ln["fountain"].strip())):
-                link.append((line_rec, {"fountain": ln["fountain"], **({"simultaneous": True} if ln.get("dual") else {})}))
+                line_add = {"fountain": ln["fountain"], **({"simultaneous": True} if ln.get("dual") else {})}
+            if line_rec and ln.get("speaker") and not str((line_rec.get("dataJson") or {}).get("character") or "").strip():
+                line_add["character"] = _character_slug(story, ln["speaker"], people)  # a line made before lines named their Character gets it
+            if line_add:
+                link.append((line_rec, line_add))  # one change per record: a PATCH replaces dataJson, so two would undo each other
     rows_by_number = {str(number): beat for _chapter, number, beat in fplan.rows()}
     for _slug, _title, data in plan["beats"]:  # a beat made now is cast the same way: who speaks in it and who its action names, with their masters
         if beat := rows_by_number.get(str(data.get("number"))):
             data.update(_cast_for(story, beat, fplan.characters, people, data))
+    for _slug, _title, data in plan["lines"]:  # a line made now names its Character, so a setup can offer "just the narrator's lines"
+        if data.get("speaker"):
+            data.setdefault("character", _character_slug(story, str(data["speaker"]), people))
     extra = _implied(ctx, story, story_row, fplan, plan, link, fresh=fresh)
     people = [] if fresh else _people_fill(ctx, story, fplan)  # a replace starts afresh: its Characters are made new
     if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link or people):
