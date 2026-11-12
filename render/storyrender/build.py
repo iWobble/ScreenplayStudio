@@ -187,7 +187,7 @@ def _narration(planned: PlannedShot, out: Path) -> None:
     inputs: list[str] = []
     chains: list[str] = []
     labels: list[str] = []
-    pieces = [(p.line.audio, p.start - planned.start, 1.0, _cut(p.line), "") for p in planned.lines if p.line.audio] + [
+    pieces = [(p.line.audio, p.start - planned.start, p.line.volume, _cut(p.line), f"lowpass=f={MUFFLE_HZ}," if p.line.muffled else "") for p in planned.lines if p.line.audio] + [
         (fx.audio, fx.at, fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out)) for fx in planned.shot.sfx
     ]
     for n, (file, at, volume, cut, fade) in enumerate(pieces):

@@ -299,3 +299,14 @@ def test_a_take_is_drawn_as_a_waveform_on_the_timeline_from_peaks_the_worker_wri
     flow = blueprints["screenplay-make-waveform"]["payload"]["definition"]
     assert {"field": "entry.data.audio", "op": "changed"} in flow["conditions"]  # a new take, not the job writing its own result back
     assert flow["actions"][0]["data"]["kind"] == "make-waveform" and flow["actions"][0]["data"]["args"]["wave_field"] == "waveform"
+
+
+def test_a_lines_volume_and_muffling_are_its_own_fields_the_take_points_back_to_its_line_and_the_timeline_plays_the_level():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    line = {f["key"]: f for f in blueprints["speech-line"]["payload"]["schema_json"]["fields"]}
+    assert (line["volume"]["min"], line["volume"]["max"], line["volume"]["slider"]) == (0, 1, True) and line["muffled"]["type"] == "boolean"
+    assert line["volume"]["group"] == line["muffled"]["group"] == "Sound"
+    take = {f["key"]: f for f in blueprints["take"]["payload"]["schema_json"]["fields"]}
+    assert take["line"]["ref"] == "speech-line" and take["line"]["ref_match"] == {"story": "story"}
+    lanes = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}
+    assert lanes["lines"]["volume"] == "volume"

@@ -261,3 +261,19 @@ def test_a_beat_with_a_picture_and_nothing_else_plays_for_the_default_hold_and_a
     shots = {s["id"]: s for s in json.loads((tmp_path / "manifest.json").read_text())["shots"]}
     assert shots["b06"]["hold"] == marvin_pull.DEFAULT_HOLD == 4.0 and shots["b06"]["lines"] == []
     assert "b07" not in shots and "07" in result["skipped"] and "06" not in result["skipped"]
+
+
+def test_pull_passes_a_lines_own_level_and_muffling_and_leaves_a_plain_line_alone(marvin, tmp_path):
+    rows = [dict(r, dataJson=dict(r["dataJson"])) for r in _ROWS]
+    line = next(r for r in rows if r["slug"] == f"{S}-line-01-1")
+    line["dataJson"].update({"volume": 0.4, "muffled": True})
+    _FakeMarvin.rows = rows
+    try:
+        marvin_pull.pull("the-last-onion", tmp_path, creds=(marvin, "tok"))
+        said = json.loads((tmp_path / "manifest.json").read_text())["shots"][0]["lines"][0]
+        assert (said["volume"], said["muffled"]) == (0.4, True)  # whichever take is in use, the line is mixed this way
+    finally:
+        _FakeMarvin.rows = _ROWS
+    marvin_pull.pull("the-last-onion", tmp_path, creds=(marvin, "tok"))
+    plain = json.loads((tmp_path / "manifest.json").read_text())["shots"][0]["lines"][0]
+    assert "volume" not in plain and "muffled" not in plain

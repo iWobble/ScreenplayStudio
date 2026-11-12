@@ -49,6 +49,8 @@ class Line:
     ref: str | None = None  # what the line is called outside the manifest (its Marvin speech-line slug), so a timeline can name it
     start: float = 0.0  # seconds into the audio file where the line begins (a line cut from a longer take)
     end: float | None = None  # …and where it ends; None = the file's end. Word times are from `start`.
+    volume: float = 1.0  # how loud the line is in the mix, whichever take is used: 1 is as recorded
+    muffled: bool = False  # heard through a wall: the highs are cut (the same low-pass as a muffled bed)
 
 
 @dataclass
@@ -207,6 +209,19 @@ def _trim(ln: dict, total: float, where: str) -> tuple[float, float | None]:
     return start, end
 
 
+
+def _line_volume(value, where: str) -> float:
+    """A line's level in the mix: 0 to 1 (empty is 1, as recorded)."""
+    if value in (None, ""):
+        return 1.0
+    try:
+        level = float(value)
+    except (TypeError, ValueError):
+        raise ManifestError(f"{where}: volume is a number from 0 to 1 (got {value!r})") from None
+    if not 0 <= level <= 1:
+        raise ManifestError(f"{where}: volume is 0–1 (got {level})")
+    return level
+
 def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True) -> Manifest:
     """Read and check a manifest. `probe` measures an audio file's seconds (ffprobe in real use). `need_stills=False` is for
     listening: a shot's still may be missing then, because only the sound is made."""
@@ -306,6 +321,8 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
                     ref=ln.get("id"),
                     start=start,
                     end=end,
+                    volume=_line_volume(ln.get("volume"), lw),
+                    muffled=bool(ln.get("muffled", False)),
                 )
             )
         for j, fx in enumerate(s.get("sfx") or [], 1):
