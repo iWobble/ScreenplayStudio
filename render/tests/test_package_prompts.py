@@ -354,3 +354,11 @@ def test_the_camera_choices_are_the_worker_presets_and_the_timeline_has_a_camera
     assert lane["marks"]["field"] == "camera" and lane["marks"]["via"] == "scene" and lane["marks"]["other"]["field"] == "move"
     assert set(lane["marks"]["icons"]) == set(lane["marks"]["labels"]) == set(camera.PRESETS)
     assert len(blueprints["story-timeline"]["payload"]["lanes"]) <= 6  # Marvin's lane limit
+
+
+def test_the_fields_that_hold_fountain_are_declared_fountain_so_their_preview_draws_a_screenplay():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    declared = {(slug, f["key"]) for slug in ("beat", "chapter", "speech-line", "story", "revision") for f in blueprints[slug]["payload"]["schema_json"]["fields"] if f.get("format") == "fountain"}
+    assert declared == {("beat", "fountain"), ("chapter", "fountain"), ("speech-line", "fountain"), ("story", "fountain"), ("story", "fountain_front"), ("revision", "proposed"), ("revision", "before")}
+    story = {f["key"]: f for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
+    assert "format" not in story["fountain_check"]  # the check's report is plain text, not a screenplay
