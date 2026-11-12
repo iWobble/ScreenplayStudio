@@ -68,6 +68,7 @@ def test_a_question_holds_ten_beats_and_the_cast_lines_and_place_go_with_them_bu
     assert fake.asked[0][0] == "/api/ai/agents/chat/run" and "BEAT 1\n" in first and "BEAT 10\n" in first and "BEAT 11\n" not in first
     assert "Captain's cabin" in first and "Chet: Man, 20s, wears patched shirt, carries a logbook" in first and "CHET: The hull is groaning!" in first
     assert "NARRATOR secret" not in first and "run it again" in done["log"]
+    assert "expression is an empty string" in first  # a view of a place gets none, not a sentence saying no one is there
     assert fake.patched == []
 
 

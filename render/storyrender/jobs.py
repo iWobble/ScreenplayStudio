@@ -586,7 +586,7 @@ def _beat_details_message(story_row: dict, characters: list[dict], batch: list[d
         f"STORY: {story_row.get('title')}. Setting: {data.get('setting') or ''} Premise: {data.get('premise') or ''}\n\nCHARACTERS\n{people or '(none)'}\n\n"
         + "\n\n".join(beats)
         + "\n\nFor each beat write:\n"
-        "- expression: what the people in the frame are doing and how they look (pose, face, body), in one or two plain sentences, from the beat's words. Say nothing of the place, weather, light or clothes (other fields hold those), add nobody who is not in the beat, and keep left and right as written.\n"
+        "- expression: what the people in the frame are doing and how they look (pose, face, body), in one or two plain sentences, from the beat's words. Say nothing of the place, weather, light or clothes (other fields hold those), add nobody who is not in the beat, and keep left and right as written. When nobody is in the frame (a view of a place or an object), expression is an empty string, never a sentence saying no one is visible.\n"
         "- focus: the one object the picture is about, in a few words (a logbook, a compass, a coin); an empty string when nothing in particular.\n"
         "Use only what the beat says or clearly implies. Answer with ONLY a JSON list, one object per beat, no code fence and no other text: "
         '[{"number": "1001", "expression": "...", "focus": "..."}]'
