@@ -214,3 +214,18 @@ def test_a_scene_that_says_inside_or_outside_is_written_with_INT_or_EXT_and_one_
 )
 def test_the_exported_action_does_not_say_the_scenes_own_heading_again(picture, name, action):
     assert script._without_lead_heading(picture, name) == action
+
+
+def test_a_scene_with_no_ambience_is_still_pulled_as_a_scene_and_a_beat_with_one_is_not(monkeypatch):
+    import marvin_worker.marvin_api as api
+
+    rows = [
+        _row("the-reef", place="The Reef", inside_outside="exterior", story="s"),
+        _row("the-hold", story="s", ambience="s-ambience-hold", place="Hold"),
+        _row("s-beat-1001", story="s", number="1001", ambience="s-ambience-hold"),  # a beat has an ambience field too
+        _row("elsewhere", story="other", place="Somewhere"),
+        _row("s", "S"),
+    ]
+    monkeypatch.setattr(api, "entries", lambda creds: rows)
+    got = script.pull_records("s", ("u", "t"))
+    assert sorted(got["scenes"]) == ["the-hold", "the-reef"]
