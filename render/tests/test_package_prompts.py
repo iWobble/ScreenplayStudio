@@ -167,3 +167,37 @@ def test_the_takes_setup_can_choose_one_character_and_then_lists_just_their_line
     assert steps["line"]["scope"] == {"story": "${story}", "beat": "${beat}", "character": "${character}"}  # a skipped step narrows nothing
     assert steps["line"]["subtitle"] == "status"  # so what is left to record shows in the list
     assert "character" in [f["key"] for f in blueprints["speech-line"]["payload"]["schema_json"]["fields"]]
+
+
+def test_the_unused_screenplay_and_beat_sheet_blueprint_is_gone_and_the_story_type_still_has_what_it_added():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    assert "story-narration-fields" not in blueprints
+    keys = {f["key"] for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
+    assert {"language", "scene_break_seconds"} <= keys and not {"screenplay", "beat_sheet"} & keys  # nothing reads those two
+
+
+def test_the_types_that_carry_sound_group_it_the_same_way_so_each_has_one_folded_section():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    group = lambda slug, key: next(f for f in blueprints[slug]["payload"]["schema_json"]["fields"] if f["key"] == key).get("group")  # noqa: E731
+    assert group("story", "ambience") == group("story", "loudness") == "Sound and language"
+    for owner in ("scene", "beat"):
+        assert group(owner, "ambience") == group(owner, "ambience_volume") == group(owner, "story_ambience_volume") == "Sound"
+        assert group(owner, "overlay") == group(owner, "overlay_delay") == "Overlay"  # the same name the story uses
+    assert group("beat", "music_volume") == group("beat", "sounds") == "Sound"
+    assert group("scene", "story_ambience_muffled") == "Sound"
+    assert group("sound", "volume") == group("sound", "fade_out") == "Playback" and group("sound", "model") == "Making it"
+    for owner in ("speech-line", "take", "cast-member", "actor"):
+        assert group(owner, "voice") == "Voice"
+    assert group("speech-line", "speed") == group("take", "stability") == "Voice"
+    assert group("speech-line", "text") is None and group("take", "spoken") is None  # what is said and how, stay in the open
+
+
+def test_every_bounded_level_field_has_a_drag_slider_beside_its_box():
+    for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]:
+        if b["kind"] != "entry_type":
+            continue
+        for f in b["payload"]["schema_json"]["fields"]:
+            if f.get("type") == "number" and f.get("min") is not None and f.get("max") is not None and 0 < f["max"] - f["min"] <= 2:
+                assert f.get("slider") is True, (b["slug"], f["key"])  # a level from 0 to 1, or a speed from 0.7 to 1.2
+            if f.get("slider"):
+                assert f.get("min") is not None and f.get("max") is not None, (b["slug"], f["key"])  # Marvin refuses a slider without both ends
