@@ -13,7 +13,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import audio_convert, audio_measure, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, numbering, ready, script, voices
+from . import audio_convert, audio_measure, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, numbering, ready, script, validate, voices
 
 
 def story_of(job: dict) -> str:
@@ -772,6 +772,51 @@ def check_ready(job: dict, ctx: Context) -> dict:
 
 
 @job_kind(
+    "check-fountain",
+    description="Check a Fountain for mistakes before it is imported, and change nothing but a story's Fountain check note: a speaker in lower case (read as action), a note or a ( left open, a scene number used for two places, a transition without its colon, a Hold or a Sound time that is not a number, a speaker spelled two ways, characters you cannot see, a missing Setting or Premise. Each comes with its line and what to write. Reads the text only: no records are made and nothing is paid for. Give it a story (its Fountain field or uploaded file), or the text itself, or an uploaded file.",
+    inputs={
+        "story": {"type": "string", "required": False, "description": "a story's slug: check the Fountain it holds, and write the report in its Fountain check note"},
+        "text": {"type": "string", "required": False, "description": "the Fountain text itself, to check before it is put anywhere (an AI's draft, a file pasted in)"},
+        "asset": {"type": "string", "required": False, "description": "an uploaded file (its slug or id) holding the Fountain"},
+    },
+    produces=[],
+)
+def check_fountain(job: dict, ctx: Context) -> dict:
+    """A Fountain → the mistakes in it, with line numbers and fixes, as a report and as data."""
+    args = job.get("args") or {}
+    story, text, asset = str(args.get("story") or "").strip(), str(args.get("text") or ""), str(args.get("asset") or "").strip()
+    if not (story or text.strip() or asset):
+        raise JobError("this kind of job needs a story, the text, or an uploaded file to check (args.story, args.text or args.asset)")
+    story_row = None
+    if story:
+        rows = marvin_api.query(ctx.creds, {"entries": story}, limit=1)
+        if not rows:
+            raise JobError(f"no story “{story}” in this workspace")
+        story_row = rows[0]
+        if not text.strip() and not asset:
+            text, _ = _fountain_text(ctx, story, dict(story_row.get("dataJson") or {}))
+    if not text.strip() and asset:
+        file = ctx.work / "check.fountain"
+        marvin_api.download_asset(ctx.creds, asset, file)
+        if file.stat().st_size > MAX_FOUNTAIN_BYTES:
+            raise JobError("that file is too big to be a screenplay (20 MB at most)")
+        text = file.read_text(encoding="utf-8", errors="replace")
+    findings = validate.check(text)
+    when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    body, errors, looks = validate.report(findings, text)
+    note = f"{body}\n\nChecked {when}."
+    if story_row is not None:
+        data = dict(story_row.get("dataJson") or {})
+        data["fountain_check"] = note
+        _patch_entry(ctx, story_row, data)
+    stops = len(validate.blocking(findings))
+    result = {"errors": errors, "looks": looks, "import_stops": stops, "report": body, "findings": [f.__dict__ for f in findings[:200]]}
+    if story:
+        result["story"] = story
+    return {"result": result, "log": note}
+
+
+@job_kind(
     "check-revision",
     description="Say what a revision would do to its story, and change nothing: the Fountain the revision holds is fitted to the beats already made by what they say, and the revision record is given the result (beats unchanged, reworded, new with their numbers, gone; lines to record; pictures to make) and the digest of the story's text it was compared with",
     inputs={"revision": {"type": "string", "description": "the revision record's slug"}},
@@ -858,6 +903,7 @@ def apply_revision(job: dict, ctx: Context) -> dict:
         "part": {"type": "string", "required": False, "description": "which chapters to make, so a long script is brought in a piece at a time: all (default), 3, 2-4, or 1,3,5. Anything in Marvin outside these chapters is left alone, whatever the mode"},
         "chapter_pages": {"type": "string", "required": False, "description": "when the Fountain has no `#` section lines: about how many pages a chapter should be (default 12); a chapter always ends between two scenes"},
         "dry_run": {"type": "string", "required": False, "description": "yes: say what would be made or changed, write nothing"},
+        "accept_errors": {"type": "string", "required": False, "description": "yes: go on although the Fountain check found mistakes the import would read differently from what was meant (see the check-fountain job); by default the import stops and lists them"},
         "mode": {"type": "string", "required": False, "description": "add (default): make what is missing, change nothing that exists. refresh: also bring existing beats and lines nothing has been made from (no still, no recording) in line with the Fountain"},
     },
     produces=[],
@@ -879,6 +925,14 @@ def import_beats(job: dict, ctx: Context) -> dict:
         screenplay, fountain_where = _revision_text(ctx, revision_slug, rows_of_revision[0]), f"the revision {revision_slug}"
     else:
         screenplay, fountain_where = _fountain_text(ctx, story, story_data)
+    found = validate.check(screenplay)
+    stop = validate.blocking(found)
+    if stop and not (_yes(args.get("dry_run")) or revision_slug or _yes(args.get("accept_errors"))):  # a preview and a revision check only say; making records stops
+        raise JobError(
+            "the Fountain has mistakes the import would read differently from what was meant, so nothing was made:\n\n"
+            + validate.report(stop, screenplay)[0]
+            + "\n\nFix them (the Check the Fountain step, or `python -m storyrender check file.fountain`) or run the import again with accept_errors: yes"
+        )
     part_text = args.get("part") or story_data.get("import_part")  # asked for in the run, else what the story says to bring in
     parts = parse_part(part_text)
     try:
