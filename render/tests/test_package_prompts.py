@@ -258,3 +258,11 @@ def test_a_new_line_is_linked_to_its_character_by_speaker_so_the_takes_setup_fin
     assert who["query"]["entry_type"] == "cast-member" and who["query"]["data"] == {"story": "${entry.data.story}", "speaker": "${entry.data.speaker}"}
     assert setter["data"] == {"character": "${steps.who.output.rows.0.slug}"}
     assert "character" in [f["key"] for f in blueprints["speech-line"]["payload"]["schema_json"]["fields"]]
+
+
+def test_a_scene_has_an_inside_or_outside_field_with_the_three_values_the_headings_make():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    fields = {f["key"]: f for f in blueprints["scene"]["payload"]["schema_json"]["fields"]}
+    assert fields["inside_outside"]["type"] == "select" and fields["inside_outside"]["options"] == ["interior", "exterior", "both"]
+    keys = list(fields)
+    assert keys.index("inside_outside") == keys.index("place") + 1  # right under the place it says something about

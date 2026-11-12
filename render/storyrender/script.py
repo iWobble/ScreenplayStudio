@@ -52,6 +52,27 @@ def _seconds(value: object) -> str:
     return f"{number:g}s"
 
 
+def _without_lead_heading(picture: str, name: str) -> str:
+    """A scene's first picture without the scene's own heading it starts with (`INT. HOLD - NIGHT. Water…` or `Interior: Hold, night. Water…`, for the
+    scene named Hold): the exported script writes the heading as a heading, so repeating it in the action would say it twice. A picture that only
+    begins like a heading (`EXT. THE GALLEY, a wide shot`) is left as it is."""
+    plain = lambda s: " ".join(str(s).replace("\u2019", "'").split())  # noqa: E731
+    place = r"\s+".join(re.escape(w) for w in plain(name).split())
+    if not place:
+        return picture
+    kind = r"(?:(?:INT\.?/EXT\.?|EXT\.?/INT\.?|I/E\.?|INT\.?|EXT\.?|EST\.?)\s+|(?:Interior and exterior|Interior|Exterior):\s+)"
+    when = rf"(?:\s*[-\u2013\u2014,]\s*(?:{fountain_mod._TIME_WORDS.pattern})[A-Za-z' ]*?)?"  # a time of day or story time, not just any words
+    m = re.match(rf"{kind}(?:THE\s+)?{place}{when}\s*\.\s*", plain(picture), re.I)
+    return plain(picture)[m.end() :] if m else picture
+
+
+def _heading_line(heading: str, tag: str, scene: dict) -> str:
+    """A scene's heading line: `INT. CAPTAIN'S CABIN #2#` when the scene says whether it is inside or outside (its Inside or outside field: the
+    other way from what the import reads), else a forced heading (`.CAPTAIN'S CABIN #2#`) as before."""
+    prefix = fountain_mod.kind_prefix(_data(scene).get("inside_outside"))
+    return f"{prefix} {heading}{tag}" if prefix else f".{heading}{tag}"
+
+
 def _sound_line(placed: dict, sounds: dict) -> str:
     sound = sounds.get(str(placed.get("sound")), {})
     name = _clean(sound.get("title") or _slug_words(str(placed.get("sound") or ""))) or "sound"
@@ -92,7 +113,7 @@ def fountain(records: dict) -> str:
             scene = scenes.get(str(scene_slug), {})
             heading = _clean(scene.get("title") or _slug_words(str(scene_slug))).upper()
             tag = f" #{int(number)}#" if number.isdigit() else ""
-            out += [f".{heading}{tag}", ""]
+            out += [_heading_line(heading, tag, scene), ""]
             sd = _data(scene)
             setting = " ".join(x for x in (_clean(sd.get("place")), _clean(sd.get("look"))) if x)
             if setting:
@@ -164,12 +185,14 @@ def fountain_complete(records: dict) -> str:
         new_scene = bool(scene_slug) and scene_slug != scene_now
         if not first:
             out += ["===", ""]  # each beat is its own picture
+            if _clean(d.get("transition_text")):
+                out += [_clean(d["transition_text"]), ""]  # the transition written before this beat (CUT TO:), as it was
         if new_scene:
             scene_now = scene_slug
             scene = scenes.get(str(scene_slug), {})
             heading = _clean(scene.get("title") or _slug_words(str(scene_slug))).upper()
             scene_numbers[str(scene_slug)] = scene_numbers.get(str(scene_slug), len(scene_numbers) + 1)
-            out += [f".{heading} #{scene_numbers[str(scene_slug)]}#", ""]
+            out += [_heading_line(heading, f" #{scene_numbers[str(scene_slug)]}#", scene), ""]
             sc = _data(scene)
             said = [x for x in (_say("Place", sc.get("place")), _say("Light", sc.get("look")), _say("Set dressing", sc.get("set_dressing")), _say("Continuity", sc.get("continuity"))) if x]
             if said:
@@ -181,7 +204,9 @@ def fountain_complete(records: dict) -> str:
                 level = f", level {sc['ambience_volume']}" if sc.get("ambience_volume") not in (None, "") else ""
                 muffled = ", muffled (indoors)" if sc.get("ambience_muffled") else ""
                 out += [f"[[Ambience: {_clean(bed.get('title') or _slug_words(str(sc['ambience'])))}{level}{muffled}. {_clean(_data(bed).get('prompt'))}]]", ""]
-        picture = _clean(d.get("picture"))
+        picture = _clean(d.get("picture")).split(" Delivery:")[0].strip()  # how a line is said is kept with the line, not in the action
+        if new_scene:
+            picture = _without_lead_heading(picture, _clean(scene.get("title") or _slug_words(str(scene_slug)))).strip()
         if picture and (fountain_mod._is_scene(picture) or fountain_mod._is_transition(picture) or picture.isupper() or picture[0] in "@#=~>!."):
             picture = "!" + picture  # forced action: a picture that begins like a heading, a cue or a transition is still only a picture
         out += [picture or f"Beat {number}.", ""]
