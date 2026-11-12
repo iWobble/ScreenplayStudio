@@ -281,62 +281,20 @@
               "label": "Camera",
               "type": "select",
               "options": [
-                {
-                  "value": "still",
-                  "label": "Still"
-                },
-                {
-                  "value": "push-in",
-                  "label": "Push in"
-                },
-                {
-                  "value": "pull-out",
-                  "label": "Pull out"
-                },
-                {
-                  "value": "zoom-in",
-                  "label": "Zoom in"
-                },
-                {
-                  "value": "zoom-out",
-                  "label": "Zoom out"
-                },
-                {
-                  "value": "pan-left",
-                  "label": "Pan left"
-                },
-                {
-                  "value": "pan-right",
-                  "label": "Pan right"
-                },
-                {
-                  "value": "tilt-up",
-                  "label": "Tilt up"
-                },
-                {
-                  "value": "tilt-down",
-                  "label": "Tilt down"
-                },
-                {
-                  "value": "pedestal-up",
-                  "label": "Pedestal up"
-                },
-                {
-                  "value": "pedestal-down",
-                  "label": "Pedestal down"
-                },
-                {
-                  "value": "truck-left",
-                  "label": "Truck left"
-                },
-                {
-                  "value": "truck-right",
-                  "label": "Truck right"
-                },
-                {
-                  "value": "drift",
-                  "label": "Drift"
-                }
+                "Still",
+                "Push in",
+                "Pull out",
+                "Zoom in",
+                "Zoom out",
+                "Pan left",
+                "Pan right",
+                "Tilt up",
+                "Tilt down",
+                "Pedestal up",
+                "Pedestal down",
+                "Truck left",
+                "Truck right",
+                "Drift"
               ],
               "helpText": "A still has no depth, so these are the moves a still can show: the frame moves across the picture or in on it. Replaces the scene's and the story's camera for this beat. Empty: the scene's, else the story's, else a slow push in. A Camera move written out below (the numbers) wins over this. still: the camera does not move; push in: moves in toward the middle: tension, closeness; pull out: moves back to show the surroundings, or isolate; zoom in: a long close in on the middle; zoom out: a long reveal out from the middle; pan left: swings left across the picture; pan right: swings right across the picture; tilt up: pivots up to reveal height; tilt down: pivots down; pedestal up: rises straight up, without tilting; pedestal down: sinks straight down; truck left: slides left alongside the action; truck right: slides right alongside the action; drift: a slow, small float that gives the picture life.",
               "group": "Camera"
@@ -1293,62 +1251,20 @@
               "label": "Camera",
               "type": "select",
               "options": [
-                {
-                  "value": "still",
-                  "label": "Still"
-                },
-                {
-                  "value": "push-in",
-                  "label": "Push in"
-                },
-                {
-                  "value": "pull-out",
-                  "label": "Pull out"
-                },
-                {
-                  "value": "zoom-in",
-                  "label": "Zoom in"
-                },
-                {
-                  "value": "zoom-out",
-                  "label": "Zoom out"
-                },
-                {
-                  "value": "pan-left",
-                  "label": "Pan left"
-                },
-                {
-                  "value": "pan-right",
-                  "label": "Pan right"
-                },
-                {
-                  "value": "tilt-up",
-                  "label": "Tilt up"
-                },
-                {
-                  "value": "tilt-down",
-                  "label": "Tilt down"
-                },
-                {
-                  "value": "pedestal-up",
-                  "label": "Pedestal up"
-                },
-                {
-                  "value": "pedestal-down",
-                  "label": "Pedestal down"
-                },
-                {
-                  "value": "truck-left",
-                  "label": "Truck left"
-                },
-                {
-                  "value": "truck-right",
-                  "label": "Truck right"
-                },
-                {
-                  "value": "drift",
-                  "label": "Drift"
-                }
+                "Still",
+                "Push in",
+                "Pull out",
+                "Zoom in",
+                "Zoom out",
+                "Pan left",
+                "Pan right",
+                "Tilt up",
+                "Tilt down",
+                "Pedestal up",
+                "Pedestal down",
+                "Truck left",
+                "Truck right",
+                "Drift"
               ],
               "helpText": "A still has no depth, so these are the moves a still can show: the frame moves across the picture or in on it. The camera for every beat of this scene that does not choose its own. Empty: the story's.",
               "group": "Camera"
@@ -2634,62 +2550,20 @@
               "label": "Camera",
               "type": "select",
               "options": [
-                {
-                  "value": "still",
-                  "label": "Still"
-                },
-                {
-                  "value": "push-in",
-                  "label": "Push in"
-                },
-                {
-                  "value": "pull-out",
-                  "label": "Pull out"
-                },
-                {
-                  "value": "zoom-in",
-                  "label": "Zoom in"
-                },
-                {
-                  "value": "zoom-out",
-                  "label": "Zoom out"
-                },
-                {
-                  "value": "pan-left",
-                  "label": "Pan left"
-                },
-                {
-                  "value": "pan-right",
-                  "label": "Pan right"
-                },
-                {
-                  "value": "tilt-up",
-                  "label": "Tilt up"
-                },
-                {
-                  "value": "tilt-down",
-                  "label": "Tilt down"
-                },
-                {
-                  "value": "pedestal-up",
-                  "label": "Pedestal up"
-                },
-                {
-                  "value": "pedestal-down",
-                  "label": "Pedestal down"
-                },
-                {
-                  "value": "truck-left",
-                  "label": "Truck left"
-                },
-                {
-                  "value": "truck-right",
-                  "label": "Truck right"
-                },
-                {
-                  "value": "drift",
-                  "label": "Drift"
-                }
+                "Still",
+                "Push in",
+                "Pull out",
+                "Zoom in",
+                "Zoom out",
+                "Pan left",
+                "Pan right",
+                "Tilt up",
+                "Tilt down",
+                "Pedestal up",
+                "Pedestal down",
+                "Truck left",
+                "Truck right",
+                "Drift"
               ],
               "helpText": "A still has no depth, so these are the moves a still can show: the frame moves across the picture or in on it. The camera for every beat that neither it nor its scene chooses. Empty: a slow push in.",
               "group": "Camera"
@@ -10531,37 +10405,21 @@
               "field": "camera",
               "via": "scene",
               "entry_type": "scene",
-              "labels": {
-                "still": "Still",
-                "push-in": "Push in",
-                "pull-out": "Pull out",
-                "zoom-in": "Zoom in",
-                "zoom-out": "Zoom out",
-                "pan-left": "Pan left",
-                "pan-right": "Pan right",
-                "tilt-up": "Tilt up",
-                "tilt-down": "Tilt down",
-                "pedestal-up": "Pedestal up",
-                "pedestal-down": "Pedestal down",
-                "truck-left": "Truck left",
-                "truck-right": "Truck right",
-                "drift": "Drift"
-              },
               "icons": {
-                "still": "\u25a0",
-                "push-in": "\u2295",
-                "pull-out": "\u2296",
-                "zoom-in": "\u2295",
-                "zoom-out": "\u2296",
-                "pan-left": "\u2190",
-                "pan-right": "\u2192",
-                "tilt-up": "\u2191",
-                "tilt-down": "\u2193",
-                "pedestal-up": "\u21d1",
-                "pedestal-down": "\u21d3",
-                "truck-left": "\u21e0",
-                "truck-right": "\u21e2",
-                "drift": "\u2248"
+                "Still": "\u25a0",
+                "Push in": "\u2295",
+                "Pull out": "\u2296",
+                "Zoom in": "\u2295",
+                "Zoom out": "\u2296",
+                "Pan left": "\u2190",
+                "Pan right": "\u2192",
+                "Tilt up": "\u2191",
+                "Tilt down": "\u2193",
+                "Pedestal up": "\u21d1",
+                "Pedestal down": "\u21d3",
+                "Truck left": "\u21e0",
+                "Truck right": "\u21e2",
+                "Drift": "\u2248"
               },
               "other": {
                 "field": "move",

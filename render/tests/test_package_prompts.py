@@ -349,10 +349,11 @@ def test_the_camera_choices_are_the_worker_presets_and_the_timeline_has_a_camera
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     for owner in ("beat", "scene", "story"):
         field = {f["key"]: f for f in blueprints[owner]["payload"]["schema_json"]["fields"]}["camera"]
-        assert field["type"] == "select" and [o["value"] for o in field["options"]] == list(camera.PRESETS)  # one table: the options are the presets
+        assert field["type"] == "select" and field["options"] == [p.label for p in camera.PRESETS.values()]  # one table: the options are the presets, as plain text (a select holds text)
+        assert all(camera.key_of(option) in camera.PRESETS for option in field["options"])
     lane = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}["camera"]
     assert lane["marks"]["field"] == "camera" and lane["marks"]["via"] == "scene" and lane["marks"]["other"]["field"] == "move"
-    assert set(lane["marks"]["icons"]) == set(lane["marks"]["labels"]) == set(camera.PRESETS)
+    assert set(lane["marks"]["icons"]) == {p.label for p in camera.PRESETS.values()}
     assert len(blueprints["story-timeline"]["payload"]["lanes"]) <= 6  # Marvin's lane limit
 
 

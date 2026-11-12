@@ -36,8 +36,9 @@ def test_a_pan_left_moves_the_frame_left_and_a_tilt_up_moves_it_up():
     assert tilt.end[1] < tilt.start[1] and tilt.start[2] > 1
 
 
-def test_a_name_is_read_without_regard_to_case_and_a_wrong_one_is_nothing():
-    assert camera.move_of(" Push-In ") == camera.move_of("push-in")
+def test_a_name_is_read_without_regard_to_case_or_spaces_and_a_wrong_one_is_nothing():
+    assert camera.move_of(" Push-In ") == camera.move_of("push-in") == camera.move_of("Push in") == camera.move_of("push_in")
+    assert all(camera.move_of(preset.label) == camera.move_of(key) for key, preset in camera.PRESETS.items())  # the form's choices are read as the table's keys
     assert camera.move_of("dolly-zoom") is None and camera.move_of("") is None and camera.move_of(None) is None
 
 

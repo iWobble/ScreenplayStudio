@@ -5,6 +5,7 @@ across the picture or in on it. A dolly zoom, a rack focus or an orbit needs mor
 x and y are where the frame's centre sits in the picture (0 to 1, left to right, top to bottom) and zoom is how close (1 is the whole picture). The frame
 never leaves the picture, so a move at zoom 1 has nowhere to go: a pan or a tilt is at 1.3 and more."""
 
+import re
 from typing import NamedTuple
 
 
@@ -37,9 +38,14 @@ def _point(value: tuple[float, float, float]) -> dict:
     return {"x": value[0], "y": value[1], "zoom": value[2]}
 
 
+def key_of(name: object) -> str:
+    """A preset's key from however it is written: the form's choice reads "Push in", the table's key is "push-in"."""
+    return re.sub(r"[\s_-]+", "-", str(name or "").strip().lower())
+
+
 def move_of(name: object) -> dict | None:
     """The manifest `move` ({from, to}) for a preset's name, or None for a name that is not one (a typo keeps the render's own default move)."""
-    preset = PRESETS.get(str(name or "").strip().lower())
+    preset = PRESETS.get(key_of(name))
     return {"from": _point(preset.start), "to": _point(preset.end)} if preset else None
 
 
@@ -47,7 +53,7 @@ def pick(beat: dict, scene: dict | None, story: dict) -> str | None:
     """The preset a beat uses: its own, else its scene's, else the story's. A name that is not a preset is skipped for the next, so a typo on a
     beat does not hide the scene's choice."""
     for row in (beat, scene or {}, story):
-        name = str(row.get("camera") or "").strip().lower()
+        name = key_of(row.get("camera"))
         if name in PRESETS:
             return name
     return None
