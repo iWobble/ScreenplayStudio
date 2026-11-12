@@ -159,6 +159,10 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
                 continue
             file, record = _fetch_asset_with_record(creds, str(d["audio"]), out / "audio" / line["slug"], "mp3")
             entry = {"id": line["slug"], "audio": str(file.relative_to(out)), "text": d.get("caption") or d.get("text") or "", "speaker": d.get("speaker")}
+            if d.get("volume") not in (None, ""):  # the line's own level and muffle: whichever take plays, the line is mixed this way
+                entry["volume"] = d["volume"]
+            if d.get("muffled"):
+                entry["muffled"] = True
             if words := spoken_words(d, record.get("metadataJson")):
                 entry["words"] = words
             spoken.append(entry)
