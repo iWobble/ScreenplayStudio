@@ -680,7 +680,8 @@ def write_beat_details(job: dict, ctx: Context) -> dict:
 
 def _plan_of(args: dict) -> dict | None:
     """The plan the run was given (a workflow looked it up), or None when it was not asked: the check then says nothing about the plan."""
-    left = str(args.get("plan_characters_left") or "").strip()
+    given = args.get("plan_characters_left")
+    left = "" if given is None else str(given).strip()  # 0 is an answer (nothing left), not "not given"
     tier = str(args.get("plan_tier") or "").strip()
     if not left and not tier:
         return None
@@ -693,7 +694,7 @@ def _plan_of(args: dict) -> dict | None:
     inputs={
         "story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"},
         "plan_tier": {"type": "string", "required": False, "description": "the ElevenLabs plan (from its free usage lookup): with plan_characters_left, the check says whether the lines still to record fit"},
-        "plan_characters_left": {"type": "string", "required": False, "description": "characters left on the plan this period"},
+        "plan_characters_left": {"type": "number", "required": False, "description": "characters left on the plan this period (a number, 0 included)"},
         "plan_resets_at": {"type": "string", "required": False, "description": "when the plan's allowance resets"},
     },
     produces=[],
