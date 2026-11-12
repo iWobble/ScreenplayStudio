@@ -272,3 +272,18 @@ def test_a_beat_has_a_time_of_day_field_next_to_its_scene():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     keys = [f["key"] for f in blueprints["beat"]["payload"]["schema_json"]["fields"]]
     assert keys[keys.index("scene") + 1] == "time_of_day"
+
+
+def test_the_fountain_check_is_a_workflow_a_story_field_and_a_step_before_the_split():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    steps = [s["id"] for s in blueprints["narrate-a-story"]["payload"]["steps"]]
+    assert steps.index("fountain_upload") < steps.index("fountain_check") < steps.index("fountain_report") < steps.index("split")
+    step = next(s for s in blueprints["narrate-a-story"]["payload"]["steps"] if s["id"] == "fountain_check")
+    assert blueprints[step["workflow"]]["kind"] == "workflow"
+    shown = next(s for s in blueprints["narrate-a-story"]["payload"]["steps"] if s["id"] == "fountain_report")
+    field = next(f for f in blueprints["story"]["payload"]["schema_json"]["fields"] if f["key"] == "fountain_check")
+    assert shown["fields"] == ["fountain_check"] and field["readOnly"] is True
+    by_story = blueprints["screenplay-check-fountain"]["payload"]["definition"]["actions"][0]["data"]
+    by_text = blueprints["screenplay-check-fountain-text"]["payload"]["definition"]
+    assert by_story["kind"] == "check-fountain" and by_story["args"] == {"story": "${entry.slug}"}
+    assert by_text["actions"][0]["data"]["args"] == {"text": "${input.text}"} and by_text["trigger"]["inputs"][0]["type"] == "text"

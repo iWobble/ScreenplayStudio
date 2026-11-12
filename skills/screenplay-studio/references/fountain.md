@@ -151,8 +151,19 @@ FADE OUT.
 4. No capitals line stands above action; no heading lacks INT./EXT. (the import's report, under **Check:**, names each such line by its number and says how to fix it: a capitals line alone or ending in a full stop is read as a speaker, so start it with `!`; a place-and-time line without INT./EXT. is not a scene)
 5. Every silent picture that should not be 4 seconds has a `[[Hold:]]`; every sound that matters has a `[[Sound:]]`.
 6. A page break `===` sits wherever the picture must change.
-7. Run the import as a **preview**: it reports chapters, beats, lines, Characters, scenes, sounds, and what the story still lacks (World, Setting, Premise), before anything is made.
+7. **Check it** (next section), then run the import as a **preview**: it reports chapters, beats, lines, Characters, scenes, sounds, and what the story still lacks (World, Setting, Premise), before anything is made.
 
 ## 11. Editing a Fountain with an AI
 
 Give the AI this page and say: *keep every title-page line, every `#` act line, every `=` synopsis, every scene number, and every paragraph and line you were not asked to change, word for word*. Unchanged paragraphs keep their picture and recording when the revision is checked; reworded ones are flagged. Ask for the whole file back, as plain text, then make a **Revision** in Marvin: *check* it, read the report, *apply* it. For a rewrite where little of the old text is left, set the revision to `replace`.
+
+## 12. Check it before it is read
+
+The import reads a Fountain the way the format says, and a slip in the writing is not an error to it: a speaker in lower case is action, a note left open is ignored, two scenes with one number are one, a transition without its colon is a line of the story. Each reads fine and means something else. **Check the Fountain** finds those before anything is made, each with its line and what to write, and costs nothing: it reads the text only.
+
+- **In the Narrate a story setup:** the step *Check the Fountain* (then *Read the check*), before the split. It writes the report in the story's **Fountain check**.
+- **From the command line, no Marvin needed:** `python -m storyrender check file.fountain` (or `-` for standard input; `--json` for data). It prints what it found and exits 1 when there is something to fix. In the worker image: `docker run --rm -i screenplay-studio-worker python -m storyrender check - < file.fountain`.
+- **Through Marvin** (the Marvin CLI, the web app, or an AI over MCP): run the workflow *Screenplay: check some Fountain text* with the text, or *Screenplay: check the Fountain* on a story; both make a `job` of kind `check-fountain` (also queued directly: `args.text`, `args.asset`, or `args.story`). The job's `result` holds `errors`, `looks`, `import_stops`, `report` and `findings`. **An AI writing a Fountain should check it this way before handing it over, fix every error, and check again until there are none.**
+- **The import itself** stops on the serious ones (a speaker in lower case that is also written in capitals elsewhere, a note or a bracket left open, a scene number used for two places, a transition with no colon, a Hold or Sound time that is not a number, a section with no title, a heading with no place) and lists them. A preview (dry run) and a revision check only report. To go on anyway, run the import with `accept_errors: yes`. The capitals warnings (a lone line in capitals, a heading with no INT./EXT.) were warnings before and still are.
+- **Worth a look, not mistakes:** no title page, no Setting or Premise, a one-word lower-case line above a sentence (a speaker?), a speaker spelled almost like another, characters you cannot see (a non-breaking space pasted in), a stray `===` or `]]`, `>centered<` text.
+

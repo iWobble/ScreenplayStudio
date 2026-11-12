@@ -1,11 +1,11 @@
-"""storyrender — `pull`, `listen`, `render`, `plan`, `demo`, `youtube`."""
+"""storyrender — `pull`, `listen`, `render`, `plan`, `check`, `demo`, `youtube`."""
 
 import argparse
 import json
 import sys
 from pathlib import Path
 
-from . import build, demo, ffmpeg, manifest, marvin_pull, youtube
+from . import build, demo, ffmpeg, manifest, marvin_pull, validate, youtube
 
 
 def _load(path: str) -> manifest.Manifest:
@@ -20,6 +20,18 @@ def cmd_render(a) -> int:
     if not result["short_ok"]:
         print(f"warning: {result['measured_seconds']}s is over the {manifest.MAX_SHORT_SECONDS}s a Short may run", file=sys.stderr)
     return 0
+
+
+def cmd_check(a) -> int:
+    """Check a Fountain file for mistakes before it is imported (no Marvin needed, nothing is changed): 0 clean, 1 mistakes to fix."""
+    text = sys.stdin.read() if a.file == "-" else Path(a.file).read_text(encoding="utf-8", errors="replace")
+    findings = validate.check(text)
+    body, errors, looks = validate.report(findings, text)
+    if a.json:
+        print(json.dumps({"errors": errors, "looks": looks, "findings": [f.__dict__ for f in findings]}, indent=2))
+    else:
+        print(body)
+    return 1 if errors else 0
 
 
 def cmd_plan(a) -> int:
@@ -97,6 +109,10 @@ def main(argv: list[str] | None = None) -> int:
     li.add_argument("-o", "--output")
     li.add_argument("--keep", help="keep the intermediate files in this folder")
     li.set_defaults(fn=cmd_listen)
+    ck = sub.add_parser("check", help="Fountain file → the mistakes in it (a speaker in lower case, a note left open, a duplicate scene number…), with lines and fixes; changes nothing")
+    ck.add_argument("file", help="a .fountain file, or - for the text on standard input")
+    ck.add_argument("--json", action="store_true", help="the findings as JSON")
+    ck.set_defaults(fn=cmd_check)
     s = sub.add_parser("plan", help="print the timeline a manifest implies (measures audio, renders nothing)")
     s.add_argument("manifest")
     s.set_defaults(fn=cmd_plan)
