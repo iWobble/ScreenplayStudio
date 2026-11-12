@@ -308,5 +308,6 @@ def test_a_lines_volume_and_muffling_are_its_own_fields_the_take_points_back_to_
     assert line["volume"]["group"] == line["muffled"]["group"] == "Sound"
     take = {f["key"]: f for f in blueprints["take"]["payload"]["schema_json"]["fields"]}
     assert take["line"]["ref"] == "speech-line" and take["line"]["ref_match"] == {"story": "story"}
+    assert line["beat"]["ref"] == "beat" and line["beat"]["ref_match"] == {"story": "story"} and line["beat"]["label"] == "Beat"  # moving a line is choosing its beat
     lanes = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}
     assert lanes["lines"]["volume"] == "volume"
