@@ -91,3 +91,11 @@ def test_the_limit_leaves_the_rest_for_another_run_and_beats_go_in_the_order_the
 def test_a_replies_with_text_around_the_list_or_broken_json_is_handled():
     assert jobs._parse_beat_details('Here you go: [{"number": "1", "expression": "x", "focus": "y"}] Done.') == {"1": {"expression": "x", "focus": "y"}}
     assert jobs._parse_beat_details("no list here") == {} and jobs._parse_beat_details("[{broken") == {} and jobs._parse_beat_details('{"number": "1"}') == {}
+
+
+def test_only_the_story_is_needed_to_run_it_the_rest_is_optional():
+    from marvin_worker.jobs import check_args, describe_kinds
+
+    inputs = describe_kinds(["write-beat-details"])[0]["inputs"]
+    assert {k: v["required"] for k, v in inputs.items()} == {"story": True, "limit": False, "dry_run": False, "agent": False}
+    check_args("write-beat-details", {"story": "s"})  # nothing else asked for: no complaint

@@ -622,9 +622,9 @@ def _ask(ctx: Context, message: str, agent: str = "chat") -> str:
     description="Propose what the people are doing (expression) and the one thing the picture is about (focus) for the beats of a story that lack them, from each beat's words, with the workspace AI (a plain completion, ten beats to a question). Only an empty field is filled, never one a person wrote; a person edits the result. dry_run shows what would be written. It spends no image or voice credit",
     inputs={
         "story": {"type": "string", "description": "the story entry's slug, e.g. the-last-onion"},
-        "limit": {"type": "string", "description": f"most beats to write in one run (default {BEAT_DETAILS_LIMIT})"},
-        "dry_run": {"type": "string", "description": "yes: write nothing, say what would be written"},
-        "agent": {"type": "string", "description": "a plain-completion agent of the workspace to ask (default chat)"},
+        "limit": {"type": "string", "required": False, "description": f"most beats to write in one run (default {BEAT_DETAILS_LIMIT})"},
+        "dry_run": {"type": "string", "required": False, "description": "yes: write nothing, say what would be written"},
+        "agent": {"type": "string", "required": False, "description": "a plain-completion agent of the workspace to ask (default chat)"},
     },
     produces=[],
 )
