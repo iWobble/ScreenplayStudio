@@ -1,6 +1,7 @@
 """How long a recording really is. A browser's recording (webm) is written as it is made, so its header has no length and ffprobe cannot say;
 an upload may carry one. The pure part of the `measure-audio` job: read the header when it has a length, otherwise listen to the whole file."""
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -35,3 +36,17 @@ def seconds(path: Path) -> float:
     except (ffmpeg.FfmpegError, ValueError):
         pass
     return decoded_seconds(path)
+
+
+LEVEL_FLOOR = -60.0  # the quietest level a meter shows; anything below reads as this
+
+
+def levels(path: Path) -> tuple[float, float]:
+    """How loud a recording is: its average level and its loudest moment, in dB below full scale (0 is as loud as a file can be, so both are
+    negative). What ffmpeg's volumedetect hears over the whole file; a silent one reads at the floor instead of minus infinity."""
+    done = subprocess.run(["ffmpeg", "-nostdin", "-i", str(path), "-vn", "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True)
+    mean, peak = (re.search(rf"{name}_volume:\s*(-?[\d.]+|-inf) dB", done.stderr) for name in ("mean", "max"))
+    if done.returncode != 0 or not mean or not peak:
+        raise ffmpeg.FfmpegError(f"ffmpeg can't read {path.name} as sound: {done.stderr.strip()[-300:]}")
+    read = lambda m: LEVEL_FLOOR if m.group(1) == "-inf" else max(LEVEL_FLOOR, round(float(m.group(1)), 1))  # noqa: E731
+    return read(mean), read(peak)

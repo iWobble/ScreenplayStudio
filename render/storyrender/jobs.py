@@ -159,6 +159,47 @@ def measure_audio(job: dict, ctx: Context) -> dict:
     return {"result": {"entry": slug, "field": field, "seconds_field": target, "seconds": seconds}, "log": f"{name}: {seconds:.2f} s, written to {target} on {slug}"}
 
 
+@job_kind(
+    "measure-level",
+    description="Listen to the recording in an entry's audio field and write how loud it is: its average level and its loudest moment, in dB below full scale (a quiet one reads about -40, a very loud one about -6). A sound's page draws them as meters beside its volume slider. Nothing is changed in the file.",
+    inputs={
+        "entry": {"type": "string", "description": "the entry's slug, e.g. the sound holding the recording"},
+        "field": {"type": "string", "required": False, "description": "the field holding the recording (audio by default)"},
+        "level_field": {"type": "string", "required": False, "description": "the number field the average level is written to (level_db by default)"},
+        "peak_field": {"type": "string", "required": False, "description": "the number field the loudest moment is written to (peak_db by default)"},
+    },
+    produces=[],
+    needs=["ffmpeg"],
+)
+def measure_level(job: dict, ctx: Context) -> dict:
+    """A recording in an entry's asset field → its average level and peak in dB, written to the entry's two number fields."""
+    args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
+    slug = str(args.get("entry") or "").strip()
+    field = str(args.get("field") or "audio").strip()
+    level_field = str(args.get("level_field") or "level_db").strip()
+    peak_field = str(args.get("peak_field") or "peak_db").strip()
+    if not slug:
+        raise JobError("this kind of job needs args.entry (the entry's slug)")
+    row = next(iter(marvin_api.query(ctx.creds, {"entries": slug}, limit=1)), None)
+    if row is None:
+        raise JobError(f"no entry “{slug}”")
+    held = (row.get("dataJson") or row.get("data") or {}).get(field)
+    if not held or not isinstance(held, str):
+        raise JobError(f"“{slug}” has nothing in “{field}”: record or upload a sound there first")
+    source = marvin_api.asset(ctx.creds, held)
+    name = source.get("name") or source.get("slug") or "recording"
+    if not audio_convert.is_audio(source.get("mimeType"), name):
+        raise JobError(f"“{name}” ({source.get('mimeType') or 'unknown type'}) is not a sound")
+    src = ctx.work / f"level{Path(name).suffix or '.bin'}"
+    marvin_api.download_asset(ctx.creds, source.get("id") or held, src)
+    try:
+        level, peak = audio_measure.levels(src)
+    except ffmpeg.FfmpegError as e:
+        raise JobError(f"could not read “{name}” as sound: {e}") from e
+    marvin_api.update_entry(ctx.creds, slug, {level_field: level, peak_field: peak})
+    return {"result": {"entry": slug, "field": field, "level_db": level, "peak_db": peak}, "log": f"{name}: average {level:.1f} dB, peak {peak:.1f} dB, written to {level_field} and {peak_field} on {slug}"}
+
+
 SCRIPT_FILES = {"fountain": "text/plain", "pdf": "application/pdf", "html": "text/html", "breakdown": "text/html"}
 
 

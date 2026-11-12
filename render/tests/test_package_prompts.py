@@ -185,7 +185,7 @@ def test_the_types_that_carry_sound_group_it_the_same_way_so_each_has_one_folded
         assert group(owner, "overlay") == group(owner, "overlay_delay") == "Overlay"  # the same name the story uses
     assert group("beat", "music_volume") == group("beat", "sounds") == "Sound"
     assert group("scene", "story_ambience_muffled") == "Sound"
-    assert group("sound", "volume") == group("sound", "fade_out") == "Playback" and group("sound", "model") == "Making it"
+    assert group("sound", "loop") == group("sound", "fade_out") == "Playback" and group("sound", "model") == "Making it"  # its volume is out in the open, beside the take's meters
     for owner in ("speech-line", "take", "cast-member", "actor"):
         assert group(owner, "voice") == "Voice"
     assert group("speech-line", "speed") == group("take", "stability") == "Voice"
@@ -221,3 +221,18 @@ def test_the_sounds_setup_starts_from_what_the_story_has_and_every_field_workflo
         assert blueprints[slug]["kind"] == "workflow", slug
     assert [b["data"]["source"] for b in steps["found"]["add"]["buttons"]] == ["uploaded", "generated", "generated"]  # an own file is never sent to ElevenLabs
     assert wizard["button"]["step"] in steps and wizard["open"]["view"] in blueprints
+
+
+def test_a_sound_shows_its_takes_loudness_as_meters_beside_its_volume_slider_and_a_new_take_is_measured():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    fields = blueprints["sound"]["payload"]["schema_json"]["fields"]
+    keys = [f["key"] for f in fields]
+    assert keys[keys.index("audio") + 1 : keys.index("audio") + 4] == ["level_db", "peak_db", "volume"]  # the take, its meters, then the slider
+    by_key = {f["key"]: f for f in fields}
+    for key in ("level_db", "peak_db"):
+        assert by_key[key]["meter"] is True and by_key[key]["readOnly"] is True and (by_key[key]["min"], by_key[key]["max"]) == (-60, 0)
+    assert by_key["volume"]["slider"] is True and not by_key["volume"].get("group")  # out in the open, not folded under Playback
+    flow = blueprints["screenplay-measure-sound-level"]["payload"]["definition"]
+    assert {"field": "entry.data.audio", "op": "changed"} in flow["conditions"]  # a new or replaced take, and not the job writing its own result back
+    args = flow["actions"][0]["data"]["args"]
+    assert flow["actions"][0]["data"]["kind"] == "measure-level" and args["level_field"] in by_key and args["peak_field"] in by_key
