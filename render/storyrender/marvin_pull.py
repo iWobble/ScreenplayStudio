@@ -136,7 +136,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         by_beat.setdefault(str(data(line).get("beat")), []).append(line)
 
     chapters = chapter_rows(rows, story, data)
-    scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and ("ambience" in data(e) or "overlay" in data(e))}  # scenes that name an ambience or an overlay
+    scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and ("ambience" in data(e) or "overlay" in data(e) or "story_ambience_volume" in data(e) or "story_ambience_muffled" in data(e))}  # scenes that name an ambience or an overlay, or say how the story's own bed is heard in them
     # Sounds belong to the library, not to a story: each is found by the slug a beat or scene names, whichever story made it.
     wanted = {str(item.get("sound")) for b in beats for item in (data(b).get("sounds") if isinstance(data(b).get("sounds"), list) else []) if isinstance(item, dict)}
     wanted |= {str(data(sc).get("ambience")) for sc in scenes.values() if data(sc).get("ambience")}
@@ -177,6 +177,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         bed = _ambience(creds, out, data(beat), scenes, sounds, data, taken, missing, data(story_row))
         if bed:
             shot["ambience"] = bed
+        shot.update(story_bed_in(data(beat), scenes.get(str(data(beat).get("scene")))))
         cover = _info_overlay(creds, out, data(beat), number, size) or _overlay(creds, out, data(beat), scenes, data(story_row), data, videos)
         if cover:
             shot["overlay"] = cover
@@ -210,7 +211,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     start_fade = _positive(data(story_row).get("start_fade_seconds"))  # every bed that starts the film fades in over this long
     end_fade = _positive(data(story_row).get("end_fade_seconds"))  # every bed fades out over this long at the end of the film
     (out / "manifest.json").write_text(
-        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"size": list(size)} if formats.size_of(data(story_row)) else {}), **({"loudness": level} if (level := formats.loudness_of(data(story_row))) else {}), **({"caption": caption} if (caption := caption_of(data(story_row), speaker_colours(rows, story, data))) else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {})}, indent=2, ensure_ascii=False)
+        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"size": list(size)} if formats.size_of(data(story_row)) else {}), **({"loudness": level} if (level := formats.loudness_of(data(story_row))) else {}), **({"caption": caption} if (caption := caption_of(data(story_row), speaker_colours(rows, story, data))) else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {}), **({"ambience_duck": duck} if (duck := str(data(story_row).get("ambience_ducking") or "").strip()) in ("light", "strong") else {})}, indent=2, ensure_ascii=False)
     )
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded, "skipped": skipped}
 
@@ -337,6 +338,21 @@ def transition_of(beat: dict, story: dict) -> dict:
         return {}
     seconds = _positive(beat.get("transition_seconds")) or _positive(story.get("transition_seconds"))
     return {"transition": kind, **({"transition_seconds": seconds} if seconds else {})}
+
+
+def story_bed_in(beat: dict, scene: dict | None) -> dict:
+    """How the story's own ambience bed is heard in this beat: its level (the beat's own, else its scene's) and whether it is heard from inside (the
+    scene's). It is the same bed, running on without a seam: only its level and its muffling change, eased at the cut. Nothing when neither is set."""
+    here = (scene or {}).get("dataJson") or (scene or {}).get("data") or {}
+    level = _unit(beat.get("story_ambience_volume"))
+    if level is None:
+        level = _unit(here.get("story_ambience_volume"))
+    out: dict = {}
+    if level is not None:
+        out["bed_volume"] = level
+    if here.get("story_ambience_muffled"):
+        out["bed_muffled"] = True
+    return out
 
 
 def story_ambience(creds, out: Path, story_data: dict, sounds: dict, data, taken: dict, missing: list) -> dict | None:

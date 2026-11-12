@@ -120,6 +120,10 @@ class Shot:
     ambience: Ambience | None = None
     overlay: Overlay | None = None
     music_volume: float | None = None
+    bed_volume: float | None = None
+    """The level of the story's own ambience bed while this shot plays (a scene or a beat turns it down: 0 = silence); None keeps the story's level."""
+    bed_muffled: bool = False
+    """The story's own bed heard from inside while this shot plays (low-passed, eased in and out at the cut): the same sound, through a wall."""
     after: float = 0.0
     """Seconds of quiet added after the shot (the picture held, no sound): the pause where a scene ends. It is part of the shot's length."""
     transition: str = "cut"
@@ -154,6 +158,8 @@ class Manifest:
     """Seconds every bed that starts the film (the music, the story's ambience) fades in over; None leaves each sound's own."""
     end_fade: float | None = None
     """Seconds every bed (the ambience that runs to the end and the music) fades out over at the end of the film; None leaves each sound's own."""
+    ambience_duck: str = ""
+    """light or strong: every ambience bed goes down under each spoken line, as the music's duck does; empty leaves the beds where they are."""
     chapters: list[Chapter] = field(default_factory=list)
     """The story's chapters in order; a shot names one by id. Empty for a story that is not cut into chapters."""
 
@@ -272,6 +278,11 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             shot.music_volume = float(s["music_volume"])
             if not 0 <= shot.music_volume <= 1:
                 raise ManifestError(f"{where}: music_volume is 0–1 (got {shot.music_volume})")
+        if s.get("bed_volume") not in (None, ""):
+            shot.bed_volume = float(s["bed_volume"])
+            if not 0 <= shot.bed_volume <= 1:
+                raise ManifestError(f"{where}: bed_volume is 0–1 (got {shot.bed_volume})")
+        shot.bed_muffled = bool(s.get("bed_muffled", False))
         for j, ln in enumerate(s.get("lines") or [], 1):
             lw = f"{where} line {j}"
             start, end = 0.0, None
@@ -333,6 +344,9 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         end_fade = float(end_fade)
         if not 0 < end_fade <= MAX_END_FADE:
             raise ManifestError(f"end_fade is more than 0 and at most {MAX_END_FADE:g} seconds (got {end_fade:g})")
+    ambience_duck = str(raw.get("ambience_duck") or "")
+    if ambience_duck and ambience_duck not in DUCKS:
+        raise ManifestError(f"ambience_duck is {' or '.join(DUCKS)} (got {ambience_duck})")
     return Manifest(
         title=str(raw.get("title") or path.stem),
         size=(int(size[0]), int(size[1])),
@@ -340,6 +354,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         shots=shots,
         music=music,
         ambience=story_bed,
+        ambience_duck=ambience_duck,
         caption=dict(raw.get("caption") or {}),
         loudnorm=bool(raw.get("loudnorm", True)),
         loudness=float(loudness) if loudness not in (None, "") else -16.0,
