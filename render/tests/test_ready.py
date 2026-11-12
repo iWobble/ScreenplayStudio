@@ -162,3 +162,13 @@ def test_a_library_voice_is_refused_on_a_free_plan_only():
 def test_a_plan_that_could_not_be_read_adds_nothing_and_the_job_passes_the_plan_it_was_given(monkeypatch, tmp_path):
     assert not [f for f in run(plan={"tier": "", "characters_left": "n/a"}) if "plan" in f[2]]
     assert jobs._plan_of({}) is None and jobs._plan_of({"plan_tier": "free", "plan_characters_left": "12"}) == {"tier": "free", "characters_left": "12", "resets_at": ""}
+    assert jobs._plan_of({"plan_tier": "free", "plan_characters_left": 2226})["characters_left"] == "2226"  # the lookup gives a number
+    assert jobs._plan_of({"plan_tier": "free", "plan_characters_left": 0})["characters_left"] == "0"  # and nothing left is still an answer
+    from marvin_worker.jobs import check_args
+
+    check_args("check-ready", {"story": "s", "plan_tier": "free", "plan_characters_left": 2226, "plan_resets_at": "2026-11-30T06:56:54+00:00"})  # as the workflow sends it
+
+
+def test_nothing_left_on_the_plan_blocks_the_lines_still_to_record():
+    found = _plan_story(plan={"tier": "free", "characters_left": "0"})
+    assert any(f[0] == "fix" and "has 0 left" in f[2] for f in found)
