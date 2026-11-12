@@ -839,6 +839,45 @@ def align(plan: Plan, existing: dict[str, str]) -> "dict | None":
             previous = number
     return found
 
+_KEEP_ALONE = re.compile(r"^(?:THE END\.?|END\.?|(?:SUPER|TITLE|CARD|INSERT|CHYRON|TITLE CARD)\b.*|.*\bFADE\b.*|.*\bCUT\b.*|.*\bDISSOLVE\b.*)$")
+_HEADING_LIKE = re.compile(r"^[A-Z0-9][A-Z0-9 .'’,()/&\-]*\s-\s[A-Z][A-Z0-9 .'’,()/\-]*?(?:\s+#[\w.-]+#)?$")
+MAX_LINT = 12
+
+
+def _blank_out(match: "re.Match[str]") -> str:
+    return "\n" * match.group(0).count("\n")  # the writer's notes and boneyards removed, the line numbers kept
+
+
+def lint(text: str) -> list[str]:
+    """What in a Fountain the import will read differently from what the writer meant, in words that say the line and how to fix it:
+    a capitals line standing alone or ending in a full stop, which is read as a speaker (`CRUNCH.`), and a line that is a place and a time in capitals
+    but does not start with INT. or EXT., which is not a scene. It reads the text only: nothing is changed."""
+    plain = _NOTE.sub(_blank_out, _BONEYARD.sub(_blank_out, _normal(text)))
+    found: list[str] = []
+    for index, (start, block) in enumerate(_blocks_at(plain)):
+        first = block[0].strip()
+        if index == 0 and _ANY_KEY.match(first) and not first.isupper():
+            continue  # the title page
+        if first.startswith(("!", "#", "=", "~", ">", ".", "@", "[", "(", "/")) or _is_scene(first) or _is_transition(first):
+            continue
+        letters = re.sub(r"[^A-Za-z]", "", first)
+        if not letters or first != first.upper():
+            continue
+        name = _cue_name(first)
+        row = start + 1
+        if _HEADING_LIKE.match(first) and _TIME_WORDS.search(first):
+            found.append(f"line {row}: `{first}` looks like a scene heading but does not start with INT. or EXT., so it is not a scene: write `EXT. {first}` (or `INT. …`), or start it with a dot (`.{first}`) to keep it as written")
+        elif _KEEP_ALONE.match(first):
+            continue
+        elif len(block) == 1:
+            found.append(f"line {row}: `{first}` stands alone in capitals, so it is read as a speaker with nothing to say: if it is action or a sound, start it with ! (`!{first}`)")
+        elif name.endswith((".", "!", "?")) or len(name.split()) > 4:
+            found.append(f"line {row}: `{first}` is in capitals above text, so it is read as a speaker and the text after it as spoken: if it is action, start it with ! (`!{first}`) or write it in ordinary case")
+    if len(found) > MAX_LINT:
+        found = found[:MAX_LINT] + [f"and {len(found) - MAX_LINT} more like these"]
+    return found
+
+
 def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: float = MAX_CHAPTER_PAGES, text: "str | None" = None) -> Plan:
     """The chapters, beats and lines of a screenplay. Given the `text` it was read from (and the elements read with `lines=True`), each beat and each
     speech also holds its own piece of the writer's text, as written (`fountain`), and the plan holds what comes before the first beat (`front`):
@@ -854,6 +893,8 @@ def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: f
         return Plan([], {}, ["no scenes found: is this Fountain? A scene starts with a heading like `INT. KITCHEN - DAY`"], {}, True)
     if len(scenes) == 1 and not scenes[0].heading:
         warnings.append("no scene headings found (one looks like `INT. KITCHEN - DAY`): the whole text is treated as a single scene")
+    if text is not None:
+        warnings.extend(lint(text))
     raw_names = sorted({e["name"] for e in elements if e["t"] == "dialogue"})
     names = handles(raw_names)
     groups = _chapters(scenes, chapter_pages, max_pages)
