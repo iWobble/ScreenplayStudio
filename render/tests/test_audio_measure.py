@@ -85,3 +85,16 @@ def test_a_file_that_is_not_sound_cannot_have_a_level(tmp_path):
     (tmp_path / "x.txt").write_text("not sound")
     with pytest.raises(ffmpeg.FfmpegError):
         audio_measure.levels(tmp_path / "x.txt")
+
+
+def test_the_runner_in_the_compose_file_offers_every_kind_the_studio_defines():
+    """A kind the image has but WORKER_KINDS leaves out is never run: its jobs wait for ever (measure-level did, once)."""
+    import re
+
+    from marvin_worker import jobs as worker_jobs
+    from storyrender import jobs  # noqa: F401  (importing it registers the kinds)
+
+    compose = (Path(__file__).resolve().parents[2] / "docker" / "compose.yml").read_text(encoding="utf-8")
+    offered = {k for line in re.findall(r"WORKER_KINDS:\s*(\S+)", compose) for k in line.split(",")}
+    studio = {k for k, handler in worker_jobs.HANDLERS.items() if getattr(handler, "__module__", "").startswith("storyrender.jobs")}
+    assert studio and studio <= offered, f"not offered by any container: {sorted(studio - offered)}"
