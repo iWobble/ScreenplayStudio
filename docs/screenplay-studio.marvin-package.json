@@ -6585,6 +6585,7 @@
               },
               "data": {
                 "split_plan": " ",
+                "import_part": " ",
                 "readiness": "Out of date: what the import made for this story was cleared. Run the check again after the chapters are brought in.",
                 "sheet_log": "${entry.data.sheet_log}\nclear \u00b7 ${steps.trash.output.mode}${steps.forever.output.mode} \u00b7 ${steps.trash.output.text}${steps.forever.output.text}"
               }

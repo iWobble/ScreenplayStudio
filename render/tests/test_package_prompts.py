@@ -563,6 +563,10 @@ def test_after_a_clear_the_story_is_set_to_split_again_and_its_score_placeholder
     assert reset["data"]["split_plan"] == " " and music["data"] == {"music": " "}
     assert reset["data"]["readiness"].strip() and reset["data"]["sheet_log"].startswith("${entry.data.sheet_log}\n")
     assert "fountain_check" not in reset["data"]  # the Fountain did not change
+    # A leftover "Chapters to bring in" would make the next import bring in only those: the clear lets it go (blank = all).
+    from storyrender.jobs import parse_part
+
+    assert reset["data"]["import_part"] == " " and parse_part(reset["data"]["import_part"]) is None
 
 
 def test_the_narrate_setup_offers_the_clear_right_after_the_import_and_no_other_workflow_deletes_for_good():
