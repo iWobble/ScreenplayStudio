@@ -13,6 +13,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 
 from . import camera, captions, cards, ffmpeg, formats, numbering
+from . import lines as lines_of
 
 CREDENTIALS = Path.home() / ".marvin" / "credentials.json"
 
@@ -130,7 +131,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         beats = [b for b in beats if chosen(data(b).get("number"))]
         if not beats:
             raise PullError("none of the beats you chose exist in this story")
-    lines = sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-line-") and data(e).get("story") == story), key=lambda e: e["slug"])
+    lines = lines_of.of_story(rows, story)  # a line is found by what it is (a beat and a speaker), in the order it plays, those set aside left out
     by_beat: dict[str, list[dict]] = {}
     for line in lines:
         by_beat.setdefault(str(data(line).get("beat")), []).append(line)

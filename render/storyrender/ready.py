@@ -38,6 +38,7 @@ def check(
     plan: dict | None = None,
 ) -> list[tuple[str, str, str]]:
     """Findings as (level, area, sentence). Each record is its dataJson plus `slug` (so a name can be given)."""
+    lines = [ln for ln in lines if str(ln.get("leave_out") or "").lower() not in ("true", "yes") and ln.get("leave_out") is not True]  # a line set aside is not needed
     out: list[tuple[str, str, str]] = []
     fix = lambda area, text: out.append(("fix", area, text))  # noqa: E731
     look = lambda area, text: out.append(("look", area, text))  # noqa: E731

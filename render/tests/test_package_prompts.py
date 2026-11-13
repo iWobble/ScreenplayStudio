@@ -403,3 +403,16 @@ def test_a_beats_camera_is_chosen_in_one_place_and_the_numbers_field_has_no_pres
     assert "exact numbers" in beat["move"]["label"].lower() and "advanced" in beat["move"]["label"].lower()
     for owner in ("scene", "story"):
         assert "move" not in {f["key"] for f in blueprints[owner]["payload"]["schema_json"]["fields"]}  # numbers belong to one picture
+
+
+def test_a_beats_lines_can_be_numbered_and_set_aside_added_from_the_beat_and_the_timeline_follows():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    line = {f["key"]: f for f in blueprints["speech-line"]["payload"]["schema_json"]["fields"]}
+    assert line["order"]["type"] == "number" and line["leave_out"]["type"] == "boolean" and line["order"]["group"] == line["leave_out"]["group"] == "In the beat"
+    lane = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}["lines"]
+    assert lane["order"] == "order" and lane["off"] == "leave_out"  # the Timeline plays them in the render's order and leaves out what it leaves out
+    wizard = blueprints["lines-in-a-beat"]["payload"]
+    assert wizard["button"]["entry_type"] == "beat" and wizard["button"]["step"] == "lines" and wizard["button"]["key"] == "beat"
+    gallery = [s for s in wizard["steps"] if s["id"] == "lines"][0]
+    assert gallery["entry_type"] == "speech-line" and gallery["parent_field"] == "beat" and gallery["add"]["data"]["story"] == "${story}"
+    assert {"speaker", "text"} <= set(gallery["add"]["fields"])  # a line needs a speaker and words
