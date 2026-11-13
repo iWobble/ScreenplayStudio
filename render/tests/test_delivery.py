@@ -82,3 +82,17 @@ def test_a_speech_line_has_an_extension_to_pick_and_the_fountain_reader_accepts_
     assert fields["extension"]["type"] == "select" and fields["extension"]["group"] == fields["direction"]["group"] == "How it is said"
     for choice in fields["extension"]["options"]:
         assert delivery.EXTENSION.match(choice), choice  # the reader takes what the form offers
+
+
+def test_a_band_groups_beats_the_timeline_draws_it_above_the_scenes_and_nothing_in_the_film_changes():
+    import json
+    from pathlib import Path
+
+    package = Path(__file__).resolve().parents[2] / "docs" / "screenplay-studio.marvin-package.json"
+    blueprints = {b["slug"]: b for b in json.loads(package.read_text(encoding="utf-8"))["blueprints"]}
+    beat = {f["key"]: f for f in blueprints["beat"]["payload"]["schema_json"]["fields"]}
+    assert beat["band"]["ref"] == "band" and beat["band"]["ref_match"] == {"story": "story"}  # a beat picks from this story's bands
+    assert {f["key"] for f in blueprints["band"]["payload"]["schema_json"]["fields"]} >= {"story"}
+    assert blueprints["band"]["payload"]["schema_json"]["children"] == [{"title": "Beats", "entry_type": "beat", "field": "band"}]
+    bands = blueprints["story-timeline"]["payload"]["spine"]["bands"]
+    assert [b["entry_type"] for b in bands] == ["band", "scene"]  # the bigger band on top, the scenes under it

@@ -49,6 +49,16 @@
               }
             },
             {
+              "key": "band",
+              "label": "Band (band entry slug)",
+              "type": "text",
+              "helpText": "A stretch of the film you group yourself (the opening, the storm): pick it from the list (only this story's). On the Timeline a band above the scenes wraps its consecutive beats. It changes nothing in the film. Empty: in no band.",
+              "ref": "band",
+              "ref_match": {
+                "story": "story"
+              }
+            },
+            {
               "key": "scene",
               "label": "Scene (scene entry slug)",
               "type": "text",
@@ -1420,6 +1430,48 @@
               "title": "Beats",
               "entry_type": "beat",
               "field": "chapter"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "band",
+      "name": "Band",
+      "description": "A named run of beats (the opening, the storm) that you group yourself: it is drawn as a band above the scenes on the Timeline, so you can see a stretch of the film as one piece and make a quick preview of just that. It changes nothing in the film. Each beat names its band.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Band",
+        "icon": "\ud83c\udff7\ufe0f",
+        "description": "A named run of beats (the opening, the storm) that you group yourself: it is drawn as a band above the scenes on the Timeline, so you can see a stretch of the film as one piece and make a quick preview of just that. It changes nothing in the film. Each beat names its band.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "story",
+              "label": "Story (story entry slug)",
+              "type": "text",
+              "required": true,
+              "helpText": "Slug of the story this band belongs to. There is no entry-to-entry relation field, so children hold the parent's slug."
+            },
+            {
+              "key": "notes",
+              "label": "Notes",
+              "type": "textarea",
+              "helpText": "What this stretch is for (a sentence for yourself)."
+            }
+          ],
+          "children": [
+            {
+              "title": "Beats",
+              "entry_type": "beat",
+              "field": "band"
             }
           ]
         }
@@ -10249,6 +10301,11 @@
             }
           },
           "bands": [
+            {
+              "entry_type": "band",
+              "field": "band",
+              "title": "Band"
+            },
             {
               "entry_type": "scene",
               "field": "scene",
