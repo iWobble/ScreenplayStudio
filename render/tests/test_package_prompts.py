@@ -518,3 +518,61 @@ def test_the_fountain_reports_are_big_enough_to_read_and_say_how_to_fix_an_uploa
     for said in (fields["fountain_check"]["helpText"], steps["fountain_check"]["help"], steps["fountain_report"]["help"]):
         assert "Replace it" in said and "cannot be edited in Marvin" in said and "Nothing needs approving" in said, said
     assert "(above)" not in steps["fountain_report"]["help"]
+
+
+def test_clearing_a_story_counts_first_then_asks_an_admin_before_anything_is_deleted():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    flow = blueprints["screenplay-clear-story"]["payload"]["definition"]
+    assert flow["trigger"] == {"type": "manual", "inputs": [{"name": "story", "label": "Story", "type": "entry", "required": True}]}
+    acts = flow["actions"]
+    assert [a.get("id") for a in acts] == ["look", "look_all", "nothing", "clear", "trash", "forever", "reset", "music"]
+    deletes = [i for i, a in enumerate(acts) if a["kind"] == "delete_entries" and a.get("mode", "preview") != "preview"]
+    assert deletes and min(deletes) > [a.get("id") for a in acts].index("clear")  # the question comes before anything goes
+    steps = {a["id"]: a for a in acts}
+    assert steps["look"]["mode"] == steps["look_all"]["mode"] == "preview"
+    assert steps["nothing"]["when"] == {"field": "steps.look.output.total", "op": "lt", "value": 1}
+    clear = steps["clear"]
+    assert clear["kind"] == "approval" and clear["approvers"] == "admin"
+    assert clear["when"] == {"field": "steps.look.output.total", "op": "gte", "value": 1}
+    assert clear["choices"] == ["Move them to the Trash", "Delete for good (cannot be undone)", "Leave them"]
+    assert "30 days" in clear["detail"] and "cannot" in clear["detail"].lower() and "asset library" in clear["detail"]
+    for step, mode, preview, choice in (("trash", "trash", "look", 0), ("forever", "permanent", "look_all", 1)):
+        assert steps[step]["mode"] == mode
+        assert steps[step]["confirm_total"] == f"${{steps.{preview}.output.total}}"  # the count the approval was asked on
+        assert steps[step]["query"] == steps[preview]["query"]  # and the same selection it counted
+        assert steps[step]["when"] == {"field": "steps.clear.output.choice", "op": "eq", "value": clear["choices"][choice]}
+
+
+def test_clearing_a_story_selects_its_records_by_their_story_field_and_frees_trashed_slugs_only_when_deleting_for_good():
+    acts = {a["id"]: a for a in _flow("screenplay-clear-story")["actions"]}
+    kinds = ["chapter", "scene", "beat", "speech-line", "sound", "cast-member", "take", "casting"]
+    assert acts["look"]["query"] == {"entry_types": kinds, "fields": {"story": "${entry.slug}"}}  # the story field, never a slug prefix
+    assert "text" not in json.dumps(acts["look"]["query"]) and "query" not in acts["look"]["query"]
+    assert "trashed" in acts["look_all"]["query"]["statuses"] and acts["look_all"]["query"]["fields"] == {"story": "${entry.slug}"}
+    assert "statuses" not in acts["trash"]["query"]  # a move to the Trash never re-touches what is already there
+
+
+def test_after_a_clear_the_story_is_set_to_split_again_and_its_score_placeholder_is_let_go():
+    acts = {a["id"]: a for a in _flow("screenplay-clear-story")["actions"]}
+    ran = {"any": [{"field": "steps.trash.output.deleted", "op": "exists"}, {"field": "steps.forever.output.deleted", "op": "exists"}]}
+    reset, music = acts["reset"], acts["music"]
+    assert reset["op"] == music["op"] == "set_data" and "entity_slug" not in reset  # the story the run is on
+    assert reset["when"] == ran and music["when"] == {"all": [ran, {"field": "entry.data.music", "op": "eq", "value": "${entry.slug}-score"}]}
+    # A set_data drops a value that is "" (Marvin never overwrites with nothing), so a single space stands for empty: the setup's
+    # `requires` and the import both strip it. The import's step stays off until the split is checked again.
+    assert reset["data"]["split_plan"] == " " and music["data"] == {"music": " "}
+    assert reset["data"]["readiness"].strip() and reset["data"]["sheet_log"].startswith("${entry.data.sheet_log}\n")
+    assert "fountain_check" not in reset["data"]  # the Fountain did not change
+
+
+def test_the_narrate_setup_offers_the_clear_right_after_the_import_and_no_other_workflow_deletes_for_good():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    steps = blueprints["narrate-a-story"]["payload"]["steps"]
+    ids = [s["id"] for s in steps]
+    assert ids[ids.index("import") + 1] == "clear"
+    clear = steps[ids.index("clear")]
+    assert clear["kind"] == "run" and clear["workflow"] == "screenplay-clear-story" and clear["inputs"] == {"story": "${story}"}
+    assert blueprints[clear["workflow"]]["kind"] == "workflow"
+    assert "Check the split" in clear["help"] and "Bring in the chapters" in clear["help"] and "30 days" in clear["help"]
+    forever = [b["slug"] for b in blueprints.values() if b["kind"] == "workflow" and '"mode": "permanent"' in json.dumps(b["payload"]["definition"])]
+    assert forever == ["screenplay-clear-story"]
