@@ -3,6 +3,7 @@ reference never brings its people), so an edit to a workflow cannot quietly drop
 
 import json
 from pathlib import Path
+from storyrender import camera
 
 PACKAGE = Path(__file__).resolve().parents[2] / "docs" / "screenplay-studio.marvin-package.json"
 
@@ -396,11 +397,15 @@ def test_the_scene_has_one_reference_picture_field_and_the_unused_photo_id_is_go
     assert "anchor" in scene and "photo_ref" not in scene  # the still workflow reads the anchor; nothing ever read the ChatGPT file id
 
 
-def test_a_beats_camera_is_chosen_in_one_place_and_the_numbers_field_has_no_presets_of_its_own():
+def test_a_beats_camera_is_chosen_in_one_place_and_the_numbers_start_from_the_choice():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     beat = {f["key"]: f for f in blueprints["beat"]["payload"]["schema_json"]["fields"]}
     assert "presets" not in beat["move"]  # a second dropdown of moves fills the numbers and leaves Camera blank: one way to choose a named move
-    assert "exact numbers" in beat["move"]["label"].lower() and "advanced" in beat["move"]["label"].lower()
+    suggest = beat["move"]["suggest"]  # the box shows the numbers of the Camera choice until they are changed, and keeps nothing until then
+    assert suggest["from"] == "camera"
+    assert set(suggest["values"]) == set(beat["camera"]["options"])  # every choice has numbers to start from
+    for name, numbers in suggest["values"].items():
+        assert numbers == camera.move_of(name), name  # the very numbers the render uses for that choice, so the box never lies
     for owner in ("scene", "story"):
         assert "move" not in {f["key"] for f in blueprints[owner]["payload"]["schema_json"]["fields"]}  # numbers belong to one picture
 
