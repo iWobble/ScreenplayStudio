@@ -172,3 +172,42 @@ def test_a_plan_that_could_not_be_read_adds_nothing_and_the_job_passes_the_plan_
 def test_nothing_left_on_the_plan_blocks_the_lines_still_to_record():
     found = _plan_story(plan={"tier": "free", "characters_left": "0"})
     assert any(f[0] == "fix" and "has 0 left" in f[2] for f in found)
+
+
+# ── a fade that covers speech ──────────────────────────────────────────────────────────────────────────────────────────────────
+def _beat(number: str, **more) -> dict:
+    return {"slug": f"s-beat-{number}", "number": number, "cast": "s-val", "expression": "x", "focus": "y", "scene": "sc1", **more}
+
+
+def _said_in(*numbers: str) -> list[dict]:
+    return [{"speaker": "valerie", "voice": "v1", "beat": f"s-beat-{n}"} for n in numbers]
+
+
+def _fades(**changes) -> list[str]:
+    return [text for level, area, text in run(**changes) if level == "look" and area == "Beats" and "black" in text]
+
+
+def test_a_fade_longer_than_the_quiet_at_its_cut_is_worth_a_look_because_speech_would_play_over_black():
+    beats = [_beat("1001"), _beat("1002", transition="fade", transition_seconds=1.0)]
+    assert _fades(beats=beats, lines=_said_in("1001", "1002")) == [
+        "1 fade is longer than the quiet at its cut, so someone speaks over black: into beat 1002. Shorten the fade, or give the beat before it more tail and the beat after it more lead-in"
+    ]
+    assert _fades(beats=[beats[0], _beat("1002", transition="fade")], lines=_said_in("1001", "1002")) == []  # half of the default 0.5 s fits in the lead-in and the tail
+    roomy = [_beat("1001", tail_seconds=0.6), _beat("1002", transition="fade", transition_seconds=1.0, lead_seconds=0.5)]
+    assert _fades(beats=roomy, lines=_said_in("1001", "1002")) == []  # each side has room for its half
+    assert _fades(beats=beats, lines=[]) == []  # nobody speaks on either side
+    assert _fades(beats=[beats[0], _beat("1002", transition="dissolve", transition_seconds=1.0)], lines=_said_in("1001", "1002")) == []  # a dissolve never goes to black
+
+
+def test_the_storys_fade_counts_for_every_beat_that_sets_none_and_the_two_ends_of_the_film_count_whole():
+    beats = [_beat("1001"), _beat("1002"), _beat("1003", transition="cut")]
+    story = {**GOOD["story"], "transition": "fade", "transition_seconds": 1.0}
+    assert "into beat 1002." in _fades(story=story, beats=beats, lines=_said_in("1001", "1002", "1003"))[0]  # not the first (nothing before it), not 1003 (its own cut)
+    opening = [_beat("1001", transition="fade", transition_seconds=0.5), _beat("1002")]
+    assert "into beat 1001" in _fades(beats=opening, lines=_said_in("1001"))[0]  # FADE IN: lasts its whole length on the one beat, longer than the 0.3 s lead-in
+    assert _fades(story={**GOOD["story"], "intro_title": "Title"}, beats=opening, lines=_said_in("1001")) == []  # after a title card it is shared with the card
+    assert "into beat 1001" in _fades(beats=[_beat("1001", transition="dissolve"), _beat("1002")], lines=_said_in("1001"))[0]  # a dissolve from nothing is a fade up too
+    ending = {**GOOD["story"], "end_transition": "fade", "end_fade_seconds": 2}
+    assert "out of beat 1002 (the end of the film)" in _fades(story=ending, beats=[_beat("1001"), _beat("1002")], lines=_said_in("1002"))[0]
+    assert _fades(story=ending, beats=[_beat("1001"), _beat("1002", tail_seconds=2.5)], lines=_said_in("1002")) == []
+    assert _fades(story={**ending, "outro_title": "The End"}, beats=[_beat("1001"), _beat("1002")], lines=_said_in("1002")) == []  # the end card is what fades out

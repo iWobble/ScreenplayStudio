@@ -51,7 +51,7 @@ def test_sections_forced_elements_and_page_breaks():
     got = kinds(text)
     assert got[0] == ("section", "Act One")
     assert ("scene", "OPENING") in got and ("dialogue", "McCLANE") in got
-    assert ("action", "INT. NOT A HEADING") in got and ("action", "THE END") in got
+    assert ("action", "INT. NOT A HEADING") in got and ("centred", "THE END") in got  # centred text alone is words for a card, not action
     assert ("synopsis", "a synopsis") in got  # the writer's one-line summary, kept apart from the action
 
 
@@ -560,7 +560,7 @@ def test_every_element_of_the_fountain_spec_is_read_as_the_spec_says():
         ("dialogue", "McDUFF", "", [], "A forced character cue."),  # `@` forces a cue (mixed case)
         ("dialogue", "BOB", "", [], "I'm here."),
         ("dialogue", "ANN", "", [], "Wait for me."),
-        ("action", "CENTERED"),  # `> text <` is centred action
+        ("centred", "CENTERED"),  # `> text <` alone is centred text: the words of a plain card
         ("lyrics", "Willy wanna go home Willy wanna go home"),  # lyrics (`~`) are the words, without the mark
         ("transition", "CUT TO:"),
         ("transition", "FADE OUT."),  # `>` forces a transition
@@ -587,7 +587,7 @@ def test_a_synopsis_right_under_a_scene_heading_is_the_writers_and_is_not_in_the
 def test_centred_text_written_with_empty_markers_round_it_is_just_the_words():
     els = fountain.parse("INT. DECK - NIGHT\n\n> <\n**THE DEVIL'S SHOALS**\n> <\n\nWaves.\n")
     assert [e["text"] for e in els if e["t"] == "action"] == ["THE DEVIL'S SHOALS", "Waves."]
-    assert [e["text"] for e in fountain.parse("INT. DECK - NIGHT\n\n> THE END <\n") if e["t"] == "action"] == ["THE END"]
+    assert [(e["t"], e["text"]) for e in fountain.parse("INT. DECK - NIGHT\n\n> THE END <\n")][1:] == [("centred", "THE END")]  # written as one line it is a card's words
 
 
 SONG = "INT. PORCH - DUSK\n\nGranny rocks.\n\n~Row, row, row your boat\n~Gently down the stream\n\nGRANNY\nListen to this.\n~Merrily, merrily\n~Life is but a dream\n\nThe dog howls.\n"

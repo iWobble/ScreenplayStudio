@@ -10,6 +10,8 @@ class FfmpegError(RuntimeError):
 
 
 def run(cmd: list[str], *, cwd: Path | None = None) -> None:
+    if cmd[0] == "ffmpeg" and "-nostdin" not in cmd:
+        cmd = [cmd[0], "-nostdin", *cmd[1:]]  # ffmpeg reads the keyboard unless told not to, and a job has none: on some builds that stalls it
     done = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     if done.returncode != 0:
         raise FfmpegError(f"{' '.join(cmd[:3])} … failed ({done.returncode}):\n{done.stderr[-2000:]}")

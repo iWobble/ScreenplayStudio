@@ -149,6 +149,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     videos: dict[str, Path] = {}  # …and so is an overlay video
     size = formats.size_of(data(story_row)) or PLACEHOLDER_SIZE  # the picture shape the story asked for: the cards and placeholder cards are made to fit it
     shots, missing, carded, skipped = [], [], [], []
+    opening: dict = {}  # the beat the first shot is made from
     scenes_of: list[str] = []  # the scene of each shot made, for the pause where a scene ends
     for beat in beats:
         number = str(data(beat).get("number"))
@@ -168,7 +169,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
                 entry["words"] = words
             spoken.append(entry)
         effects = _sound_effects(creds, out, data(beat).get("sounds"), sounds, data, missing)
-        has_still = bool(data(beat).get("still"))
+        is_card = cards.is_plain(data(beat))  # it shows a plain card: that is its picture, so it always plays and is never waiting for a still
+        has_still = bool(data(beat).get("still")) or is_card
         if not spoken and not effects and not data(beat).get("hold_seconds") and not has_still:
             skipped.append(number)
             continue  # nothing to hear, no time asked for and no picture: there is nothing to show. A beat with a picture always plays (below), a held one too
@@ -183,7 +185,9 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         if bed:
             shot["ambience"] = bed
         shot.update(story_bed_in(data(beat), scenes.get(str(data(beat).get("scene")))))
-        cover = _info_overlay(creds, out, data(beat), number, size) or _overlay(creds, out, data(beat), scenes, data(story_row), data, videos)
+        cover = _info_overlay(creds, out, data(beat), number, size, data(story_row))
+        if not cover and not is_card:  # only its own words lie over a plain card: rain or grain from its scene or the story has no picture to fall on
+            cover = _overlay(creds, out, data(beat), scenes, data(story_row), data, videos)
         if cover:
             shot["overlay"] = cover
         scene_row = scenes.get(str(data(beat).get("scene")))
@@ -195,18 +199,18 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             shot["hold"] = DEFAULT_HOLD  # a silent beat with a picture and no time set lasts the default the Timeline also draws it at
         if data(beat).get("chapter"):
             shot["chapter"] = str(data(beat)["chapter"])  # the chapter's slug, as the chapter list below names it
-        if isinstance(data(beat).get("move"), dict) and data(beat)["move"]:
-            shot["move"] = data(beat)["move"]  # numbers written on the beat (a preset's, then changed): its own move, ahead of any Camera choice: {"from": {x, y, zoom}, "to": {...}, "rock": {...}}
-        elif own := camera.move_of(camera.pick(data(beat), None, {})):
-            shot["move"] = own  # the beat chose a camera by name
-        elif preset := camera.move_of(camera.pick({}, data(scene_row) if scene_row else None, data(story_row))):
-            shot["move"] = preset  # nothing of its own: the camera preset of its scene, else the story
-        if data(beat).get("still"):
+        if move := _move(data(beat), data(scene_row) if scene_row else None, data(story_row)):
+            shot["move"] = move
+        if is_card:
+            shot["still"] = str(cards.make_plain(data(story_row).get("card_color"), out / "stills" / f"b{number}-card.png", size).relative_to(out))
+        elif data(beat).get("still"):
             still = _fetch_asset(creds, str(data(beat)["still"]), out / "stills" / f"b{number}", "png")
             shot["still"] = str(still.relative_to(out))
         elif placeholders:
             shot["still"] = str(_placeholder(out / "stills" / f"b{number}-placeholder.png", number, size).relative_to(out))
             carded.append(number)
+        if not shots:
+            opening = data(beat)
         shots.append(shot)
         scenes_of.append(str(data(beat).get("scene") or "").strip())
     for shot, pause in zip(shots, scene_breaks(scenes_of, data(story_row).get("scene_break_seconds")), strict=True):
@@ -215,15 +219,18 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     if not shots:
         raise PullError(f"“{story}” has no recorded lines yet: record some with the screenplay-record-lines workflow")
     out.mkdir(parents=True, exist_ok=True)
-    if chosen is None:  # a title card before the beats and an end card after them: real shots, so everything after them starts when the render starts it
-        intro, outro = cards.shots(data(story_row), out, size)
-        shots = [s for s in (intro, *shots, outro) if s is not None]
+    intro, outro = cards.shots(data(story_row), out, size) if chosen is None else (None, None)  # a title card before the beats and an end card after them: real shots, so everything after them starts when the render starts it
+    if intro is None:  # nothing plays before the first beat, so the story's transition between beats is not for it: only its own (FADE IN:) opens the film, and a draft of some beats opens on a cut
+        own = transition_of(opening, {"transition_seconds": data(story_row).get("transition_seconds")}) if chosen is None else {}
+        shots[0] = {k: v for k, v in shots[0].items() if k not in ("transition", "transition_seconds")} | own
+    shots = [s for s in (intro, *shots, outro) if s is not None]
+    ending = end_transition_of(data(story_row)) if chosen is None else {}  # a draft of some beats does not end where the film does
     music = music_of(creds, out, data(story_row), data)
     story_bed = story_ambience(creds, out, data(story_row), sounds, data, taken, missing)
     start_fade = _positive(data(story_row).get("start_fade_seconds"))  # every bed that starts the film fades in over this long
     end_fade = _positive(data(story_row).get("end_fade_seconds"))  # every bed fades out over this long at the end of the film
     (out / "manifest.json").write_text(
-        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"size": list(size)} if formats.size_of(data(story_row)) else {}), **({"loudness": level} if (level := formats.loudness_of(data(story_row))) else {}), **({"caption": caption} if (caption := caption_of(data(story_row), speaker_colours(rows, story, data))) else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {}), **({"ambience_duck": duck} if (duck := str(data(story_row).get("ambience_ducking") or "").strip()) in ("light", "strong") else {})}, indent=2, ensure_ascii=False)
+        json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"size": list(size)} if formats.size_of(data(story_row)) else {}), **({"loudness": level} if (level := formats.loudness_of(data(story_row))) else {}), **({"caption": caption} if (caption := caption_of(data(story_row), speaker_colours(rows, story, data))) else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {}), **ending, **({"ambience_duck": duck} if (duck := str(data(story_row).get("ambience_ducking") or "").strip()) in ("light", "strong") else {})}, indent=2, ensure_ascii=False)
     )
     return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded, "skipped": skipped}
 
@@ -355,6 +362,26 @@ def transition_of(beat: dict, story: dict) -> dict:
     return {"transition": kind, **({"transition_seconds": seconds} if seconds else {})}
 
 
+def _move(beat: dict, scene: dict | None, story: dict) -> dict | None:
+    """A beat's camera move: the numbers written on it (a preset's, then changed: {"from": {x, y, zoom}, "to": {...}, "rock": {...}}), ahead of any
+    Camera choice; else the Camera it chose by name; else the preset of its scene, else the story's. None when nothing says, and for a beat that
+    shows a plain card: a plain colour has nothing for a camera to move across."""
+    if cards.is_plain(beat):
+        return None
+    if isinstance(beat.get("move"), dict) and beat["move"]:
+        return beat["move"]
+    return camera.move_of(camera.pick(beat, None, {})) or camera.move_of(camera.pick({}, scene, story))
+
+
+def end_transition_of(story: dict) -> dict:
+    """How the picture leaves the film: the story's `end_transition` (FADE OUT.), a fade down to black inside the last shot. It lasts as long as the
+    beds fade out (`end_fade_seconds`), so picture and sound go together; else the story's transition length; else the renderer's default."""
+    if str(story.get("end_transition") or "").strip().lower() != "fade":
+        return {}
+    seconds = _positive(story.get("end_fade_seconds")) or _positive(story.get("transition_seconds"))
+    return {"end_transition": "fade", **({"end_transition_seconds": seconds} if seconds else {})}
+
+
 def music_in(beat: dict, scene: dict) -> dict:
     """How the music is heard in this beat: its level (the beat's own, else its scene's; the story's level and the sound's are the bed's, see `music_of`)
     and how long it takes to ease to and from that level. Nothing when none is set, so the bed stays where the story put it."""
@@ -420,10 +447,11 @@ def _unit(value) -> float | None:
     return level if level is not None and 0 <= level <= 1 else None
 
 
-def _info_overlay(creds, out: Path, beat: dict, number, size: tuple[int, int]) -> dict | None:
+def _info_overlay(creds, out: Path, beat: dict, number, size: tuple[int, int], story: dict | None = None) -> dict | None:
     """The beat's info card (see cards.info_of), drawn as a picture and handed on as the beat's overlay: it replaces any overlay the beat, its scene
-    or the story has for this beat. It starts after `overlay_delay` (default 0.6 s) and fades with `overlay_fade` (default 0.35 s)."""
-    card = cards.info_of(beat)
+    or the story has for this beat. It starts after `overlay_delay` (default 0.6 s) and fades with `overlay_fade` (default 0.35 s). On a beat that
+    shows a plain card the same fields are the card's words, in the `story`'s card text colour with nothing dimmed (cards.plain_words)."""
+    card = cards.plain_words(beat, story or {}) if cards.is_plain(beat) else cards.info_of(beat)
     if card is None:
         return None
     icon = _fetch_asset(creds, card["icon"], out / "video" / "info" / f"b{number}-icon", "png") if card["icon"] else None

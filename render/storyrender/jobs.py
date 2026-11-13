@@ -13,7 +13,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import audio_convert, audio_measure, beat_import, build, captions, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, numbering, ready, script, validate, voices, waveform
+from . import audio_convert, audio_measure, beat_import, build, captions, cards, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, numbering, ready, script, validate, voices, waveform
 
 
 def story_of(job: dict) -> str:
@@ -785,7 +785,7 @@ def write_beat_details(job: dict, ctx: Context) -> dict:
         raise JobError("limit is a whole number of beats, like 20") from None
     rec = lambda e: {**(e.get("dataJson") or {}), "slug": e.get("slug"), "title": e.get("title"), "_row": e}  # noqa: E731
     beats = sorted((rec(e) for e in _all(ctx.creds, {"entry_type": "beat", "data": {"story": story}})), key=lambda b: numbering.order_key(b.get("number")))
-    waiting = [b for b in beats if str(b.get("picture") or "").strip() and not (str(b.get("expression") or "").strip() and str(b.get("focus") or "").strip())]
+    waiting = [b for b in beats if str(b.get("picture") or "").strip() and not cards.is_plain(b) and not (str(b.get("expression") or "").strip() and str(b.get("focus") or "").strip())]  # a plain card has no picture to describe
     if not waiting:
         return {"result": {"story": story, "written": 0}, "log": "Every beat that says what happens already has its expression and focus. Nothing to write."}
     todo = waiting[:limit]
@@ -1070,6 +1070,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
         raise JobError(
             f"found no beats in {where}: is this Fountain? A scene starts with a heading like `INT. KITCHEN - DAY`"
         )
+    fountain.mark_cards(rows, fplan)  # centred text is a plain card: the beat shows its words and no picture is described, so none is ever made
     ctx.note(f"read {len(rows)} beats from {where}")
     have = {e["slug"]: e for kind_ in ("beat", "speech-line") for e in ([] if fresh else _all(ctx.creds, {"entry_type": kind_, "data": {"story": story}}))}
     chapters_have = {e["slug"]: e for e in ([] if fresh else _all(ctx.creds, {"entry_type": "chapter", "data": {"story": story}}))}
@@ -1111,6 +1112,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
     people = {str((e.get("dataJson") or {}).get("speaker") or "").lower(): e for e in _all(ctx.creds, {"entry_type": "cast-member", "data": {"story": story}})}
     extra: list[tuple[str, tuple[str, str, dict]]] = []  # the characters and scenes the screenplay implies that this story does not have yet
     link: list[tuple[dict, dict]] = []  # records that are already there and lack something the Fountain gives them (a Scene, sounds, their own piece of the text), with what to add
+    hand_set: list[str] = []  # beats whose transition a person changed, so the script's line is not followed
     for _chapter, number, beat in fplan.rows():
         place = fountain.place_of(beat.get("place", ""))
         rec = have.get(f"{story}-beat-{number}")
@@ -1122,10 +1124,13 @@ def import_beats(job: dict, ctx: Context) -> dict:
             add["sounds"] = [{"sound": f"{story}-sound-{number}-{i}", "at": c.get("at", 0)} for i, c in enumerate(beat["sounds"], 1)]
         if rec and beat.get("fountain") and (not str(data.get("fountain") or "").strip() or (revision is not None and str(data.get("fountain")).strip() != beat["fountain"].strip())):
             add["fountain"] = beat["fountain"]  # a beat made before it kept its own piece of the text gets it; a revised text gives the beat it is the new piece (it is made from the text, not edited)
-        for key in ("transition", "transition_text"):
-            if rec and beat.get(key) and not data.get(key):
-                add[key] = beat[key]
         if rec:
+            followed, said = fountain.follow_transition(data, beat)
+            add.update(followed)
+            if said:
+                hand_set.append(f"beat {number} {said}")
+            if (seconds := fountain.transition_seconds(beat)) and not data.get("transition_seconds"):
+                add["transition_seconds"] = seconds
             add.update(_cast_for(story, beat, fplan.characters, people, data))
         if rec and add:
             link.append((rec, add))
@@ -1164,8 +1169,11 @@ def import_beats(job: dict, ctx: Context) -> dict:
         for slug, record_id, title, data in plan["updates"]:  # a PATCH replaces dataJson and renames by title unless the slug is named: send both whole
             body = json.dumps({"title": title, "slug": slug, "dataJson": data}).encode()
             marvin_api.request(ctx.creds, f"/api/platform/entries/{record_id}", method="PATCH", data=body, content_type="application/json")
+        refreshed = {slug: (title, data) for slug, _id, title, data in plan["updates"]}  # what a record holds after the updates above: the base of any further change to it
         for rec, add in link:  # a beat made before the scenes and sounds were: put it in its scene and place its sounds (a PATCH replaces dataJson, so send it whole)
-            payload = json.dumps({"title": rec.get("title"), "slug": rec["slug"], "dataJson": {**(rec.get("dataJson") or {}), **add}}).encode()
+            title, held = refreshed.get(rec["slug"], (rec.get("title"), rec.get("dataJson") or {}))
+            merged = {k: v for k, v in {**held, **add}.items() if not (v is None and k in add)}  # None takes a field out (a transition whose line is gone)
+            payload = json.dumps({"title": title, "slug": rec["slug"], "dataJson": merged}).encode()
             marvin_api.request(ctx.creds, f"/api/platform/entries/{rec['id']}", method="PATCH", data=payload, content_type="application/json")
         for rec, missing in fill:  # a chapter made before chapters held their own text and summary gets them; a PATCH replaces dataJson, so send it whole
             data = {**(rec.get("dataJson") or {}), **missing}
@@ -1204,6 +1212,8 @@ def import_beats(job: dict, ctx: Context) -> dict:
         note += f" {len(plan['sounds'])} sound cues were not imported (sounds are placed from the library): " + "; ".join(plan["sounds"][:5]) + ("…" if len(plan["sounds"]) > 5 else "")
     if plan["problems"]:
         note += " " + "; ".join(plan["problems"]) + "."
+    if hand_set:
+        note += " Transitions kept as they are: " + "; ".join(hand_set[:8]) + ("…" if len(hand_set) > 8 else ".")
     result = {
         "format": kind,
         "mode": "refresh" if refresh else "add",
@@ -1233,6 +1243,8 @@ def import_beats(job: dict, ctx: Context) -> dict:
     meta = fountain.title_page(screenplay)
     credits = ("credit", "author", "source", "draft_date", "contact", "copyright", "setting", "premise")  # the title page is the story's credits; a field already filled in is the person's and is kept
     filled = {k: meta[k] for k in credits if meta.get(k) and not str(story_data.get(k) or "").strip()}
+    settings = {**fountain.story_settings(meta), **({"end_transition": fplan.end_transition} if fplan.end_transition else {})}  # the cards and transitions the script says: the same rule
+    filled.update({k: v for k, v in settings.items() if not str(story_data.get(k) or "").strip()})
     if not str(story_data.get("setting") or "").strip() and "setting" not in filled and (said := _setting_from(fplan)):
         filled["setting"] = said  # nothing said where it is set: the first scene's synopsis, else its place; the person's own words replace it
     gaps = _story_gaps({**story_data, **filled})
@@ -1243,7 +1255,7 @@ def import_beats(job: dict, ctx: Context) -> dict:
     result["story_gaps"] = gaps
     if not dry:
         story_data.update(filled)
-        other = "\n".join(f"{k}: {v}" for k, v in meta.items() if k not in ("title", *credits))
+        other = "\n".join(f"{k}: {v}" for k, v in meta.items() if k not in ("title", *credits, *fountain.SETTING_KEYS))
         if other and not str(story_data.get("title_page_other") or "").strip():
             story_data["title_page_other"] = other
         if any(t == "sound" and r[0] == f"{story}-score" for t, r in extra) and not dry and not str(story_data.get("music") or "").strip():

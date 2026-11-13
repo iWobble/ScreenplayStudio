@@ -20,7 +20,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import delivery
+from . import cards, delivery
 from . import fountain as fountain_mod
 from . import lines as lines_of
 from . import numbering
@@ -95,6 +95,19 @@ def _heading_line(heading: str, tag: str, scene: dict, when: str = "") -> str:
     return f"{prefix} {heading}{time}{tag}" if prefix else f".{heading}{time}{tag}"
 
 
+def _card_words(d: dict) -> list[str]:
+    """The words a beat that shows a plain card puts on it: its title, then its sentence (either may be missing; a blank hold has neither)."""
+    return [x for x in (_clean(d.get("info_title")), _clean(d.get("info_text"))) if x] if cards.is_plain(d) else []
+
+
+def _shown(d: dict) -> str:
+    """What the production script says a beat shows: its picture, or for a plain card the words on it."""
+    if not cards.is_plain(d):
+        return _clean(d.get("picture"))
+    words = _card_words(d)
+    return "Card: " + " — ".join(words) if words else "A plain card, no words"
+
+
 def _sound_line(placed: dict, sounds: dict) -> str:
     sound = sounds.get(str(placed.get("sound")), {})
     name = _clean(sound.get("title") or _slug_words(str(placed.get("sound") or ""))) or "sound"
@@ -146,7 +159,7 @@ def fountain(records: dict) -> str:
                 if bed_now:
                     bed = sounds.get(str(bed_now), {})
                     out += [f"SFX: {_clean(bed.get('title') or _slug_words(str(bed_now))).lower()}, under the scene", ""]
-        picture = _clean(d.get("picture"))
+        picture = _shown(d)
         out += [f"{number} — {picture}" if picture else f"{number} —", ""]
         for placed in d.get("sounds") if isinstance(d.get("sounds"), list) else []:
             if isinstance(placed, dict) and placed.get("sound"):
@@ -166,6 +179,36 @@ def fountain(records: dict) -> str:
 def _say(label: str, value: object) -> str:
     text = _clean(value)
     return f"{label}: {text.rstrip('.')}." if text else ""
+
+
+_PLAIN_TRANSITION = {"cut": "CUT TO:", "fade": "FADE TO:", "dissolve": "DISSOLVE TO:"}
+"""The plain line for each kind: what is written for a beat whose transition was set by hand, so no longer means what its written line says."""
+
+
+def _transition_line(d: dict, first: bool) -> str:
+    """The transition line written before a beat: the writer's own, as it was, while the beat still plays as it says; the plain line for the beat's
+    kind once a person has changed it (or set one where the script had none). Words Fountain would not take for a transition are forced with `>`."""
+    text, kind = _clean(d.get("transition_text")), _clean(d.get("transition")).lower()
+    if kind in _PLAIN_TRANSITION and fountain_mod.transition_kind(text) != kind:
+        return "FADE IN:" if first and kind == "fade" else _PLAIN_TRANSITION[kind]
+    return text if not text or fountain_mod._is_transition(text) else f"> {text}"
+
+
+def _setting_lines(sd: dict) -> list[str]:
+    """The story's own settings for cards and transitions as title page entries (`fountain.story_settings` reads them back): they are not words of
+    the screenplay, so they stay out of its body."""
+    out: list[str] = []
+    for card, label in (("intro", "Title card"), ("outro", "End card")):
+        title, subtitle, seconds = _clean(sd.get(f"{card}_title")), _clean(sd.get(f"{card}_subtitle")), _seconds(sd.get(f"{card}_seconds"))
+        if title:
+            out.append(f"{label}: {title}" + (f" — {subtitle}" if subtitle else "") + (f" ({seconds})" if seconds else ""))
+    colours = [x for x in (_clean(sd.get("card_color")), f"text {_clean(sd.get('card_text_color'))}" if _clean(sd.get("card_text_color")) else "") if x]
+    if colours:
+        out.append("Card colours: " + ", ".join(colours))
+    kind = _clean(sd.get("transition")).lower()
+    if kind in _PLAIN_TRANSITION and kind != "cut":  # a cut is what a story with no setting does
+        out.append(f"Transition: {kind}" + (f" ({_seconds(sd.get('transition_seconds'))})" if _seconds(sd.get("transition_seconds")) else ""))
+    return out
 
 
 def fountain_complete(records: dict) -> str:
@@ -191,6 +234,7 @@ def fountain_complete(records: dict) -> str:
     seconds = _seconds(sd.get("target_seconds"))
     if seconds:
         out.append(f"Length: about {seconds}")
+    out += _setting_lines(sd)
     out.append("")
     for ch in records.get("characters", []):  # who is in it, and what is said of each (the cast, costume and props belong to the story, not to a scene)
         cd = _data(ch)
@@ -207,11 +251,12 @@ def fountain_complete(records: dict) -> str:
         scene_slug = d.get("scene")
         when = _clean(d.get("time_of_day"))
         new_scene = bool(scene_slug) and (scene_slug != scene_now or bool(when and when != time_now))  # a new place, or the same place at another time of day
+        transition = _transition_line(d, first)
         if not first:
             if not new_chapter:
                 out += ["===", ""]  # each beat is its own picture (a chapter heading starts one itself)
-            if _clean(d.get("transition_text")):
-                out += [_clean(d["transition_text"]), ""]  # the transition written before this beat (CUT TO:), as it was: above a chapter heading, which a transition below it would not leave one
+            if transition:
+                out += [transition, ""]  # the transition into this beat (CUT TO:): above a chapter heading, which a transition below it would not leave one
         if new_chapter:
             chapter_now = chapter_slug
             title = _clean((chapters.get(str(chapter_slug)) or {}).get("title") or _slug_words(str(chapter_slug)))
@@ -219,6 +264,8 @@ def fountain_complete(records: dict) -> str:
             summary = _clean(_data(chapters.get(str(chapter_slug)) or {}).get("summary"))
             if summary:
                 out += [f"= {summary}", ""]  # a section's synopsis, as the writer gave it
+        if first and transition:
+            out += [transition, ""]  # how the film opens (FADE IN:): below the first chapter's heading, since above it nothing would be in that chapter
         if new_scene:
             scene_now, time_now = scene_slug, when
             scene = scenes.get(str(scene_slug), {})
@@ -242,8 +289,13 @@ def fountain_complete(records: dict) -> str:
             picture = _without_lead_heading(picture, _clean(scene.get("title") or _slug_words(str(scene_slug)))).strip()
         if picture and (fountain_mod._is_scene(picture) or fountain_mod._is_transition(picture) or picture.isupper() or picture[0] in "@#=~>!."):
             picture = "!" + picture  # forced action: a picture that begins like a heading, a cue or a transition is still only a picture
-        out += [picture or f"Beat {number}.", ""]
-        facts = [x for x in (_say("Hold", f"{_seconds(d.get('hold_seconds'))}" if _seconds(d.get("hold_seconds")) else ""), _say("Focus", d.get("focus")), _say("Expression", d.get("expression")), _say("Camera", d.get("move")), _say("Cast", d.get("cast")), _say("Transition", d.get("transition")), _say("Note", d.get("notes")), _say("Info card", " — ".join(x for x in (_clean(d.get("info_label")), _clean(d.get("info_title")), _clean(d.get("info_text"))) if x))) if x]
+        words = _card_words(d)
+        if words:  # a plain card: its words centred, which is how a screenplay writes one (and how it is read back), in place of a picture
+            out += ["\n".join(f"> {w} <" for w in words), ""]
+        else:
+            out += [picture or f"Beat {number}.", ""]
+        blank = _say("Shows", cards.PLAIN_CARD) if cards.is_plain(d) and not words else ""  # a card with no words has nothing to centre: the note says it
+        facts = [x for x in (blank, _say("Hold", f"{_seconds(d.get('hold_seconds'))}" if _seconds(d.get("hold_seconds")) else ""), _say("Focus", d.get("focus")), _say("Expression", d.get("expression")), _say("Camera", d.get("move")), _say("Cast", d.get("cast")), _say("Transition", _seconds(d.get("transition_seconds"))), _say("Note", d.get("notes")), "" if words else _say("Info card", " — ".join(x for x in (_clean(d.get("info_label")), _clean(d.get("info_title")), _clean(d.get("info_text"))) if x))) if x]
         out += [f"[[Beat {number}. " + " ".join(facts) + "]]" if facts else f"[[Beat {number}.]]", ""]
         for placed in d.get("sounds") if isinstance(d.get("sounds"), list) else []:
             if isinstance(placed, dict) and placed.get("sound"):
@@ -276,6 +328,8 @@ def fountain_complete(records: dict) -> str:
             extra = [x for x in (None if inline else _say("Delivery", ld.get("delivery_text")), _say("Voice", ld.get("voice")), _say("Note", ld.get("take_notes"))) if x]
             out += ([f"[[{' '.join(extra)}]]"] if extra else []) + [""]
         first = False
+    if _clean(sd.get("end_transition")).lower() == "fade":
+        out += ["FADE OUT.", ""]  # after the last beat: how the film ends
     return "\n".join(out).rstrip("\n") + "\n"
 
 

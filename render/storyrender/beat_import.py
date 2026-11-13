@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 
 from . import beats, delivery
+from .cards import PLAIN_CARD
 
 _NUMBERED = re.compile(r"^\s*(?:[-*+]\s*)?(?:\*\*)?(\d{1,3}[a-z]*)(?:\*\*)?\s*(?:—|–|-|\.|:|\))\s*(.+?)\s*$", re.IGNORECASE)
 _STARTS_WITH_SPEAKER = re.compile(r"^[A-Z][A-Za-z]+:\s")
@@ -207,9 +208,13 @@ def import_plan(story: str, rows: list[dict], existing: "dict[str, dict] | set[s
             else:
                 plan["chapters"].append((chapter_slug, heading["title"], {"story": story, "number": heading["number"]}))
         first = row["lines"][0] if row["lines"] else None
-        title = f"Beat {number}: {_short((first['speaker'] + ': ' + first['text']) if first else _action_of(row['picture']) or 'held picture')}"
+        card = row.get("card")  # a plain card (centred text in the Fountain): its words, and no picture to describe or make
+        shown = (card["title"] or card["text"] or "plain card") if card else _action_of(row["picture"]) or "held picture"
+        title = f"Beat {number}: {_short((first['speaker'] + ': ' + first['text']) if first else shown)}"
         data = {"story": story, "number": number, "status": "draft"}
-        if row["picture"]:
+        if card:
+            data.update({"shows": PLAIN_CARD, **{key: card[word] for key, word in (("info_title", "title"), ("info_text", "text")) if card[word]}})
+        elif row["picture"]:
             data["picture"] = row["picture"]
         if row["hold"] and not row["lines"]:
             data["hold_seconds"] = row["hold"]  # only a silent beat lasts as long as its time; a spoken one lasts as long as its recording

@@ -140,7 +140,10 @@ def _blocks(text: str) -> tuple[list[Finding], dict[str, list[int]], list[tuple[
                 out.append(Finding(row, "error", "section-empty", "a # section line has no title", "write the chapter's title after the #: `# ACT I: THE WRECK`"))
             continue
         if first.startswith(">") and first.rstrip().endswith("<"):
-            out.append(Finding(row, "look", "centered", f"`{first}` is centered text, which is read as action", "write it as an action line (or `SUPER: …` for a title over the picture)"))
+            if all(F._CENTRED.match(ln.strip()) for ln in block):
+                out.append(Finding(row, "look", "centered", f"`{first}` is centered text standing alone, so it is a plain card: a beat of its own that shows the words on the story's card colour, with no picture made for it", "nothing if a card is what you want; to have the words in a picture instead, write them as an action line (or `SUPER: …` for a title over the picture)"))
+            else:
+                out.append(Finding(row, "look", "centered", f"`{first}` is centered text inside a paragraph, which is read as action", "write it as an action line, or give it a paragraph of its own to make it a plain card"))
             continue
         if F._is_scene(first) and not first.startswith("."):
             if _EMPTY_HEADING.match(first):
