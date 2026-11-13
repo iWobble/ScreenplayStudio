@@ -137,7 +137,7 @@ def _plain(text: str) -> str:
 
 def _plain_elements(els: list[dict]) -> list[dict]:
     for el in els:
-        if el["t"] == "action":
+        if el["t"] in ("action", "centred"):
             el["text"] = _plain(el["text"])
         elif el["t"] == "dialogue":
             el["text"] = _plain(el["text"])
@@ -147,6 +147,7 @@ def _plain_elements(els: list[dict]) -> list[dict]:
 
 _SYNOPSIS_LINE = re.compile(r"^=(?!=)")
 _EMPTY_CENTRE = re.compile(r"^>\s*<$")
+_CENTRED = re.compile(r"^>\s*(\S.*?)\s*<$")
 
 
 def _block_elements(block: list[str]) -> list[dict]:
@@ -175,6 +176,9 @@ def _block_content(block: list[str]) -> list[dict]:
         return out
     if len(block) == 1 and _is_transition(first):
         return [{"t": "transition", "text": first.lstrip(">").strip()}]
+    centred = [_CENTRED.match(ln.strip()) for ln in block]
+    if all(centred):  # centred text standing alone (`> THE END <`): words to show on a card, not a picture to describe; one line of it for each line written
+        return [{"t": "centred", "text": "\n".join(m.group(1) for m in centred)}]
     if len(block) >= 2 and _is_character(first):
         ext = _EXTENSION.search(_CONTD.sub("", first).lstrip("@").rstrip("^").strip())
         paren, speech = [], []
@@ -191,7 +195,7 @@ def _block_content(block: list[str]) -> list[dict]:
 
 
 def parse(text: str, *, lines: bool = False) -> list[dict]:
-    """The screenplay's elements in order: {t: scene|action|dialogue|transition|section, ...}. A title page and synopses are left out; a page break (`===`) is {t: break}.
+    """The screenplay's elements in order: {t: scene|action|dialogue|transition|section|centred, ...}. A title page and synopses are left out; a page break (`===`) is {t: break}.
     With `lines`, each element also says the line (counting from 0) of the text it starts on."""
     blocks = _blocks_at(_blank_comments(_normal(text)) if lines else _clean(text))  # to say where each element is, a note or boneyard keeps its line breaks
     if blocks and all(_ANY_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
@@ -252,7 +256,7 @@ def _lines_of(el: dict) -> int:
     t = el["t"]
     if t == "scene":
         return 2
-    if t in ("action", "lyrics"):
+    if t in ("action", "lyrics", "centred"):
         return math.ceil(len(el["text"]) / 60) + 1
     if t == "dialogue":
         return math.ceil(len(el["text"]) / 35) + 2 + len(el["paren"])
@@ -404,6 +408,8 @@ class Plan:
     places: dict = field(default_factory=dict)  # place slug -> the place the scene headings name (see `places_of`)
     ambience: dict = field(default_factory=dict)  # place slug -> the bed its beats' action asks for (see `ambience_of`)
     renumber: dict = field(default_factory=dict)  # (chapter number, position) -> the number a beat keeps in a revision (see `align`)
+    end_transition: str = ""  # `fade` when the transition written after the last beat (FADE OUT.) fades the film out; no beat follows it, so it is the story's
+    end_transition_text: str = ""  # that line, as written
 
     def number(self, chapter: Chapter, i: int) -> str:
         if (chapter.number, i) in self.renumber:  # a revision: a beat keeps the number of the beat it is, and a new one is numbered after the beat before it (1002a)
@@ -432,7 +438,10 @@ class Plan:
                 audio = f" {LINE_SEP} ".join(f"{ln['speaker']}: {cell(ln['text'])}" for ln in b["lines"]) or "No speech."
                 if b.get("sung"):  # sung words are a cue for the sound library (a song, a hummed tune), kept with the beat as a note
                     audio += f" {LINE_SEP} Sound: sung: " + cell(" / ".join(b["sung"]))
-                out.append(f"| {self.number(ch, i)} | — | {audio} | {cell(b['picture'])} |")
+                picture = cell(b["picture"])
+                if b.get("card") and b["notes"]:  # how the lines read over a card are said: a dash stands where the picture's words would be
+                    picture = f"— Delivery: {cell('; '.join(b['notes']))}."
+                out.append(f"| {self.number(ch, i)} | — | {audio} | {picture} |")
             out.append("")
         return "\n".join(out).rstrip() + "\n"
 
@@ -470,11 +479,36 @@ def transition_kind(text: str) -> "str | None":
     return next((kind for pattern, kind in _TRANSITION_KINDS if pattern.search(text)), None)
 
 
+def transition_seconds(beat: dict) -> "float | None":
+    """How long the transition into a beat lasts, when a note in its own piece of the text says so (`[[Transition: 1.2s.]]`), kept to what the beat's
+    field takes; None when no note does."""
+    found = _TRANSITION_NOTE.search(" ".join(re.findall(r"\[\[(.*?)\]\]", beat.get("fountain") or "", re.S)))
+    return min(TRANSITION_SECONDS[1], max(TRANSITION_SECONDS[0], float(found.group(1)))) if found else None
+
+
+def follow_transition(held: dict, beat: dict) -> "tuple[dict, str]":
+    """What an import changes of a beat that exists (`held`: its data) so that its transition follows the script (`beat`: as the Fountain now reads),
+    and what to say when it does not. A beat follows the script until someone changes it by hand: one whose `transition` is empty or means what its
+    `transition_text` says takes the script's line and its meaning (both go when the line is gone); one whose `transition` says something else was set
+    by hand and is kept (and said, when the script has a line there), unless the script has come to say the same. Returns ({field: value, or None to take it out}, a sentence or "")."""
+    kind, text = str(held.get("transition") or "").strip().lower(), str(held.get("transition_text") or "").strip()
+    new_kind, new_text = str(beat.get("transition") or ""), str(beat.get("transition_text") or "")
+    if not kind or kind == (transition_kind(text) or ""):
+        wanted = {"transition": new_kind, "transition_text": new_text}
+    elif kind == new_kind:
+        wanted = {"transition_text": new_text}  # the script says what the hand set: it follows the script again
+    else:
+        return {}, f"keeps its {kind} (set by hand); the script says {new_text}" if new_text else ""
+    now = {"transition": kind, "transition_text": text}
+    return {key: (value or None) for key, value in wanted.items() if value != now[key]}, ""
+
+
 def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" = None) -> list[dict]:
     """The beats of some scenes. `carry` is shared by all the chapters of a story: a transition written at the end of one chapter belongs to the
-    first beat of the next, and only the story's very first beat has nothing before it to change from."""
+    first beat of the next. The story's very first beat has nothing before it to change from, so its transition (FADE IN:) is how the film opens;
+    what is still held after the last beat (FADE OUT.) is how it ends (see `cut`)."""
     out: list[dict] = []
-    carry = carry if carry is not None else {"held": [], "seen": False}
+    carry = carry if carry is not None else {"held": []}
     carry.setdefault("held_at", None)
     held: list[str] = carry["held"]  # transition lines written since the last beat: they belong to the one that comes next
     scene_first = [True]
@@ -493,10 +527,9 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
         if held:
             beat["transition_text"] = held[-1]
             kind = transition_kind(held[-1])
-            if kind and carry["seen"]:  # the first beat has nothing before it to change from
+            if kind:
                 beat["transition"] = kind
             held.clear()
-        carry["seen"] = True
         out.append(beat)
         return beat
 
@@ -516,7 +549,7 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
                 fresh_scene = True
             elif t == "action":
                 # Action with no speech between it and the last action is the same picture (up to a paragraph's worth); after speech it is a new one.
-                if cur is not None and not cur["lines"] and (cur["picture"] == heading_words(scene.heading) or len(cur["picture"]) + len(el["text"]) <= PICTURE_CHARS):
+                if cur is not None and not cur.get("card") and not cur["lines"] and (cur["picture"] == heading_words(scene.heading) or len(cur["picture"]) + len(el["text"]) <= PICTURE_CHARS):
                     joined = f"{cur['picture']}. {el['text']}" if fresh_scene else f"{cur['picture']} {el['text']}"
                     cur["picture"] = joined
                 else:
@@ -537,6 +570,17 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
                 if cur is None:
                     cur = start(scene.heading or "Continues", ln, sc)
                 cur["sung"].append(el["text"])
+            elif t == "centred":
+                # Centred text standing alone is a card in the film (THREE YEARS LATER, THE END): a beat of its own that shows the words and has no picture.
+                title, _, more = el["text"].partition("\n")
+                if cur is not None and cur.get("card") and not cur["lines"]:  # more centred text right after: the card's sentence
+                    cur["card"]["text"] = " ".join(x for x in (cur["card"]["text"], el["text"].replace("\n", " ")) if x)
+                else:
+                    if not (fresh_scene and cur is not None and not cur["lines"] and not cur["sung"]):
+                        cur = start("", ln, sc)  # (right under a scene heading it is that scene's first beat: the heading alone is no picture)
+                    cur["picture"] = ""
+                    cur["card"] = {"title": title, "text": more.replace("\n", " ")}
+                fresh_scene = False
             elif t == "break":
                 cur = None
                 fresh_scene = False
@@ -546,7 +590,7 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
                     carry["held_at"] = ln
                 cur = None
     for b in out:
-        if b["notes"]:
+        if b["notes"] and not b.get("card"):  # (a card has no picture to carry the note: the sheet writes it in the empty cell, see `Plan.sheet`)
             b["picture"] = f"{b['picture']} Delivery: {'; '.join(b['notes'])}."
     return out
 
@@ -572,7 +616,10 @@ def age_state(age) -> str:
     return "young" if years < 30 else "mid" if years < 55 else "old"
 
 
+_SHOWS_NOTE = re.compile(r"\bShows:\s*Plain card\b", re.I)  # `[[Beat 06. Shows: Plain card.]]`: a card with no words has nothing to centre, so a note says it
 _HOLD_NOTE = re.compile(r"\bHold:\s*(\d+(?:\.\d+)?)\s*s\b")
+_TRANSITION_NOTE = re.compile(r"\bTransition:\s*(\d+(?:\.\d+)?)\s*s\b")  # `[[Transition: 1.2s.]]`: how long the transition into the beat lasts
+TRANSITION_SECONDS = (0.1, 5.0)  # the least and the most the beat's field takes
 _SENTENCES = re.compile(r"(?<=[.!?])\s+")
 _FEMALE = re.compile(r"\b(?:she|herself|woman|girl|lady|madam)\b", re.I)  # who a sentence is about, not whom it is done to: `frowns at her` says nothing of the one who frowns
 _MALE = re.compile(r"\b(?:he|himself|man|boy|gentleman|lad)\b", re.I)
@@ -640,6 +687,8 @@ VOICE_ONLY = re.compile(r"narrat|announcer|^voice$", re.I)
 def cast_of(beat: dict, characters: list[dict]) -> list[str]:
     """The handles of the characters in a beat's picture: those who speak in it, in the order they first speak, then those its action names (by name or
     cue, whole words), in the order they come. A narrator or announcer is a voice, not someone in frame, so is never in the cast."""
+    if beat.get("card"):
+        return []  # a plain card shows words, not people: whoever reads over it is not in frame
     seen: list[str] = []
     spoke = [str(ln.get("speaker") or "").lower() for ln in beat.get("lines") or []]
     text = str(beat.get("picture") or "")
@@ -937,7 +986,7 @@ def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: f
     explicit = [int(m.group(1)) for m in numbered if m]
     use_titles = len(explicit) == len(groups) and len(set(explicit)) == len(groups) and explicit == sorted(explicit)
     chapters = []
-    carry: dict = {"held": [], "seen": False, "held_at": None}
+    carry: dict = {"held": [], "held_at": None}
     for i, (title, group) in enumerate(groups, 1):
         m = numbered[i - 1]
         n = int(m.group(1)) if use_titles and m else i
@@ -972,8 +1021,17 @@ def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: f
             for ln in b["lines"]:
                 if ln.get("at") is not None:
                     ln["fountain"] = _piece(all_lines, ln["at"], ln.get("end") or stop)
+            if not b.get("card") and _SHOWS_NOTE.search(" ".join(re.findall(r"\[\[(.*?)\]\]", b["fountain"], re.S))):
+                b["card"] = {"title": "", "text": ""}  # a blank hold: a plain card with no words, said in a note
         front = _piece(all_lines, 0, flat[0]["at"]) if flat else ""
     plan = Plan(chapters, {r: h for r, h in names.items()}, warnings, source, single, front)
+    for ch in chapters:
+        for i, b in enumerate(ch.beats, 1):
+            if b.get("transition_text") and not b.get("transition"):
+                warnings.append(f"`{b['transition_text']}` before beat {plan.number(ch, i)} is not a cut, a fade or a dissolve, so it plays as a cut (the words are kept)")
+    if carry["held"]:  # a transition with no beat after it is how the film ends
+        plan.end_transition_text = carry["held"][-1]
+        plan.end_transition = "fade" if transition_kind(plan.end_transition_text) == "fade" else ""
     plan.characters = characters(elements, names)
     plan.places = places_of(scenes)
     avoid = {w for c in plan.characters for w in re.sub(r"[^A-Z0-9 ]", " ", f"{c['name']} {c['cue']}".upper()).split()}
@@ -1064,6 +1122,44 @@ def title_page(text: str) -> dict[str, str]:
     return entries
 
 
+SETTING_KEYS = ("title_card", "end_card", "card_colours", "transition")
+"""Title page entries that are settings of the story, not credits: the complete script writes them (`script.fountain_complete`) and `story_settings` reads them."""
+_CARD_ENTRY = re.compile(r"^(?P<title>.+?)(?:\s+—\s+(?P<subtitle>.+?))?(?:\s*\((?P<seconds>\d+(?:\.\d+)?)s\))?$")  # `TIDE — A Storyworld film (4s)`
+_CARD_COLOURS = re.compile(r"^(?P<card>#[0-9a-fA-F]{6})?,?\s*(?:text\s+(?P<text>#[0-9a-fA-F]{6}))?$")  # `#2b1b12, text #ffeedd`
+_TRANSITION_ENTRY = re.compile(r"^(?P<kind>cut|fade|dissolve)(?:\s*\((?P<seconds>\d+(?:\.\d+)?)s\))?$", re.I)  # `dissolve (0.8s)`
+MAX_CARD_SECONDS = 30.0
+
+
+def story_settings(meta: dict[str, str]) -> dict:
+    """The story fields a title page's own entries say (see `title_page`): `Title card:` and `End card:` (the words, a second line after a dash, a
+    length), `Card colours:` and `Transition:` (between beats, with its length). Only what is written and valid; anything else is left out."""
+    said = lambda key: " ".join(str(meta.get(key) or "").split())  # noqa: E731
+    out: dict = {}
+    for key, card in (("title_card", "intro"), ("end_card", "outro")):
+        if m := _CARD_ENTRY.match(said(key)):
+            out[f"{card}_title"] = m["title"]
+            if m["subtitle"]:
+                out[f"{card}_subtitle"] = m["subtitle"]
+            if m["seconds"] and 0 < float(m["seconds"]) <= MAX_CARD_SECONDS:
+                out[f"{card}_seconds"] = float(m["seconds"])
+    if said("card_colours") and (m := _CARD_COLOURS.match(said("card_colours"))):
+        out.update({field: m[group].lower() for field, group in (("card_color", "card"), ("card_text_color", "text")) if m[group]})
+    if m := _TRANSITION_ENTRY.match(said("transition")):
+        out["transition"] = m["kind"].lower()
+        if m["seconds"] and TRANSITION_SECONDS[0] <= float(m["seconds"]) <= TRANSITION_SECONDS[1]:
+            out["transition_seconds"] = float(m["seconds"])
+    return out
+
+
+def mark_cards(rows: list[dict], plan: Plan) -> None:
+    """Say which rows of the plan's sheet (read back by `beat_import`) are plain cards, with their words: the sheet has a picture cell and nothing for
+    a card, so a card travels beside it (`row["card"]`: {title, text}) and `beat_import.import_plan` makes the beat from that."""
+    cards = {number: beat["card"] for _chapter, number, beat in plan.rows() if beat.get("card")}
+    for row in rows:
+        if row["beat"] in cards:
+            row["card"] = cards[row["beat"]]
+
+
 def attach_source(imp: dict, plan: Plan, story: str) -> None:
     """Give the records an import plan is about to make (`beat_import.import_plan`) what the screenplay said that the beat sheet cannot carry: each
     beat's own text as written (`fountain`) and the transition written before it, each line's own text (`fountain`) and whether it is spoken over
@@ -1082,6 +1178,8 @@ def attach_source(imp: dict, plan: Plan, story: str) -> None:
         held = _HOLD_NOTE.search(" ".join(re.findall(r"\[\[(.*?)\]\]", beat.get("fountain") or "", re.S))) if beat else None
         if held and not data.get("hold_seconds"):  # a note on the beat (`[[Hold: 6s.]]`) says how long its picture stays when nobody speaks
             data["hold_seconds"] = float(held.group(1))
+        if beat and (seconds := transition_seconds(beat)) and not data.get("transition_seconds"):
+            data["transition_seconds"] = seconds
         if beat and beat.get("sounds"):
             data["sounds"] = [{"sound": f"{story}-sound-{data.get('number')}-{i}", "at": c.get("at", 0)} for i, c in enumerate(beat["sounds"], 1)]
     for slug, _title, data in imp["lines"]:

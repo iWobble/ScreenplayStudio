@@ -6,7 +6,9 @@ made (or makes it plainly wrong), `look` is worth a glance. `report` writes them
 
 from collections import Counter, defaultdict
 
-from . import numbering
+from . import cards, numbering
+from .manifest import DEFAULT_TRANSITION_SECONDS, LEAD, TAIL
+from .marvin_pull import end_transition_of, transition_of
 
 SHOWN = 6  # names listed before "and N more"
 
@@ -98,23 +100,30 @@ def check(
             voice_problem(_text(ln, "voice"), f"a line by {_text(ln, 'speaker') or 'someone'}")
             break
 
-    # Beats: the cast of each picture
-    nobody = sorted((_text(b, "number") for b in beats if not _slugs(b.get("cast"))), key=numbering.order_key)
+    # Beats: the cast of each picture (a beat that shows a plain card has no picture: nobody is in it and nothing is described)
+    pictures = [b for b in beats if not cards.is_plain(b)]
+    nobody = sorted((_text(b, "number") for b in pictures if not _slugs(b.get("cast"))), key=numbering.order_key)
     if nobody:
         look("Beats", f"{len(nobody)} beat{'s' if len(nobody) != 1 else ''} with nobody in the cast (the picture shows no one): {_names(nobody)}")
     unknown = sorted({s for b in beats for s in _slugs(b.get("cast")) if s not in by_slug})
     if unknown:
         fix("Beats", f"the cast names {_names(unknown)}, who {'is' if len(unknown) == 1 else 'are'} not a Character of this story")
     for key, label in (("expression", "what the people are doing (expression)"), ("focus", "the one thing the picture is about (focus)")):
-        n = sum(1 for b in beats if not _text(b, key))
-        if n and n == len(beats):
+        n = sum(1 for b in pictures if not _text(b, key))
+        if n and n == len(pictures):
             look("Beats", f"no beat says {label}: the picture is made from the beat's words alone")
         elif n:
-            look("Beats", f"{n} of {len(beats)} beats do not say {label}")
+            look("Beats", f"{n} of {len(pictures)} beats do not say {label}")
     scene_slugs = {_text(s, "slug") for s in scenes}
     lost = sorted((_text(b, "number") for b in beats if _text(b, "scene") and _text(b, "scene") not in scene_slugs), key=numbering.order_key)
     if lost:
         look("Beats", f"{len(lost)} beat{'s' if len(lost) != 1 else ''} name a scene that is not there: {_names(lost)}")
+
+    covered = _fades_over_speech(story, beats, lines)
+    if covered:
+        one = len(covered) == 1
+        look("Beats", f"{len(covered)} fade{' is' if one else 's are'} longer than the quiet at {'its' if one else 'their'} cut, so someone speaks over black: {_names(covered)}. "
+             "Shorten the fade, or give the beat before it more tail and the beat after it more lead-in")  # fmt: skip
 
     # Scenes
     bare = [_text(s, "place") or _text(s, "slug") for s in scenes if not _text(s, "set_dressing")]
@@ -138,6 +147,39 @@ def check(
     if plan:
         _voice_plan(plan, characters, lines, voices, fix, look)
     return out
+
+
+def _fades_over_speech(story: dict, beats: list[dict], lines: list[dict]) -> list[str]:
+    """The fades that reach into speech, each named by its beat. A fade goes to black inside the two beats around a cut, half in each, so each half
+    must fit in the quiet there: the tail of the beat it leaves and the lead-in of the beat it enters. The film's own two ends are not shared: the
+    first beat's fade up (FADE IN:) and the fade out after the last beat take their whole length from that one beat, unless a card stands there.
+    The same rules as the pull's (`transition_of`, `end_transition_of`), so what is said here is what the render does."""
+    ordered = sorted(beats, key=lambda b: numbering.order_key(_text(b, "number")))
+    spoken = {_text(ln, "beat") for ln in lines}
+
+    def quiet(beat: dict, field: str, default: float) -> float:
+        if _text(beat, "slug") not in spoken:
+            return float("inf")  # nobody speaks in it: all of it is quiet
+        try:
+            return float(beat[field]) if beat.get(field) not in (None, "") else default
+        except (TypeError, ValueError):
+            return default
+
+    found: list[str] = []
+    for k, beat in enumerate(ordered):
+        opens = k == 0 and cards.card_of(story, "intro") is None
+        way_in = transition_of(beat, {"transition_seconds": story.get("transition_seconds")} if opens else story)
+        if way_in.get("transition") != "fade" and not (opens and way_in):  # (the first beat's dissolve has nothing to melt from: it is a fade up too)
+            continue
+        seconds = way_in.get("transition_seconds") or DEFAULT_TRANSITION_SECONDS
+        share = seconds if opens else seconds / 2
+        if share > quiet(beat, "lead_seconds", LEAD) or (k and share > quiet(ordered[k - 1], "tail_seconds", TAIL)):
+            found.append(f"into beat {_text(beat, 'number')}")
+    ending = end_transition_of(story)
+    if ordered and ending and cards.card_of(story, "outro") is None:
+        if (ending.get("end_transition_seconds") or DEFAULT_TRANSITION_SECONDS) > quiet(ordered[-1], "tail_seconds", TAIL):
+            found.append(f"out of beat {_text(ordered[-1], 'number')} (the end of the film)")
+    return found
 
 
 def _voice_plan(plan: dict, characters: list[dict], lines: list[dict], voices: dict[str, dict], fix, look) -> None:

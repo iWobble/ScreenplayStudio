@@ -24,6 +24,8 @@ Copyright: (c) 2026 A Writer.
 
 ## SCENE 1: THE LAMP ROOM
 
+FADE IN:
+
 INT. LAMP ROOM - NIGHT #1#
 
 MARA (50s), a lighthouse keeper in a salt-stained oilskin, carries a brass lantern. She has a scar across one eyebrow.
@@ -100,6 +102,8 @@ def _facts(text):
         "pictures": [re.sub(r"\s+", " ", b["picture"]) for _n, b in rows],
         "holds": [b.get("hold") for _n, b in rows],
         "transitions": [b.get("transition_text") for _n, b in rows],
+        "kinds": [b.get("transition") for _n, b in rows],
+        "ending": (plan.end_transition, plan.end_transition_text),
         "headings": [fountain.place_of(b.get("place", "")) for _n, b in rows],
         "sounds": [[(s.get("title"), s.get("at")) for s in b.get("sounds") or []] for _n, b in rows],
         "sung": [[w.rstrip(" ~").strip() for w in b.get("sung") or []] for _n, b in rows],
@@ -112,6 +116,7 @@ def test_the_most_detailed_screenplay_comes_back_out_as_itself(casting):
     fake, ctx = casting(MAX_TEXT)
     run(ctx)
     fake.story["dataJson"].update(fountain.title_page(MAX_TEXT))  # what the import fills the story's credits with
+    fake.story["dataJson"].update(next(body["dataJson"] for slug, body in fake.patched if slug == "e0"))  # and what it wrote on the story (how the film ends)
     exported = script.stamp_revision(script.fountain_complete(_records_from(fake)), fake.story)
     before, after = _facts(MAX_TEXT), _facts(exported)
     for key in before:

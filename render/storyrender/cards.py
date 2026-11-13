@@ -19,6 +19,13 @@ FONT = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 _HEX = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
 
+def rgb(value: object, fallback: str) -> tuple[int, int, int]:
+    """A hex colour as the three numbers Pillow draws with; the fallback for anything that is not six hex digits."""
+    m = _HEX.match(str(value or "").strip())
+    digits = m.group(1) if m else fallback.lstrip("#")
+    return int(digits[0:2], 16), int(digits[2:4], 16), int(digits[4:6], 16)
+
+
 def colour(value: object, fallback: str) -> str:
     """A hex colour as ffmpeg writes it (0xRRGGBB); the fallback for anything that is not six hex digits."""
     m = _HEX.match(str(value or "").strip())
@@ -149,7 +156,8 @@ def _wrapped(draw, text: str, font, width: int) -> list[str]:
 
 def make_info(card: dict, path: Path, size: tuple[int, int] = SIZE, icon: Path | None = None) -> Path:
     """Draw the info card as a transparent PNG the size of the frame: a dimmed backdrop, with the icon, label, title and sentence centred in the
-    middle of the picture."""
+    middle of the picture. A card with a `text_colour` (the words of a plain card, see `plain_words`) is drawn in that one colour with no shadow:
+    it sits on a plain colour, not on a picture it has to stand out from."""
     from PIL import Image, ImageDraw
 
     width, height = size
@@ -159,7 +167,8 @@ def make_info(card: dict, path: Path, size: tuple[int, int] = SIZE, icon: Path |
     box = round(min(width * 0.84, unit * 0.92))
     label_font, title_font, text_font = _font("bold", round(unit * 0.036)), _font("bold", round(unit * 0.078)), _font("regular", round(unit * 0.044))
     parts: list[tuple[str, object, tuple[int, int, int], list[str]]] = []
-    for kind, text, font, colour in (("label", card["label"].upper(), label_font, INFO_LABEL_COLOUR), ("title", card["title"], title_font, INFO_TITLE_COLOUR), ("text", card["text"], text_font, INFO_TEXT_COLOUR)):
+    own = card.get("text_colour")
+    for kind, text, font, colour in (("label", card["label"].upper(), label_font, own or INFO_LABEL_COLOUR), ("title", card["title"], title_font, own or INFO_TITLE_COLOUR), ("text", card["text"], text_font, own or INFO_TEXT_COLOUR)):
         if text:
             parts.append((kind, font, colour, _wrapped(draw, text, font, box)))
     gap = round(unit * 0.03)
@@ -179,11 +188,41 @@ def make_info(card: dict, path: Path, size: tuple[int, int] = SIZE, icon: Path |
         y += badge.height + gap * 2
     for kind, font, colour, lines in parts:
         for line in lines:
-            if line:
+            if line and not own:
                 draw.text((width / 2, y + max(2, unit * 0.004)), line, font=font, fill=(0, 0, 0, 170), anchor="ma")  # a soft shadow keeps the text readable on a light still
+            if line:
                 draw.text((width / 2, y), line, font=font, fill=(*colour, 255), anchor="ma")
             y += step[kind]
         y += gap
     path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path)
     return path
+
+
+# --- the plain card: a beat that shows the story's card colour in place of a picture -----------------------------------------------------------
+# A beat whose `shows` says so is a card in the film (THREE YEARS LATER, a chapter's title, THE END): the story's `card_color` fills the frame and the
+# beat's card words (the `info_*` fields) sit on it in the story's `card_text_color`; with no words it is a blank hold. It is a beat like any other, so
+# its length, lines, sounds, chapter and transition need no rule of their own, and no still is ever made for it.
+
+PLAIN_CARD = "Plain card"
+"""What a beat's `shows` field holds for a plain card: the option's own text in the package's beat form, which the stills workflows test."""
+
+
+def is_plain(beat: dict) -> bool:
+    """Whether the beat shows a plain card in place of a picture."""
+    return str(beat.get("shows") or "").strip().lower() == PLAIN_CARD.lower()
+
+
+def make_plain(colour_value: object, path: Path, size: tuple[int, int] = SIZE) -> Path:
+    """The card's picture: the colour alone, the size of the frame (near black when the story names none)."""
+    from PIL import Image
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, rgb(colour_value, DEFAULT_COLOUR)).save(path)
+    return path
+
+
+def plain_words(beat: dict, story: dict) -> dict | None:
+    """The words on a plain card, as `make_info` draws them: the beat's card words in the story's text colour, nothing dimmed. None for a card with no words."""
+    card = info_of(beat)
+    return None if card is None else {**card, "dim": 0.0, "text_colour": rgb(story.get("card_text_color"), DEFAULT_TEXT_COLOUR)}

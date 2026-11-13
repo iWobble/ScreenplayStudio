@@ -481,3 +481,21 @@ def test_a_beats_reference_pictures_are_an_asset_picker_and_the_still_workflow_p
     assert beat["references"]["group"] == "The shot"
     text = json.dumps(blueprints["screenplay-take-still"]["payload"])
     assert '"references": ["${entry.data.references}", "${steps.scene.output.rows.0.data.anchor}"]' in text  # a picker's list, then the anchor (a comma string would split the list's own text)
+
+
+def test_the_story_says_how_the_film_ends_with_plain_text_options_and_no_default():
+    made = json.loads(PACKAGE.read_text(encoding="utf-8"))
+    fields = next(b for b in made["blueprints"] if b["kind"] == "entry_type" and b["slug"] == "story")["payload"]["schema_json"]["fields"]
+    keys = [f["key"] for f in fields]
+    ending = fields[keys.index("end_transition")]
+    assert ending["type"] == "select" and ending["options"] == ["cut", "fade"] and "defaultValue" not in ending  # empty until FADE OUT. or a person sets it
+    assert keys.index("end_transition") == keys.index("transition_seconds") + 1 and ending["group"] == fields[keys.index("transition")]["group"]
+
+
+def test_the_playbook_in_the_package_is_the_skill_as_it_is_written():
+    made = json.loads(PACKAGE.read_text(encoding="utf-8"))
+    playbook = next(b for b in made["blueprints"] if b["kind"] == "playbook" and b["slug"] == "screenplay-studio")["payload"]
+    skill = PACKAGE.parents[1] / "skills" / "screenplay-studio"
+    assert playbook["skill_md"] == (skill / "SKILL.md").read_text(encoding="utf-8")
+    on_disk = {p.relative_to(skill).as_posix(): p.read_text(encoding="utf-8") for p in sorted(skill.rglob("*.md")) if p.name != "SKILL.md"}
+    assert playbook["files"] == on_disk  # run scripts/build_playbooks.py after editing the skill: an agent reads the package's copy

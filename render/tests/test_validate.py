@@ -139,3 +139,10 @@ def test_the_command_line_check_exits_with_the_answer(tmp_path, capsys):
     assert cli.main(["check", str(good)]) == 0 and "Nothing to fix" in capsys.readouterr().out
     cli.main(["check", str(bad), "--json"])
     assert json.loads(capsys.readouterr().out)["errors"] == 7
+
+
+def test_centred_text_is_said_to_be_a_card_when_it_stands_alone_and_action_inside_a_paragraph():
+    alone = codes("INT. ROOM - DAY\n\n> THE END <\n> A film <\n")["centered"]
+    assert alone.level == "look" and "plain card" in alone.problem and "no picture" in alone.problem
+    inside = codes("INT. ROOM - DAY\n\n> KEEP OUT <\nThe door creaks.\n")["centered"]
+    assert inside.level == "look" and "read as action" in inside.problem and "plain card" not in inside.problem

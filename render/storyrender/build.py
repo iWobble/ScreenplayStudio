@@ -136,11 +136,15 @@ class Edges:
     blend_out: int = 0
 
 
-def edges_of(timeline: Timeline, fps: int) -> list[Edges]:
-    """Per shot, the effect of the transitions around it. A transition is *into* a shot, from the one before, so the first shot's is ignored, and
-    one never takes more than half of either shot. Cuts do nothing; a fade splits its time over the two shots; a dissolve takes half from each."""
+def edges_of(timeline: Timeline, fps: int, end_fade: float = 0.0) -> list[Edges]:
+    """Per shot, the effect of the transitions around it. A transition is *into* a shot, from the one before, and one never takes more than half of
+    either shot. Cuts do nothing; a fade splits its time over the two shots; a dissolve takes half from each. Nothing comes before the first shot, so
+    its transition (FADE IN:) is a fade up from black over its whole length; `end_fade` seconds is the last shot's fade down to black (FADE OUT.)."""
     shots = timeline.shots
     edges = [Edges() for _ in shots]
+    opening = shots[0].shot if shots else None
+    if opening is not None and opening.transition != "cut" and opening.transition_seconds > 0:
+        edges[0].dip_in = max(0, min(round(opening.transition_seconds * fps), (clip_frames(shots[0], fps) - 1) // 2))
     for k in range(1, len(shots)):
         shot = shots[k].shot
         if shot.transition == "cut" or shot.transition_seconds <= 0:
@@ -153,6 +157,9 @@ def edges_of(timeline: Timeline, fps: int) -> list[Edges]:
             edges[k - 1].dip_out, edges[k].dip_in = half, half
         else:
             edges[k - 1].blend_out, edges[k].blend_in = half, half
+    if shots and end_fade > 0:
+        left = clip_frames(shots[-1], fps) - 1 - edges[-1].dip_in - edges[-1].blend_in  # what the way into the last shot has not taken, less a frame
+        edges[-1].dip_out = max(0, min(round(end_fade * fps), left))
     return edges
 
 
@@ -394,7 +401,7 @@ def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | N
         work = Path(keep) if keep else Path(tmp)
         work.mkdir(parents=True, exist_ok=True)
         clips, wavs = [], []
-        edges = edges_of(timeline, fps)  # how the transitions treat each shot's ends (all cuts: nothing)
+        edges = edges_of(timeline, fps, manifest.end_transition_seconds if manifest.end_transition == "fade" else 0.0)  # how the transitions treat each shot's ends (all cuts: nothing)
         for i, planned in enumerate(timeline.shots):
             clip, wav = work / f"clip{i:03d}.mp4", work / f"narration{i:03d}.wav"
             _clip(planned, size, fps, clip, draft=draft, edge=edges[i])

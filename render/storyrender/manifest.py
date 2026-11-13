@@ -97,6 +97,7 @@ class Ambience:
 
 
 TRANSITIONS = ("cut", "fade", "dissolve")
+END_TRANSITIONS = ("cut", "fade")
 MAX_TRANSITION = 5.0
 DEFAULT_TRANSITION_SECONDS = 0.5
 PLAYS = ("", "loop", "once")
@@ -155,7 +156,7 @@ class Shot:
     transition: str = "cut"
     """How the film gets into this shot from the one before: cut, fade (down to black and up) or dissolve (a cross-fade). Never changes a length."""
     transition_seconds: float = 0.0
-    """The music's level while this shot plays (0 = silence), when it differs from the story's; None keeps the story's."""
+    """How long that fade or dissolve lasts, taken from the two shots around the cut (0 for a cut). On the first shot it is the fade up from black."""
     chapter: str | None = None
     """The id of the chapter this shot belongs to (a story is cut into chapters; see `chapters.py`)."""
 
@@ -186,6 +187,9 @@ class Manifest:
     """Seconds every bed (the ambience that runs to the end and the music) fades out over at the end of the film; None leaves each sound's own."""
     ambience_duck: str = ""
     """light or strong: every ambience bed goes down under each spoken line, as the music's duck does; empty leaves the beds where they are."""
+    end_transition: str = "cut"
+    """How the picture leaves the last shot: cut, or fade (down to black inside that shot, `end_transition_seconds` long). Never changes a length."""
+    end_transition_seconds: float = 0.0
     chapters: list[Chapter] = field(default_factory=list)
     """The story's chapters in order; a shot names one by id. Empty for a story that is not cut into chapters."""
 
@@ -407,6 +411,13 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
     ambience_duck = str(raw.get("ambience_duck") or "")
     if ambience_duck and ambience_duck not in DUCKS:
         raise ManifestError(f"ambience_duck is {' or '.join(DUCKS)} (got {ambience_duck})")
+    end_transition, end_transition_seconds = str(raw.get("end_transition") or "cut"), 0.0
+    if end_transition not in END_TRANSITIONS:
+        raise ManifestError(f"end_transition is {' or '.join(END_TRANSITIONS)} (got {end_transition})")
+    if end_transition != "cut":
+        end_transition_seconds = float(raw.get("end_transition_seconds") or DEFAULT_TRANSITION_SECONDS)
+        if not 0 < end_transition_seconds <= MAX_END_FADE:  # as long as the beds may fade: the picture goes with them
+            raise ManifestError(f"end_transition_seconds is more than 0 and at most {MAX_END_FADE:g} (got {end_transition_seconds:g})")
     return Manifest(
         title=str(raw.get("title") or path.stem),
         size=(int(size[0]), int(size[1])),
@@ -421,6 +432,8 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         end_hold=float(raw.get("end_hold") or 0),
         start_fade=start_fade if isinstance(start_fade, float) else None,
         end_fade=end_fade if isinstance(end_fade, float) else None,
+        end_transition=end_transition,
+        end_transition_seconds=end_transition_seconds,
         chapters=[Chapter(str(c["id"]), str(c.get("title") or c["id"])) for c in raw.get("chapters") or [] if isinstance(c, dict) and c.get("id")],
     )
 
