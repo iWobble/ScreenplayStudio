@@ -44,3 +44,23 @@ def script_times(script: str, heard: list[dict]) -> list[dict]:
             clock += span
         i = j
     return [{"text": w, "start": round(known[n][0], 3), "end": round(known[n][1], 3)} for n, w in enumerate(words)]  # type: ignore[index]
+
+
+def match_percent(script: str, heard: list[dict]) -> int:
+    """How much of what was written was said, as a whole percent (the share of written words found in the heard ones, in order). 100 when they agree;
+    low when the take says something else or stops short."""
+    a = [_norm(w) for w in script.split() if _norm(w)]
+    b = [_norm(h["text"]) for h in heard if _norm(h["text"])]
+    if not a or not b:
+        return 0
+    found = sum(block.size for block in SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks())
+    return round(100 * found / len(a))
+
+
+def words_per_minute(heard: list[dict]) -> int:
+    """The pace of the voice: heard words over the time from the first word's start to the last word's end. 0 when under half a second was spoken."""
+    heard = [h for h in heard if _norm(h["text"])]
+    if not heard:
+        return 0
+    span = float(heard[-1]["end"]) - float(heard[0]["start"])
+    return round(60 * len(heard) / span) if span >= 0.5 else 0

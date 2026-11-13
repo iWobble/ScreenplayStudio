@@ -302,6 +302,20 @@ def test_a_take_is_drawn_as_a_waveform_on_the_timeline_from_peaks_the_worker_wri
     assert flow["actions"][0]["data"]["kind"] == "make-waveform" and flow["actions"][0]["data"]["args"]["wave_field"] == "waveform"
 
 
+def test_a_take_keeps_what_the_worker_hears_in_it_a_new_take_is_described_and_music_fades_show_as_a_slope():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    take = {f["key"]: f for f in blueprints["take"]["payload"]["schema_json"]["fields"]}
+    heard = ("format", "level_lufs", "rms_db", "peak_db", "noise_floor_db", "clipped", "lead_silence", "tail_silence", "heard", "language", "words_per_minute", "match")
+    assert all(take[k]["readOnly"] is True and take[k]["group"] == "What the worker heard" for k in heard)
+    assert "defaultValue" not in take["source"]  # empty until the file says where it came from; the makers of a generated take say so themselves
+    flow = blueprints["screenplay-describe-take"]["payload"]["definition"]
+    assert {"field": "entry.data.audio", "op": "exists"} in flow["conditions"] and flow["actions"][0]["data"]["kind"] == "describe-audio"
+    words = blueprints["screenplay-time-words"]["payload"]["definition"]
+    assert {"field": "entry.data.source", "op": "neq", "value": "generated"} in words["conditions"] and words["actions"][0]["data"]["args"]["report"] == "yes"
+    bed = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}["music"]["bed"]
+    assert (bed["ramp"], bed["item_ramp_in"], bed["item_ramp_out"]) == (0.5, "music_fade_in", "music_fade_out")
+
+
 def test_a_lines_volume_and_muffling_are_its_own_fields_the_take_points_back_to_its_line_and_the_timeline_plays_the_level():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     line = {f["key"]: f for f in blueprints["speech-line"]["payload"]["schema_json"]["fields"]}

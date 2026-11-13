@@ -121,6 +121,7 @@ def heard_words(model, audio: Path, *, language: str | None = None, hotwords: st
         "field": {"type": "string", "required": False, "description": "the field holding the recording (audio by default)"},
         "language": {"type": "string", "required": False, "description": "the spoken language as a code, e.g. en; empty to detect it"},
         "model": {"type": "string", "required": False, "description": "tiny, base, small, medium or large-v3 (default small)"},
+        "report": {"type": "string", "required": False, "description": "yes to also write what was heard on the entry: the words (heard), the language, the pace (words_per_minute) and how much of the written text was said (match, percent)"},
     },
     produces=[],
     needs=["faster-whisper"],
@@ -153,6 +154,13 @@ def time_words(job: dict, ctx: Context) -> dict:
         raise JobError(f"no speech was heard in “{record.get('name') or held}”")
     merged = {**(record.get("metadataJson") or {}), "words": words, "words_from": "faster-whisper", "words_language": language}
     marvin_api.request(ctx.creds, f"/api/platform/assets/{record.get('id') or held}", method="PATCH", data=json.dumps({"metadata": merged}).encode(), content_type="application/json")
-    note = f"{len(words)} words timed in {record.get('name') or held}" + ("" if script else " (heard, as the take has no written text)")
+    told = ""
+    if str(args.get("report") or "").strip().lower() in ("yes", "true", "1"):
+        report = {"heard": " ".join(str(h["text"]) for h in heard).strip(), "language": language, "words_per_minute": align.words_per_minute(heard)}
+        if script:
+            report["match"] = align.match_percent(script, heard)
+        marvin_api.update_entry(ctx.creds, slug, report)
+        told = f"; {report['words_per_minute']} words a minute" + (f", {report['match']}% of the written words said" if "match" in report else "")
+    note = f"{len(words)} words timed in {record.get('name') or held}" + ("" if script else " (heard, as the take has no written text)") + told
     ctx.note(note)
     return {"result": {"entry": slug, "asset": record.get("id") or held, "words": len(words), "language": language, "from_text": bool(script)}, "log": note + "."}
