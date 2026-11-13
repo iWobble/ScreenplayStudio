@@ -416,3 +416,9 @@ def test_a_beats_lines_can_be_numbered_and_set_aside_added_from_the_beat_and_the
     gallery = [s for s in wizard["steps"] if s["id"] == "lines"][0]
     assert gallery["entry_type"] == "speech-line" and gallery["parent_field"] == "beat" and gallery["add"]["data"]["story"] == "${story}"
     assert {"speaker", "text"} <= set(gallery["add"]["fields"])  # a line needs a speaker and words
+
+
+def test_the_camera_lane_draws_the_moves_that_carry_on_across_a_cut_as_one_block():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    marks = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}["camera"]["marks"]
+    assert set(marks["merge"]) == {"Still", "Rocking", "Heavy rocking"}  # a rocking runs on the film's clock; a push in starts afresh at each beat, so it stays a chip each
