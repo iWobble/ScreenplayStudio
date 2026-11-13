@@ -452,3 +452,12 @@ def test_the_camera_lane_draws_the_moves_that_carry_on_across_a_cut_as_one_block
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     marks = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}["camera"]["marks"]
     assert set(marks["merge"]) == {"Still", "Rocking", "Heavy rocking"}  # a rocking runs on the film's clock; a push in starts afresh at each beat, so it stays a chip each
+
+
+def test_a_beats_reference_pictures_are_an_asset_picker_and_the_still_workflow_passes_them_as_a_list_with_the_scene_s_anchor():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    beat = {f["key"]: f for f in blueprints["beat"]["payload"]["schema_json"]["fields"]}
+    assert beat["references"]["type"] == "asset-list" and beat["references"]["role"] == "reference" and beat["references"]["accept"] == "image/*"
+    assert beat["references"]["group"] == "The shot"
+    text = json.dumps(blueprints["screenplay-take-still"]["payload"])
+    assert '"references": ["${entry.data.references}", "${steps.scene.output.rows.0.data.anchor}"]' in text  # a picker's list, then the anchor (a comma string would split the list's own text)
