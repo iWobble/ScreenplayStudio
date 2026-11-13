@@ -1282,9 +1282,19 @@ def test_running_the_import_again_adds_the_masters_of_the_cast_and_keeps_what_wa
     run(ctx2)
     put = {p[0]: p[1]["dataJson"] for p in again.patched if p[0] != "e0"}
     one = put["id-s-beat-01"]
-    assert one["cast"].split(",")[:2] == ["s-valerie", "s-chet"] and one["references"].split(",") == ["m-val", "m-chet"]
+    assert one["cast"].split(",")[:2] == ["s-valerie", "s-chet"] and one["references"] == ["m-val", "m-chet"]  # a list: the field is an asset picker
     if mine["slug"] in {b["slug"] for b in beats.values()} and f"id-{mine['slug']}" in put:
         assert put[f"id-{mine['slug']}"]["cast"] == "s-chet" and put[f"id-{mine['slug']}"]["references"] == "a-place-picture"
+
+
+def test_the_masters_follow_the_pictures_a_beat_already_lists_whether_it_holds_a_list_or_older_comma_text():
+    people = {"valerie": {"slug": "s-valerie", "dataJson": {"master": "m-val"}}, "chet": {"slug": "s-chet", "dataJson": {"master": "m-chet"}}}
+    beat = {"picture": "VALERIE and CHET on deck."}
+    chars = [{"handle": "valerie", "name": "Valerie"}, {"handle": "chet", "name": "Chet"}]
+    for held in (["place-pic"], "place-pic", "place-pic,m-val"):
+        got = jobs._cast_for("s", beat, chars, people, {"references": held})  # no cast yet: it is set, and the masters follow the pictures it lists
+        assert got["references"][0] == "place-pic" and set(got["references"]) == {"place-pic", "m-val", "m-chet"}, held  # kept in order, masters added once
+    assert jobs._asset_refs(None) == [] and jobs._asset_refs(" a , ,b") == ["a", "b"] and jobs._asset_refs(["a", " ", "b"]) == ["a", "b"]
 
 
 def test_a_beat_whose_writer_named_its_sounds_gets_only_those():

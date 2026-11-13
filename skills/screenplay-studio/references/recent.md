@@ -84,3 +84,7 @@ A **Band** is a named run of beats you group yourself (the opening, the storm). 
 
 The Timeline's **Overlay** lane also draws a beat's **Info card** (its title, else its sentence) as a block named "Info card: ...", in after the beat's Overlay start delay (0.6 s when none is set), and, as in the render, in place of any overlay file for that beat. Needs Marvin #218.
 
+## v170: a beat's reference pictures are a picker
+
+On a Beat, **Reference pictures** (The shot) is now an asset picker with upload, like the Story's: the pictures the still goes by. The import still adds the cast's masters to it (they show there beside any picture you add, such as the place or a prop), and the still workflow passes the list on with the scene's anchor. An older beat that held the pictures as comma text is moved over to the list. Needs Marvin #221 (a reference list may hold lists).
+
