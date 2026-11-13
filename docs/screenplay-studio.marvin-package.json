@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "169",
+  "version": "170",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -129,9 +129,11 @@
             },
             {
               "key": "references",
-              "label": "Reference pictures (asset slugs)",
-              "type": "text",
-              "helpText": "Comma-separated asset slugs of the masters the still goes by: the cast in frame, filled from their master. A step reads it as ${entry.data.references}.",
+              "label": "Reference pictures",
+              "type": "asset-list",
+              "role": "reference",
+              "accept": "image/*",
+              "helpText": "Pictures the still goes by: the cast in frame (their masters, filled in by the import), and any you add, such as a picture of the place or a prop. Pick from the library or upload. The still is made to look like them. A step reads it as ${entry.data.references}.",
               "group": "The shot"
             },
             {
@@ -5480,7 +5482,10 @@
               "args": {
                 "prompt": "Reference pictures, in this order: ${entry.data.cast}. Keep each character's face, hair, build, clothes and the illustration style exactly as in their reference. Reference pictures other than a character's own are for the place, light and style only: match their room, layout, light and furnishings, and never draw anyone who is in them. The people in this picture are the characters listed below and any figure THIS MOMENT names (a crowd, a skeleton, a stranger); nobody who appears only in a reference picture.\n\nSTORY SETTING: ${steps.story.output.rows.0.data.setting}\nCHARACTERS (each exactly as in their reference, with these rules): ${steps.cast.output.text}\n\nSCENE: ${steps.scene.output.rows.0.data.place}\nLight: ${steps.scene.output.rows.0.data.look}\nAlways on the set: ${steps.scene.output.rows.0.data.set_dressing}\n\nCHANGES THAT HOLD FROM EARLIER BEATS ON (draw them in this picture, whatever the references show): ${steps.changes.output.text|default:\"none\"}\n\nTHIS MOMENT: ${entry.data.picture}\nWhat they are doing and how they look: ${entry.data.expression}\nThe one prop the frame is about: ${entry.data.focus}\n\nSTYLE RULES: ${steps.world.output.rows.0.data.rules}\n\nVertical portrait composition, in the same palette and style as the references. No readable text or writing anywhere: no alphabet characters, signs or captions."
               },
-              "references": "${entry.data.references},${steps.scene.output.rows.0.data.anchor}"
+              "references": [
+                "${entry.data.references}",
+                "${steps.scene.output.rows.0.data.anchor}"
+              ]
             },
             {
               "kind": "entry",
