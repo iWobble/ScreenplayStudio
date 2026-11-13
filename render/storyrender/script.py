@@ -20,6 +20,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from . import delivery
 from . import fountain as fountain_mod
 from . import lines as lines_of
 from . import numbering
@@ -36,7 +37,17 @@ def _clean(text: object) -> str:
     return " ".join(str(text or "").split())
 
 
-_EXTENSION = re.compile(r"^(?:V\.?O\.?|O\.?S\.?|O\.?C\.?|CONT[\u2019']?D)$", re.I)  # a speaker's extension (V.O.), not a parenthetical
+_EXTENSION = delivery.EXTENSION
+
+
+def _speech(ld: dict) -> tuple[str, bool]:
+    """The words a line is written with, and whether its tags are in them: the line's delivery text (`Fine. [sighs] Go on.`) when it is the same words
+    as the text with tags added, so the Fountain made from the records reads again as the one it came from; otherwise the text alone."""
+    spoken = _clean(ld.get("text"))
+    tagged = _clean(ld.get("delivery_text"))
+    if tagged and delivery.split_tags(tagged)[0] == spoken:
+        return tagged, True
+    return spoken, False
 
 
 def _cue(speaker: str, extension: str = "") -> str:
@@ -47,15 +58,7 @@ def _cue(speaker: str, extension: str = "") -> str:
 
 
 def _deliveries(picture: str) -> list[tuple[str, list[str]]]:
-    """How the beat's lines are said, from the note its picture ends with (`... Delivery: Mara (without looking up); Narrator (V.O.).`): [(speaker,
-    [what was written with them: parentheticals and an extension])], in the order of the lines they belong to."""
-    tail = picture.split(" Delivery:", 1)[1] if " Delivery:" in picture else ""
-    out: list[tuple[str, list[str]]] = []
-    for item in [x.strip() for x in tail.strip().rstrip(".").split("; ") if x.strip()]:
-        m = re.match(r"^(.*?) \((.*)\)$", item)
-        if m:
-            out.append((m.group(1).strip().lower(), [t.strip() for t in m.group(2).split(", ") if t.strip()]))
-    return out
+    return delivery.from_note(picture)
 
 
 def _slug_words(slug: str) -> str:
@@ -153,10 +156,10 @@ def fountain(records: dict) -> str:
             spoken = _clean(ld.get("text"))
             if not spoken:
                 continue
-            out.append(_cue(ld.get("speaker") or ""))
+            out.append(_cue(ld.get("speaker") or "", _clean(ld.get("extension"))))
             if _clean(ld.get("direction")):
                 out.append(f"({_clean(ld['direction']).rstrip('.').lower()})")
-            out += [spoken, ""]
+            out += [_speech(ld)[0], ""]
     return "\n".join(out).rstrip("\n") + "\n"
 
 
@@ -262,15 +265,15 @@ def fountain_complete(records: dict) -> str:
             said = next((tokens for name, tokens in deliveries if name == who), [])
             if said:
                 deliveries.remove(next(x for x in deliveries if x[0] == who))
-            ext = next((tok for tok in said if _EXTENSION.match(tok)), "")
-            paren = [tok for tok in said if not _EXTENSION.match(tok)]
+            ext, noted = delivery.split_tokens(said)  # a line made before it had these fields: read from the note its beat's picture carries
+            ext = _clean(ld.get("extension")) or ext
+            direction = _clean(ld.get("direction")) or noted
             out.append(_cue(ld.get("speaker") or "", ext))
-            if _clean(ld.get("direction")):
-                out.append(f"({_clean(ld['direction']).rstrip('.').lower()})")
-            elif paren:
-                out.append(f"({', '.join(paren)})")  # as the writer had it
-            out.append(spoken)
-            extra = [x for x in (_say("Delivery", ld.get("delivery_text")), _say("Voice", ld.get("voice")), _say("Note", ld.get("take_notes"))) if x]
+            if direction:
+                out.append(f"({direction.rstrip('.').lower()})" if _clean(ld.get("direction")) else f"({direction})")  # a typed direction is lower-cased; the writer's own is as they had it
+            words, inline = _speech(ld)
+            out.append(words)
+            extra = [x for x in (None if inline else _say("Delivery", ld.get("delivery_text")), _say("Voice", ld.get("voice")), _say("Note", ld.get("take_notes"))) if x]
             out += ([f"[[{' '.join(extra)}]]"] if extra else []) + [""]
         first = False
     return "\n".join(out).rstrip("\n") + "\n"

@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "167",
+  "version": "169",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -1865,11 +1865,23 @@
               "helpText": "The highs are cut, as if the line were heard from another room. A setting of the line, so it applies to every take of it. A render applies it (the Timeline's Play cannot)."
             },
             {
+              "key": "extension",
+              "label": "Extension",
+              "type": "select",
+              "options": [
+                "V.O.",
+                "O.S.",
+                "O.C."
+              ],
+              "helpText": "Written after the speaker's name in the script: V.O. (a voice over the picture, like a narrator), O.S. (heard from out of the picture) or O.C. (out of camera). The Fountain writes MARA (O.S.) and reads it back into this. Empty for none. (CONT'D is added by the script itself and is never kept here.)",
+              "group": "How it is said"
+            },
+            {
               "key": "direction",
               "label": "Direction",
               "type": "textarea",
               "rows": 3,
-              "helpText": "How this line should sound and feel, in your own words (\"tired, a little amused, almost to herself\"). Read by people and by Claude when choosing the voice settings and the delivery tags; the voice itself cannot read it.",
+              "helpText": "How this line is said, in your own words (\"without looking up\"). The Fountain writes it as the parenthetical under the speaker's name, and reads that back into this; people and Claude use it when choosing the voice settings and the delivery tags. The voice itself cannot read it.",
               "group": "How it is said"
             },
             {
@@ -1877,7 +1889,7 @@
               "label": "Delivery text",
               "type": "textarea",
               "rows": 3,
-              "helpText": "Optional: the same words with ElevenLabs v3 tags, like [sighs] or [whispers] or [pause]. When filled in, the next take speaks this (on the v3 model) instead of Text. Captions always use Text, never this.",
+              "helpText": "Optional: the same words as Text with ElevenLabs v3 tags, like [sighs], [whispers] or [pause]. When filled in, the next take speaks this (on the v3 model) instead of Text. A tag written in the speech in the Fountain, `Fine. [sighs] Go on.`, is split on the way in: the words go in Text, the same words with the tag go here, and the script writes the tags back into the speech. Captions always use Text, never this.",
               "group": "How it is said"
             },
             {

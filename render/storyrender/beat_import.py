@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 
-from . import beats
+from . import beats, delivery
 
 _NUMBERED = re.compile(r"^\s*(?:[-*+]\s*)?(?:\*\*)?(\d{1,3}[a-z]*)(?:\*\*)?\s*(?:—|–|-|\.|:|\))\s*(.+?)\s*$", re.IGNORECASE)
 _STARTS_WITH_SPEAKER = re.compile(r"^[A-Z][A-Za-z]+:\s")
@@ -225,11 +225,17 @@ def import_plan(story: str, rows: list[dict], existing: "dict[str, dict] | set[s
                 plan["updates"].append((slug, records[slug].get("id"), records[slug].get("title") or title, {**current, "chapter": chapter_slug}))
         else:
             plan["beats"].append((slug, title, data))
+        said = delivery.for_lines(row["picture"], [line["speaker"] for line in row["lines"]])  # what was written with each speaker: an extension and a parenthetical
         for n, line in enumerate(row["lines"], 1):
             lslug = f"{story}-line-{number}-{n}"
             wanted.add(lslug)
-            ltitle = f"{number} {_short(line['speaker'] + ': ' + line['text'])}"
-            ldata = {"story": story, "beat": slug, "speaker": line["speaker"].lower(), "text": line["text"], "status": "draft"}
+            words, tagged = delivery.split_tags(line["text"])  # [sighs] is delivery: the caption never shows it, the voice reads it
+            ltitle = f"{number} {_short(line['speaker'] + ': ' + words)}"
+            ldata = {"story": story, "beat": slug, "speaker": line["speaker"].lower(), "text": words, "status": "draft"}
+            extension, direction = said[n - 1]
+            for key, value in (("extension", extension), ("direction", direction), ("delivery_text", tagged)):
+                if value:
+                    ldata[key] = value  # only what the Fountain wrote: a line a person set by hand is never emptied by a refresh
             if lslug in records:
                 plan["have"]["lines"] += 1
                 if refresh:
