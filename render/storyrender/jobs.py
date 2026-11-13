@@ -6,7 +6,7 @@ import json
 import os
 import re
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import urllib.request
 from pathlib import Path
 
@@ -702,6 +702,83 @@ def _revision_of(ctx: Context, job: dict) -> tuple[str, dict, str, dict]:
     return slug, rows[0], story, story_rows[0]
 
 
+ACTIVE = ("queued", "claimed", "running")  # a job record's status while it is still to do
+LEFT_BEHIND = timedelta(hours=3)  # a record still "running" after this long without a word was left by a worker that stopped: it holds nothing up
+
+
+def _at(value) -> "datetime | None":
+    try:
+        when = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def _utc(when: "datetime | None") -> str:
+    return when.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if when else "an unknown time"
+
+
+def _working_on(ctx: Context, job: dict, story: str) -> "dict | None":
+    """The job of this one's kind that was already working on the story when this one was asked for, or None.
+
+    A second press of the same button for the same story makes a second job. One runner takes one job at a time, so that job waits until the
+    first is done and then runs: by then the first is finished, so the test is whether it was still to do (queued, claimed or running) when
+    this one was asked for: asked for earlier, and either not finished yet or finished (its record last written) after this one was made.
+    A job asked for later waits for this one, not the other way round; one that failed is no reason not to try; one that was itself skipped
+    did nothing, so the one that did the work is named; and a record a stopped worker left "running" for hours holds nothing up. A job with
+    no record of its own (run by hand) is not guarded."""
+    own = marvin_api.query(ctx.creds, {"entries": job.get("job")}, limit=1) if job.get("job") else []
+    if not own:
+        return None
+    me, now = own[0], datetime.now(timezone.utc)
+    kind, asked = (me.get("dataJson") or {}).get("kind"), _at(me.get("createdAt"))
+    if not kind or asked is None:
+        return None
+    rows = marvin_api.query(ctx.creds, {"entry_type": "job", "data": {"kind": kind}, "sort": {"by": "created_at", "direction": "desc"}}, limit=100)
+    for row in rows:  # newest first: the nearest one before this one
+        d = row.get("dataJson") or {}
+        made, touched = _at(row.get("createdAt")), _at(row.get("updateAt") or row.get("updatedAt"))
+        if row.get("slug") == me.get("slug") or str((d.get("args") or {}).get("story") or "").strip() != story or made is None or made >= asked:
+            continue
+        if (d.get("result") or {}).get("skipped"):
+            continue
+        if d.get("status") in ACTIVE and not (touched and now - touched > LEFT_BEHIND):
+            return row
+        if d.get("status") == "done" and touched and touched > asked:
+            return row
+    return None
+
+
+def _skip_if_busy(ctx: Context, job: dict, story: str) -> "dict | None":
+    """A job's whole outcome when another of its kind already had the story (see `_working_on`): it does nothing, writes nothing, and says
+    which job had it and since when. None when this one should run."""
+    other = _working_on(ctx, job, story)
+    if other is None:
+        return None
+    d = other.get("dataJson") or {}
+    started = _at(d.get("claimed_at"))
+    since = f"it started at {_utc(started)}" if started else f"it was asked for at {_utc(_at(other.get('createdAt')))}"
+    now = {"queued": "and is waiting for a worker", "claimed": "and is starting", "running": "and is still running"}.get(str(d.get("status")), f"and finished at {_utc(_at(other.get('updateAt') or other.get('updatedAt')))}")
+    title = str(other.get("title") or "").strip()
+    said = f"Skipped: nothing was done. The job {other.get('slug')}{f' ({title})' if title else ''} was already working on {story} when this one was asked for: {since} {now}."
+    more = "What it found or made is on that job and on the story. To run this again, wait until that job is done, then press the button again."
+    return {"result": {"skipped": True, "story": story, "already": other.get("slug"), "already_since": _utc(started or _at(other.get("createdAt"))), "summary": said}, "log": f"{said}\n{more}"}
+
+
+def _save_story(ctx: Context, story_row: dict, put: dict, fill: "dict | None" = None, log_line: str = "") -> None:
+    """Write a job's own fields to its story, onto the story as it is now and not as it was when the job began: a long job (an import of a
+    feature takes minutes) would otherwise put back everything a person changed meanwhile. `put` is written as it is; `fill` only where the
+    story is still empty (a field a person filled in meanwhile is theirs); `log_line` is added to the story's `sheet_log`."""
+    rows = marvin_api.query(ctx.creds, {"entries": story_row.get("id") or story_row.get("slug")}, limit=1)
+    row = rows[0] if rows else story_row
+    data = dict(row.get("dataJson") or {})
+    data.update({k: v for k, v in (fill or {}).items() if not str(data.get(k) or "").strip()})
+    data.update(put)
+    if log_line:
+        data["sheet_log"] = (str(data.get("sheet_log") or "").rstrip() + "\n" + log_line).strip()
+    _patch_entry(ctx, row, data)
+
+
 def _patch_entry(ctx: Context, row: dict, data: dict) -> None:
     body = json.dumps({"title": row.get("title"), "slug": row.get("slug"), "dataJson": data}).encode()
     marvin_api.request(ctx.creds, f"/api/platform/entries/{row['id']}", method="PATCH", data=body, content_type="application/json")
@@ -869,7 +946,7 @@ def check_ready(job: dict, ctx: Context) -> dict:
 
 @job_kind(
     "check-fountain",
-    description="Check a Fountain for mistakes before it is imported, and change nothing but a story's Fountain check note: a speaker in lower case (read as action), a note or a ( left open, a scene number used for two places, a transition without its colon, a Hold or a Sound time that is not a number, a speaker spelled two ways, characters you cannot see, a missing Setting or Premise. Each comes with its line and what to write. Reads the text only: no records are made and nothing is paid for. Give it a story (its Fountain field or uploaded file), or the text itself, or an uploaded file.",
+    description="Check a Fountain for mistakes before it is imported, and change nothing but a story's Fountain check note: a speaker in lower case (read as action), a note or a ( left open, a scene number used for two places, a transition without its colon, a Hold or a Sound time that is not a number, a speaker spelled two ways, characters you cannot see, a missing Setting or Premise. Each comes with its line and what to write. Reads the text only: no records are made and nothing is paid for. Give it a story (its Fountain field or uploaded file), or the text itself, or an uploaded file. A check of a story asked for while another check of it was working is skipped and says which one had it.",
     inputs={
         "story": {"type": "string", "required": False, "description": "a story's slug: check the Fountain it holds, and write the report in its Fountain check note"},
         "text": {"type": "string", "required": False, "description": "the Fountain text itself, to check before it is put anywhere (an AI's draft, a file pasted in)"},
@@ -884,6 +961,8 @@ def check_fountain(job: dict, ctx: Context) -> dict:
     if not (story or text.strip() or asset):
         raise JobError("this kind of job needs a story, the text, or an uploaded file to check (args.story, args.text or args.asset)")
     story_row = None
+    if story and (skipped := _skip_if_busy(ctx, job, story)):
+        return skipped
     if story:
         rows = marvin_api.query(ctx.creds, {"entries": story}, limit=1)
         if not rows:
@@ -902,11 +981,9 @@ def check_fountain(job: dict, ctx: Context) -> dict:
     body, errors, looks = validate.report(findings, text)
     note = f"{body}\n\nChecked {when}."
     if story_row is not None:
-        data = dict(story_row.get("dataJson") or {})
-        data["fountain_check"] = note
-        _patch_entry(ctx, story_row, data)
+        _save_story(ctx, story_row, {"fountain_check": note})
     stops = len(validate.blocking(findings))
-    result = {"errors": errors, "looks": looks, "import_stops": stops, "report": body, "findings": [f.__dict__ for f in findings[:200]]}
+    result = {"summary": body.splitlines()[0], "errors": errors, "looks": looks, "import_stops": stops, "report": body, "findings": [f.__dict__ for f in findings]}
     if story:
         result["story"] = story
     return {"result": result, "log": note}
@@ -923,7 +1000,7 @@ def check_revision(job: dict, ctx: Context) -> dict:
     if (rev.get("dataJson") or {}).get("status") not in (None, "", "draft"):
         raise JobError(f"the revision {slug} is already {(rev.get('dataJson') or {}).get('status')}: only a draft can be checked")
     replace = str((rev.get("dataJson") or {}).get("how") or "edit").strip().lower() == "replace"
-    ran = import_beats({"job": job["job"], "args": {"story": story, "revision": slug, "mode": "refresh", **({"fresh": "yes"} if replace else {})}}, ctx)
+    ran = _import_beats({"job": job["job"], "args": {"story": story, "revision": slug, "mode": "refresh", **({"fresh": "yes"} if replace else {})}}, ctx)
     res, found = ran["result"], ran["result"].get("revision") or {}
     made = _made_from_the_text(ctx, story) if replace else {}
     if replace:
@@ -938,8 +1015,8 @@ def check_revision(job: dict, ctx: Context) -> dict:
             "reworded": found.get("reworded", 0),
             "removed": len(found.get("removed") or []),
             "new_beats": ", ".join(found.get("new") or []) if not replace else "numbered afresh",
-            "beats_to_make": len(res.get("beats_made") or []) if isinstance(res.get("beats_made"), list) else res.get("beats_made", 0),
-            "lines_to_record": res.get("lines_made", 0),
+            "beats_to_make": res.get("beats_to_make", 0),
+            "lines_to_record": res.get("lines_to_make", 0),
             "checked": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         }
     )
@@ -978,7 +1055,7 @@ def apply_revision(job: dict, ctx: Context) -> dict:
         retired = _retire(ctx, _made_from_the_text(ctx, story), f"before-rev{number}")
         ctx.note(f"moved {retired} records made from the earlier text to the Trash")
     try:
-        ran = import_beats({"job": job["job"], "args": {"story": story, "mode": "add" if replace else "refresh"}}, ctx)
+        ran = _import_beats({"job": job["job"], "args": {"story": story, "mode": "add" if replace else "refresh"}}, ctx)
     except Exception:
         _patch_entry(ctx, story_row, {**dict(story_row.get("dataJson") or {}), **before})  # the story keeps the text it had: nothing was half applied
         if replace:
@@ -992,7 +1069,7 @@ def apply_revision(job: dict, ctx: Context) -> dict:
 
 @job_kind(
     "import-beats",
-    description="Read a story's Fountain (its `fountain` text, or the file in `fountain_file`) and make what it implies, with no AI: the chapters, beats and spoken lines (each holding its own part of the text), a Character for each speaker, a Scene for each place, and a draft Sound for each sound the words call for. Makes what is missing and leaves what is there alone; `dry_run` only says what it would make",
+    description="Read a story's Fountain (its `fountain` text, or the file in `fountain_file`) and make what it implies, with no AI: the chapters, beats and spoken lines (each holding its own part of the text), a Character for each speaker, a Scene for each place, and a draft Sound for each sound the words call for. Makes what is missing and leaves what is there alone; `dry_run` only says what it would make. One asked for while another import of the same story was working is skipped and says which one had it",
     inputs={
         "story": {"type": "string", "description": "the story entry's slug, e.g. devils-due-one-small-boat"},
         "revision": {"type": "string", "required": False, "description": "a revision record's slug: read the Fountain that revision holds instead of the story's own and say what bringing it in would do. Always a preview: nothing is written to the story"},
@@ -1005,7 +1082,13 @@ def apply_revision(job: dict, ctx: Context) -> dict:
     produces=[],
 )
 def import_beats(job: dict, ctx: Context) -> dict:
-    """The records a story's Fountain implies: chapters, beats and spoken lines, characters, scenes and sounds."""
+    """The records a story's Fountain implies: chapters, beats and spoken lines, characters, scenes and sounds. Skipped when another import of
+    the story (an import, a preview or a revision check) was already working on it when this one was asked for."""
+    return _skip_if_busy(ctx, job, story_of(job)) or _import_beats(job, ctx)
+
+
+def _import_beats(job: dict, ctx: Context) -> dict:
+    """The import itself, as the revision jobs run it too (they hold the story themselves, so they are not skipped)."""
     story, args = story_of(job), job.get("args") or {}
     rows_of_story = marvin_api.query(ctx.creds, {"entries": story}, limit=1)
     if not rows_of_story:
@@ -1014,6 +1097,8 @@ def import_beats(job: dict, ctx: Context) -> dict:
     story_data = dict(story_row.get("dataJson") or {})
     report, parts, part_text = "", None, ""
     revision_slug = str(args.get("revision") or "").strip()
+    if _yes(args.get("dry_run")) or revision_slug:
+        ctx.note("Preview only: nothing was made.")  # the first line of the job's log, where the Workers page shows it
     if revision_slug:  # checking a proposed revision: its text stands in for the story's, and nothing is written to the story
         rows_of_revision = marvin_api.query(ctx.creds, {"entries": revision_slug}, limit=1)
         if not rows_of_revision:
@@ -1240,32 +1325,51 @@ def import_beats(job: dict, ctx: Context) -> dict:
         "split_report": report,
     }
     changed = plan["beats"] or plan["lines"] or plan["chapters"] or plan["updates"] or plan["trash"]
+    anything = changed or extra or link or fill or people  # a run that makes or changes nothing says so, and is not logged as an import
+    of = lambda kind: sum(1 for t, _r in extra if t == kind)  # noqa: E731
+    counted = [(len(plan["chapters"]), "chapter", "chapters"), (len(plan["beats"]), "beat", "beats"), (len(plan["lines"]), "spoken line", "spoken lines")]
+    counted += [(of("cast-member"), "character", "characters"), (of("scene"), "scene", "scenes"), (of("sound"), "sound to fill in", "sounds to fill in")]
+    said = [f"{n} {one if n == 1 else many}" for n, one, many in counted if n]
+    said_text = ", ".join(said[:-1]) + " and " + said[-1] if len(said) > 1 else "".join(said)
+    if dry:
+        summary = "Preview only: nothing was made." + (f" It would make {said_text}." if said_text else " There is nothing new to make.")
+    elif anything:
+        summary = (f"Made {said_text}." if said_text else "Made nothing new.") + (f" Filled in {len(link)} records made earlier." if link else "")
+        summary += (f" Updated {len(plan['updates'])}." if plan["updates"] else "") + (f" Moved {len(plan['trash'])} to the Trash." if plan["trash"] else "")
+    else:
+        summary = f"Nothing new: {plan['have']['beats']} beats and {plan['have']['lines']} lines were already there, so nothing was made."
+    if dry:  # a preview names what it would make, never what it made
+        result = {(k[: -len("_made")] + "_to_make" if k.endswith("_made") else k): v for k, v in result.items()}
+    result = {"summary": summary, **result}
     meta = fountain.title_page(screenplay)
     credits = ("credit", "author", "source", "draft_date", "contact", "copyright", "setting", "premise")  # the title page is the story's credits; a field already filled in is the person's and is kept
     filled = {k: meta[k] for k in credits if meta.get(k) and not str(story_data.get(k) or "").strip()}
     settings = {**fountain.story_settings(meta), **({"end_transition": fplan.end_transition} if fplan.end_transition else {})}  # the cards and transitions the script says: the same rule
     filled.update({k: v for k, v in settings.items() if not str(story_data.get(k) or "").strip()})
-    if not str(story_data.get("setting") or "").strip() and "setting" not in filled and (said := _setting_from(fplan)):
-        filled["setting"] = said  # nothing said where it is set: the first scene's synopsis, else its place; the person's own words replace it
+    if not str(story_data.get("setting") or "").strip() and "setting" not in filled and (setting := _setting_from(fplan)):
+        filled["setting"] = setting  # nothing said where it is set: the first scene's synopsis, else its place; the person's own words replace it
     gaps = _story_gaps({**story_data, **filled})
     if gaps:
         note += "\n\nThe story still lacks: " + "; ".join(gaps) + "."
     if filled.get("setting") and not meta.get("setting"):
         note += f"\n\nSetting taken from the screenplay: “{filled['setting'][:160]}”."
     result["story_gaps"] = gaps
-    if not dry:
-        story_data.update(filled)
-        other = "\n".join(f"{k}: {v}" for k, v in meta.items() if k not in ("title", *credits, *fountain.SETTING_KEYS))
-        if other and not str(story_data.get("title_page_other") or "").strip():
-            story_data["title_page_other"] = other
-        if any(t == "sound" and r[0] == f"{story}-score" for t, r in extra) and not dry and not str(story_data.get("music") or "").strip():
-            story_data["music"] = f"{story}-score"  # the placeholder is the story's music until a recording or a generated take replaces it, or it is deleted
-        if fplan.front.strip() and not str(story_data.get("fountain_front") or "").strip():
-            story_data["fountain_front"] = fplan.front  # what the writer put before the first beat, as written: the export writes it back first
+    log = summary + "\n\n" + ((report + "\n\n" + note) if report else note)
     if revision_slug:  # a check says what it found and leaves the story as it is
-        return {"result": result, "log": (report + "\n\n" + note) if report else note}
+        return {"result": result, "log": log}
+    fill_in: dict = {}  # what the import gives the story only where it is still empty
+    if not dry:
+        fill_in.update(filled)
+        other = "\n".join(f"{k}: {v}" for k, v in meta.items() if k not in ("title", *credits, *fountain.SETTING_KEYS))
+        if other:
+            fill_in["title_page_other"] = other
+        if any(t == "sound" and r[0] == f"{story}-score" for t, r in extra):
+            fill_in["music"] = f"{story}-score"  # the placeholder is the story's music until a recording or a generated take replaces it, or it is deleted
+        if fplan.front.strip():
+            fill_in["fountain_front"] = fplan.front  # what the writer put before the first beat, as written: the export writes it back first
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    story_data["split_plan"] = f"{stamp} · {'preview' if dry else 'import'}, chapters {part_text or 'all'}\n\n{report}\n\n{note}"  # kept on the story, where a wizard step (or the person) reads it before and after importing
+    what = "Preview only: nothing was made" if dry else "import" if anything else "import, nothing new"
+    split_plan = f"{stamp} · {what}, chapters {part_text or 'all'}\n\n{summary}\n\n{report}\n\n{note}"  # kept on the story, where a wizard step (or the person) reads it before and after importing
     bits = [f"+{len(plan['beats'])} beats, +{len(plan['lines'])} lines" + (f", +{len(plan['chapters'])} chapters" if plan["chapters"] else "")]
     if plan["updates"]:
         bits.append(f"{len(plan['updates'])} updated")
@@ -1275,13 +1379,12 @@ def import_beats(job: dict, ctx: Context) -> dict:
         bits.append("kept though gone from the script (something was made from them): " + ", ".join(short(s) for s, _ in plan["orphans_kept"][:8]))
     if plan["kept"]:
         bits.append("differ from the script but kept (a picture or recording was made): " + ", ".join(short(s) for s, _ in plan["kept"][:8]))
+    entry = ""
     if changed and not dry:
         via = f" · from the Fountain{' (chapters ' + str(part_text) + ')' if parts is not None else ''}"
         entry = f"{stamp} · {'refresh' if refresh else 'add'}{via} · " + " · ".join(bits)
-        story_data["sheet_log"] = (str(story_data.get("sheet_log") or "").rstrip() + "\n" + entry).strip()
-    body = json.dumps({"title": story_row.get("title"), "slug": story_row.get("slug"), "dataJson": story_data}).encode()
-    marvin_api.request(ctx.creds, f"/api/platform/entries/{story_row['id']}", method="PATCH", data=body, content_type="application/json")
-    return {"result": result, "log": (report + "\n\n" + note) if report else note}
+    _save_story(ctx, story_row, {"split_plan": split_plan}, fill_in, entry)  # onto the story as it is now: what a person changed while this ran is kept
+    return {"result": result, "log": log}
 
 
 

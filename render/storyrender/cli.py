@@ -23,7 +23,7 @@ def cmd_render(a) -> int:
 
 
 def cmd_check(a) -> int:
-    """Check a Fountain file for mistakes before it is imported (no Marvin needed, nothing is changed): 0 clean, 1 mistakes to fix."""
+    """Check a Fountain file for mistakes before it is imported (no Marvin needed, nothing is changed): 0 the import would go ahead, 1 it would stop."""
     text = sys.stdin.read() if a.file == "-" else Path(a.file).read_text(encoding="utf-8", errors="replace")
     findings = validate.check(text)
     body, errors, looks = validate.report(findings, text)
@@ -31,7 +31,7 @@ def cmd_check(a) -> int:
         print(json.dumps({"errors": errors, "looks": looks, "findings": [f.__dict__ for f in findings]}, indent=2))
     else:
         print(body)
-    return 1 if errors else 0
+    return 1 if validate.blocking(findings) else 0
 
 
 def cmd_plan(a) -> int:

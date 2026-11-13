@@ -932,10 +932,11 @@ def _blank_out(match: "re.Match[str]") -> str:
     return "\n" * match.group(0).count("\n")  # the writer's notes and boneyards removed, the line numbers kept
 
 
-def lint(text: str) -> list[str]:
+def lint(text: str, limit: "int | None" = MAX_LINT) -> list[str]:
     """What in a Fountain the import will read differently from what the writer meant, in words that say the line and how to fix it:
     a capitals line standing alone or ending in a full stop, which is read as a speaker (`CRUNCH.`), and a line that is a place and a time in capitals
-    but does not start with INT. or EXT., which is not a scene. It reads the text only: nothing is changed."""
+    but does not start with INT. or EXT., which is not a scene. It reads the text only: nothing is changed. The split report lists the first
+    `limit` and says how many more; the Fountain check (`limit=None`) lists them all."""
     plain = _NOTE.sub(_blank_out, _BONEYARD.sub(_blank_out, _normal(text)))
     found: list[str] = []
     for index, (start, block) in enumerate(_blocks_at(plain)):
@@ -957,8 +958,8 @@ def lint(text: str) -> list[str]:
             found.append(f"line {row}: `{first}` stands alone in capitals, so it is read as a speaker with nothing to say: if it is action or a sound, start it with ! (`!{first}`)")
         elif name.endswith((".", "!", "?")) or len(name.split()) > 4:
             found.append(f"line {row}: `{first}` is in capitals above text, so it is read as a speaker and the text after it as spoken: if it is action, start it with ! (`!{first}`) or write it in ordinary case")
-    if len(found) > MAX_LINT:
-        found = found[:MAX_LINT] + [f"and {len(found) - MAX_LINT} more like these"]
+    if limit is not None and len(found) > limit:
+        found = found[:limit] + [f"and {len(found) - limit} more like these"]
     return found
 
 

@@ -499,3 +499,22 @@ def test_the_playbook_in_the_package_is_the_skill_as_it_is_written():
     assert playbook["skill_md"] == (skill / "SKILL.md").read_text(encoding="utf-8")
     on_disk = {p.relative_to(skill).as_posix(): p.read_text(encoding="utf-8") for p in sorted(skill.rglob("*.md")) if p.name != "SKILL.md"}
     assert playbook["files"] == on_disk  # run scripts/build_playbooks.py after editing the skill: an agent reads the package's copy
+
+
+def test_a_preview_job_is_named_as_one_and_the_import_keeps_its_name():
+    flow = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}["screenplay-import-screenplay"]["payload"]["definition"]
+    made = [a for a in flow["actions"] if a.get("entry_type") == "job"]
+    preview = next(a for a in made if a.get("when") == {"field": "input.preview", "op": "eq", "value": "yes"})
+    real = next(a for a in made if a.get("when") == {"field": "input.preview", "op": "neq", "value": "yes"})
+    assert len(made) == 2 and preview["title"].startswith("Preview only: nothing was made") and real["title"] == "Bring in the Fountain: ${entry.title}"
+    assert preview["data"] == real["data"] and preview["data"]["args"]["dry_run"] == "${input.preview}"  # the same job: only the name differs
+
+
+def test_the_fountain_reports_are_big_enough_to_read_and_say_how_to_fix_an_uploaded_file():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    fields = {f["key"]: f for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
+    assert fields["fountain_check"]["rows"] >= 16 and fields["split_plan"]["rows"] >= 16
+    steps = {s["id"]: s for s in blueprints["narrate-a-story"]["payload"]["steps"]}
+    for said in (fields["fountain_check"]["helpText"], steps["fountain_check"]["help"], steps["fountain_report"]["help"]):
+        assert "Replace it" in said and "cannot be edited in Marvin" in said and "Nothing needs approving" in said, said
+    assert "(above)" not in steps["fountain_report"]["help"]

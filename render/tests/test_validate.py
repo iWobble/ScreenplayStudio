@@ -115,7 +115,8 @@ def test_the_check_job_takes_the_text_and_reports_what_it_found_without_marvin(t
     ctx = Context(creds=("http://m", "t"), work=tmp_path, name="check-1")
     out = jobs.check_fountain({"job": "j", "args": {"text": BROKEN}}, ctx)
     assert out["result"]["errors"] == 7 and out["result"]["looks"] == 4 and out["result"]["import_stops"] >= 5
-    assert "line 13: `(without looking up` is opened with (" in out["result"]["report"] and out["log"].startswith("Checked the Fountain")
+    assert "line 13: `(without looking up` is opened with (" in out["result"]["report"] and out["log"].startswith("The import will stop: 5 mistakes to fix first")
+    assert out["result"]["summary"] == out["log"].splitlines()[0]
     assert {f["code"] for f in out["result"]["findings"]} >= {"note-open", "scene-number", "transition-colon"}
     with pytest.raises(JobError, match="a story, the text, or an uploaded file"):
         jobs.check_fountain({"job": "j", "args": {}}, ctx)
@@ -135,7 +136,7 @@ def test_the_command_line_check_exits_with_the_answer(tmp_path, capsys):
     bad, good = tmp_path / "bad.fountain", tmp_path / "good.fountain"
     bad.write_text(BROKEN, encoding="utf-8")
     good.write_text("Title: T\nSetting: s\nPremise: p\n\nINT. ROOM - DAY\n\nMARA\nHello.\n", encoding="utf-8")
-    assert cli.main(["check", str(bad)]) == 1 and "Fix before importing (7)" in capsys.readouterr().out
+    assert cli.main(["check", str(bad)]) == 1 and "Fix before importing (5)" in capsys.readouterr().out
     assert cli.main(["check", str(good)]) == 0 and "Nothing to fix" in capsys.readouterr().out
     cli.main(["check", str(bad), "--json"])
     assert json.loads(capsys.readouterr().out)["errors"] == 7
@@ -146,3 +147,27 @@ def test_centred_text_is_said_to_be_a_card_when_it_stands_alone_and_action_insid
     assert alone.level == "look" and "plain card" in alone.problem and "no picture" in alone.problem
     inside = codes("INT. ROOM - DAY\n\n> KEEP OUT <\nThe door creaks.\n")["centered"]
     assert inside.level == "look" and "read as action" in inside.problem and "plain card" not in inside.problem
+
+
+def test_the_report_opens_with_whether_the_import_stops_and_lists_what_it_goes_on_with_as_worth_a_look():
+    body, errors, looks = validate.report(validate.check(BROKEN), BROKEN)
+    first = body.splitlines()[0]
+    assert first == "The import will stop: 5 mistakes to fix first (under “Fix before importing”). The other 6 are worth a look."
+    fix, look = body.index("Fix before importing (5)"), body.index("Worth a look (6)")
+    assert fix < look and body.index("THE STORM RISES.") > look and body.index("LAMP ROOM - NIGHT") > look  # the capitals the import goes on with
+    assert errors == 7 and looks == 4  # the job's counts are as they were: errors is every error, the import's stops are counted apart
+
+
+def test_capitals_the_import_reads_as_speakers_are_all_counted_and_listed_and_none_stops_it():
+    text = "Title: T\nSetting: s\nPremise: p\n\nINT. ROOM - DAY\n\n" + "".join(f"A WORD {n}.\n\n" for n in range(42))
+    found = validate.check(text)
+    assert len([f for f in found if f.code == "capitals-alone"]) == 42 and not validate.blocking(found)  # all of them, not the first 12
+    body, _errors, _looks = validate.report(found, text)
+    assert body.splitlines()[0] == "The import will go ahead: nothing stops it. 42 lines are worth a look (below)."
+    assert "Fix before importing" not in body and "Worth a look (42)" in body and "A WORD 41." in body
+    assert len(validate.F.cut(validate.F.parse(text, lines=True), text=text).warnings) <= 13  # the split report keeps its short list
+
+
+def test_a_clean_report_says_the_import_goes_ahead():
+    clean = "Title: T\nSetting: A house.\nPremise: A story.\n\nINT. ROOM - DAY\n\nMARA\nHello.\n"
+    assert validate.report(validate.check(clean), clean)[0].splitlines()[0] == "The import will go ahead: nothing to fix."

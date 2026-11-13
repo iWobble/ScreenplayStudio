@@ -171,7 +171,7 @@ def test_a_preview_reports_the_split_and_writes_nothing(marvin):
     done = run(ctx, dry_run="yes")
     assert fake.made == [] and "3 chapters" in done["log"] and done["result"]["dry_run"] is True
     story = [p for p in fake.patched if p[0] == "e0"]  # only the report is written, to the story's split_plan: no records, and no entry in its log
-    assert len(fake.patched) == 1 and "preview" in story[0][1]["dataJson"]["split_plan"] and "3 chapters" in story[0][1]["dataJson"]["split_plan"]
+    assert len(fake.patched) == 1 and "Preview only: nothing was made" in story[0][1]["dataJson"]["split_plan"] and "3 chapters" in story[0][1]["dataJson"]["split_plan"]
     assert "sheet_log" not in story[0][1]["dataJson"]
 
 
@@ -902,7 +902,7 @@ def test_a_second_import_leaves_the_characters_and_scenes_that_are_there(casting
 def test_a_preview_makes_none_of_them_but_says_so(casting):
     fake, ctx = casting(CAST_TEXT)
     done = run(ctx, dry_run="yes")
-    assert fake.made == [] and "3 characters" in done["log"] and len(done["result"]["scenes_made"]) == 2
+    assert fake.made == [] and "3 characters" in done["log"] and len(done["result"]["scenes_to_make"]) == 2
 
 
 def test_running_the_import_again_makes_the_scenes_and_puts_earlier_beats_in_them(casting):

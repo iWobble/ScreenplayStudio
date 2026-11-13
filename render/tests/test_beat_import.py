@@ -93,7 +93,7 @@ class FakeMarvin:
 
     def query(self, creds, spec, limit=100):
         if "entries" in spec:
-            return [self.story] if spec["entries"] == self.story["slug"] else []
+            return [self.story] if spec["entries"] in (self.story["slug"], self.story["id"]) else []
         kind = spec["entry_type"]
         want = {"beat": "-beat-", "chapter": "-chapter-"}.get(kind, "-line-")
         assert spec["data"] == {"story": "s"}
