@@ -11,6 +11,21 @@ from tests.test_fountain import THREE, CastingMarvin
 ASKED = "2026-11-13T18:39:14Z"  # when the job being run was asked for
 
 
+@pytest.fixture(autouse=True)
+def _clock(monkeypatch):
+    """The jobs here were asked for on 2026-11-13: read the clock as of a few minutes later, or (three hours on) the guard
+    takes their running jobs for ones a stopped worker left behind, and these tests fail from that evening on."""
+    from datetime import datetime as real, timezone
+
+    class Then(real):
+        @classmethod
+        def now(cls, tz=None):
+            at = real(2026, 11, 13, 18, 45, tzinfo=timezone.utc)
+            return at.astimezone(tz) if tz else at.replace(tzinfo=None)
+
+    monkeypatch.setattr(jobs, "datetime", Then)
+
+
 class JobsMarvin(CastingMarvin):
     """CastingMarvin that also holds `job` records (with the times Marvin stamps on every entry), found by slug or by kind."""
 
