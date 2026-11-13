@@ -512,14 +512,20 @@ def _cast_for(story: str, beat: dict, characters: list[dict], people: dict, data
     if slugs and not have_cast:
         out["cast"] = ",".join(slugs)
     present = have_cast or slugs
-    if not have_cast or not str(data.get("references") or "").strip():
+    held = _asset_refs(data.get("references"))  # a picker's list of assets, or the comma text an older beat holds
+    if not have_cast or not held:
         by_slug = {str(e.get("slug")): e for e in people.values()}
         masters = [str((by_slug[s].get("dataJson") or {}).get("master") or "").strip() for s in present if s in by_slug]
-        held = [r.strip() for r in str(data.get("references") or "").split(",") if r.strip()]
         more = [m for m in masters if m and m not in held]
         if more:
-            out["references"] = ",".join(held + more)
+            out["references"] = held + more  # a list: the field is an asset picker, so the masters show there beside any picture the person added
     return out
+
+
+def _asset_refs(value: object) -> list[str]:
+    """The assets in a reference field: its list, or an older beat's comma text, without blanks."""
+    items = value if isinstance(value, list) else str(value or "").split(",")
+    return [str(x).strip() for x in items if str(x).strip()]
 
 
 MAX_BEFORE_CHARS = 200_000  # a revision keeps the text it replaced up to this size (a long script is kept in its file)
