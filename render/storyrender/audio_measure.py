@@ -147,11 +147,12 @@ def parse_stats(stderr: str) -> dict | None:
     """(average level `rms_db`, quietest stretch `noise_floor_db`, loudest moment `peak_db`) from the "Overall" block of ffmpeg's astats filter, in dB
     below full scale, or None when there is none. The quietest stretch's RMS is how a standard such as ACX reads the noise floor."""
     overall = stderr[stderr.rfind("Overall") :] if "Overall" in stderr else ""
-    found = {key: re.search(rf"{pattern}:\s*(-?[\d.]+|-inf|nan)", overall) for key, pattern in (("rms_db", "RMS level dB"), ("noise_floor_db", "RMS trough dB"), ("peak_db", "Peak level dB"))}
+    found = {key: re.search(rf"{pattern}:\s*([-+]?(?:inf|nan|[\d.]+))", overall) for key, pattern in (("rms_db", "RMS level dB"), ("noise_floor_db", "RMS trough dB"), ("peak_db", "Peak level dB"))}
     if not all(found.values()):
         return None
     def read(m: re.Match, floor: float) -> float:
-        return floor if m.group(1) in ("-inf", "nan") else max(floor, round(float(m.group(1)), 1))
+        text = m.group(1).lstrip("+-")
+        return floor if text in ("inf", "nan") else max(floor, round(float(m.group(1)), 1))  # -inf, -nan and nan are silence: the floor
 
     # the noise floor reads lower than the meters do: a standard's line (ACX: -60 dB) sits at the meters' floor, so it must not be clamped there
     return {key: read(m, NOISE_FLOOR_LOW if key == "noise_floor_db" else LEVEL_FLOOR) for key, m in found.items()}

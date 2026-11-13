@@ -60,7 +60,8 @@ def test_the_job_writes_what_the_take_says_about_itself_and_believes_a_source_it
     monkeypatch.setattr(jobs.marvin_api, "download_asset", lambda creds, ref, dest: shutil.copy(tone, dest))
     monkeypatch.setattr(jobs.marvin_api, "update_entry", lambda creds, slug, data: written.update({"slug": slug, **data}))
     out = jobs.describe_audio({"job": "j", "args": {"entry": "take-1"}}, Context(creds=("http://m", "t"), work=tmp_path, name="d-1"))
-    assert written["clipped"] == "no" and written["peak_db"] < -3 and written["noise_floor_db"] < -60 and written["rms_db"] > written["noise_floor_db"]
+    assert written.get("clipped") == "no", written  # a take that is not clipped says so (a missing key means the numbers could not be read)
+    assert written["peak_db"] < -3 and written["noise_floor_db"] < -60 and written["rms_db"] > written["noise_floor_db"]
     assert written["tail_silence"] > 0.5 and "format" in written and "source" not in written  # the take already said where it came from
     assert "noise floor" in out["log"] and json.dumps(out["result"])
 
@@ -70,3 +71,8 @@ def test_a_silence_ffmpeg_closes_at_the_end_of_the_file_is_still_the_tail():
     assert am.parse_silence(both, 2.0) == (0.5, 0.5)  # a newer ffmpeg
     assert am.parse_silence("silence_start: 0\nsilence_end: 0.5\nsilence_start: 1.5", 2.0) == (0.5, 0.5)  # an older one leaves it open
     assert am.parse_silence("silence_start: 0.8\nsilence_end: 1.1 | silence_duration: 0.3", 2.0) == (0.0, 0.0)  # a pause in the middle is neither
+
+
+def test_astats_values_that_are_not_numbers_read_as_the_floor_and_not_as_nothing():
+    block = "[Parsed_astats_0 @ 0x1] Overall\n[Parsed_astats_0 @ 0x1] Peak level dB: -inf\n[Parsed_astats_0 @ 0x1] RMS level dB: -nan\n[Parsed_astats_0 @ 0x1] RMS trough dB: nan\n"
+    assert am.parse_stats(block) == {"rms_db": am.LEVEL_FLOOR, "noise_floor_db": am.NOISE_FLOOR_LOW, "peak_db": am.LEVEL_FLOOR}
