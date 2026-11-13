@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "176",
+  "version": "177",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -10457,12 +10457,17 @@
             "id": "fountain_check",
             "kind": "run",
             "title": "Check the Fountain",
-            "help": "Reads the Fountain for slips the import would read differently from what you meant, before anything is made: a speaker written in lower case (read as action), a note or a bracket left open, a scene number used for two places, a transition without its colon, a Hold or Sound time that is not a number, invisible characters, a speaker spelled two ways. No AI and no cost; it takes a few seconds. The report shows on the next step, Read the check (it is kept in the story's Fountain check), and its first line says whether the import will stop or go ahead. Nothing needs approving. An uploaded file cannot be edited in Marvin: edit it where it came from (on your computer), go back to the step Upload the Fountain file, tick \u201cReplace it\u201d and upload it again, then check again. Fountain text written in the story is fixed in the story's Fountain field.",
+            "help": "Reads your Fountain for slips the import would read differently from what you meant: a speaker in lower case, a note or bracket left open, a scene number used twice, a transition without its colon, a Hold or Sound time that is not a number, hidden characters, a speaker spelled two ways. No AI and no cost. It takes a few seconds; what it found shows here when it is done. Fix the Fountain on the step before and check again until nothing serious is left.",
             "workflow": "screenplay-check-fountain",
             "inputs": {
               "story": "${story}"
             },
-            "button": "Check the Fountain"
+            "button": "Check the Fountain",
+            "report": {
+              "entry": "story",
+              "field": "fountain_check",
+              "label": "What the check found"
+            }
           },
           {
             "id": "fountain_report",
@@ -10478,13 +10483,18 @@
             "id": "split",
             "kind": "run",
             "title": "Check the split",
-            "help": "Works out how the Fountain divides into chapters, beats and spoken lines, with no AI and no cost, and writes it in the story's Split plan. Read it before anything is made. Chapters start at your `#` section lines; with none, at scene breaks about 12 pages apart. It is a preview only: nothing is made, and its job is named \u201cPreview only: nothing was made\u201d.",
+            "help": "Works out how the Fountain divides into chapters, beats and spoken lines. No AI, no cost, and nothing is made yet. The plan shows here when it is done. Chapters start at your # section lines; with none, at scene breaks about 12 pages apart.",
             "workflow": "screenplay-import-screenplay",
             "inputs": {
               "story": "${story}",
               "preview": "yes"
             },
-            "button": "Work out the chapters"
+            "button": "Work out the chapters",
+            "report": {
+              "entry": "story",
+              "field": "split_plan",
+              "label": "The split"
+            }
           },
           {
             "id": "plan",
@@ -10501,7 +10511,7 @@
             "id": "import",
             "kind": "run",
             "title": "Bring in the chapters",
-            "help": "Makes the chapters, beats and spoken lines, and gives each chapter its own part of the Fountain text. It also makes a Character for each speaker, a Scene for each place (and puts the beats in them), and a draft Sound for each sound the words call for, with a score placeholder. Whatever already exists is left alone, so you can bring in a piece at a time and run it again. A long script takes a while (a feature film about a quarter of an hour; you can leave this page). Press the button once: a second press while the import works is skipped, and its job says which job already has the story.",
+            "help": "Makes the chapters, beats and spoken lines, a Character for each speaker, a Scene for each place, and a draft Sound for each sound the words call for. What already exists is left alone, so you can run it again. It runs as a job: what the job did shows here when it is done.",
             "workflow": "screenplay-import-screenplay",
             "inputs": {
               "story": "${story}",
@@ -10830,23 +10840,114 @@
             "id": "make",
             "kind": "run",
             "title": "Make what is waiting",
-            "help": "One approval for every sound that is on the list as a draft with its description written. They are made together; nothing more is asked per sound, and each uses ElevenLabs sound-effect credit. Music is not included, and neither is any sound that already has a file (your own, uploaded or chosen from your assets): those are never made and cost nothing.",
+            "help": "These sounds are waiting to be made: each is a draft that says what it is and has no file yet. One approval makes them all together; each uses ElevenLabs sound-effect credit. Music and sounds that already have a file are never made here and cost nothing.",
             "workflow": "screenplay-make-sounds",
             "inputs": {
               "story": "${story}"
             },
-            "button": "Make the waiting sounds"
+            "button": "Make these sounds (${count})",
+            "subtitle": "prompt",
+            "badges": [
+              "kind"
+            ],
+            "empty": "No sound is waiting to be made. A sound waits when it is a draft, says what it is, and has no file yet. Write one on the first step, or go on.",
+            "left_out": [
+              {
+                "label": "music (never made here)",
+                "where": [
+                  {
+                    "field": "kind",
+                    "op": "eq",
+                    "value": "music"
+                  }
+                ]
+              },
+              {
+                "label": "already have a file",
+                "where": [
+                  {
+                    "field": "audio",
+                    "op": "exists"
+                  },
+                  {
+                    "field": "kind",
+                    "op": "neq",
+                    "value": "music"
+                  }
+                ]
+              },
+              {
+                "label": "with no description yet",
+                "where": [
+                  {
+                    "field": "prompt",
+                    "op": "missing"
+                  },
+                  {
+                    "field": "audio",
+                    "op": "missing"
+                  },
+                  {
+                    "field": "kind",
+                    "op": "neq",
+                    "value": "music"
+                  }
+                ]
+              }
+            ]
           },
           {
             "id": "keep",
             "kind": "run",
             "title": "Keep what you like",
-            "help": "Listen to each sound on the first step. Set the ones you do not like to redo there (Make it again), then keep all the rest here with one approval.",
+            "help": "These sounds were made and wait for your yes. Play each one here. If you do not like one, choose Make it again on its card on the first step: it leaves this list. Then keep the rest with one approval.",
             "workflow": "screenplay-keep-sounds",
             "inputs": {
               "story": "${story}"
             },
-            "button": "Keep the sounds that were made"
+            "button": "Keep these sounds (${count})",
+            "audio": "audio",
+            "subtitle": "prompt",
+            "badges": [
+              "kind",
+              "source"
+            ],
+            "empty": "No sound is waiting to be kept. Make some on the step before, or go on.",
+            "left_out": [
+              {
+                "label": "kept already",
+                "where": [
+                  {
+                    "field": "status",
+                    "op": "eq",
+                    "value": "approved"
+                  }
+                ]
+              },
+              {
+                "label": "set to redo",
+                "where": [
+                  {
+                    "field": "status",
+                    "op": "eq",
+                    "value": "redo"
+                  }
+                ]
+              },
+              {
+                "label": "not made yet",
+                "where": [
+                  {
+                    "field": "status",
+                    "op": "in",
+                    "value": [
+                      "draft",
+                      "queued"
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "id": "check",
