@@ -72,7 +72,8 @@ def test_an_import_asked_for_while_another_was_working_on_the_story_is_skipped_o
     done = _import(ctx)
     assert fake.made == [] and fake.patched == []  # nothing made and the story is not touched
     said = done["log"]
-    assert said.startswith("Skipped: nothing was done.") and "import-1" in said and "2026-11-13 18:39 UTC" in said and "Traceback" not in said
+    first = said.splitlines()[0]
+    assert first == "Skipped: import-1 already had s (started 2026-11-13 18:39 UTC, done 18:52 UTC); nothing was done." and "Traceback" not in said
     assert done["result"]["skipped"] is True and done["result"]["already"] == "import-1" and done["result"]["summary"] == said.splitlines()[0]
 
 

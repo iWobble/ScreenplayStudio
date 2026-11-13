@@ -756,13 +756,17 @@ def _skip_if_busy(ctx: Context, job: dict, story: str) -> "dict | None":
     if other is None:
         return None
     d = other.get("dataJson") or {}
-    started = _at(d.get("claimed_at"))
-    since = f"it started at {_utc(started)}" if started else f"it was asked for at {_utc(_at(other.get('createdAt')))}"
-    now = {"queued": "and is waiting for a worker", "claimed": "and is starting", "running": "and is still running"}.get(str(d.get("status")), f"and finished at {_utc(_at(other.get('updateAt') or other.get('updatedAt')))}")
+    started, asked = _at(d.get("claimed_at")), _at(other.get("createdAt"))
+    ended = _at(other.get("updateAt") or other.get("updatedAt"))
+    since = f"started {_utc(started)}" if started else f"asked for {_utc(asked)}"
+    now = {"queued": "waiting for a worker", "claimed": "starting", "running": "still running"}.get(str(d.get("status")), f"done {_utc(ended)[11:] if ended and started and ended.date() == started.date() else _utc(ended)}")
+    said = f"Skipped: {other.get('slug')} already had {story} ({since}, {now}); nothing was done."  # the Workers page shows a log's first 120 characters
     title = str(other.get("title") or "").strip()
-    said = f"Skipped: nothing was done. The job {other.get('slug')}{f' ({title})' if title else ''} was already working on {story} when this one was asked for: {since} {now}."
-    more = "What it found or made is on that job and on the story. To run this again, wait until that job is done, then press the button again."
-    return {"result": {"skipped": True, "story": story, "already": other.get("slug"), "already_since": _utc(started or _at(other.get("createdAt"))), "summary": said}, "log": f"{said}\n{more}"}
+    more = (
+        f"That job{f' ({title})' if title else ''} was asked for before this one and was still working on {story} when this one was asked for. "
+        "What it found or made is on that job and on the story. To run this again, wait until that job is done, then press the button again."
+    )
+    return {"result": {"skipped": True, "story": story, "already": other.get("slug"), "already_since": _utc(started or asked), "summary": said}, "log": f"{said}\n{more}"}
 
 
 def _save_story(ctx: Context, story_row: dict, put: dict, fill: "dict | None" = None, log_line: str = "") -> None:
