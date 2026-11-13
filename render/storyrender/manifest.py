@@ -426,7 +426,8 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
 
 
 def plan(manifest: Manifest) -> Timeline:
-    """Lay the shots end to end: each lasts as long as its lines need (or its hold, if longer)."""
+    """Lay the shots end to end: each lasts as long as its lines need (with the silences around them), or its hold when that is longer: a beat that is
+    too quick to take in is given its hold, the picture staying up after the last line."""
     shots: list[PlannedShot] = []
     clock = 0.0
     for index, shot in enumerate(manifest.shots):
