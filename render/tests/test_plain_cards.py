@@ -281,6 +281,12 @@ def test_the_stills_batch_never_picks_a_plain_card_and_still_picks_every_other_w
     assert {"field": "shows", "op": "neq", "value": cards.PLAIN_CARD} in details["query"]["where"]  # nor is the AI asked to describe one
 
 
+def test_the_stills_batch_says_in_whole_sentences_that_it_leaves_a_plain_card_out():
+    blueprint = next(b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"] if b["kind"] == "workflow" and b["slug"] == "screenplay-make-stills")
+    said = blueprint["payload"]["description"]
+    assert said == blueprint["description"] and said.endswith(".") and "plain card" in said  # the list and the workflow's own page say the same
+
+
 def test_a_plain_card_set_to_queued_starts_no_still_and_the_one_beat_workflow_does_not_queue_it():
     take = _blueprint("workflow", "screenplay-take-still")["definition"]
     assert {"field": "entry.data.shows", "op": "neq", "value": cards.PLAIN_CARD} in take["conditions"]  # the workflow that spends does not start for it

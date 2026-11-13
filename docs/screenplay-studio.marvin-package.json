@@ -5964,7 +5964,7 @@
       "kind": "workflow",
       "slug": "screenplay-make-stills",
       "name": "Screenplay: make the stills of a story",
-      "description": "One approval for every beat of a story that is waiting for its still (status draft, with its picture described): they are all made together and nothing more is asked per picture. Afterwards look at them and use Keep the stills that were made.",
+      "description": "One approval for every beat of a story that is waiting for its still (status draft, with its picture described): they are all made together and nothing more is asked per picture. Afterwards look at them and use Keep the stills that were made. A beat that shows a plain card is never among them: it has no picture to make.",
       "required": false,
       "category": "General",
       "source": "core",
@@ -5972,7 +5972,7 @@
       "parameters": [],
       "payload": {
         "name": "Screenplay: make the stills of a story",
-        "description": "One approval for every beat of a story that is waiting for its still (status draft, with its picture described): they are all made together and nothing more is A beat that shows a plain card is never among them: it has no picture to make.",
+        "description": "One approval for every beat of a story that is waiting for its still (status draft, with its picture described): they are all made together and nothing more is asked per picture. Afterwards look at them and use Keep the stills that were made. A beat that shows a plain card is never among them: it has no picture to make.",
         "definition": {
           "trigger": {
             "type": "manual",
