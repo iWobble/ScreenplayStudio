@@ -330,6 +330,23 @@ def test_a_sound_card_can_take_the_persons_own_file_and_the_make_step_never_make
     assert {"field": "audio", "op": "missing"} in where  # a sound with any file is left alone, whatever its source says
 
 
+def test_a_sound_added_with_its_file_is_prepared_and_measured_as_one_updated_with_a_file_is():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    pairs = {
+        "screenplay-own-sound": "screenplay-own-sound-created",
+        "screenplay-measure-sound": "screenplay-measure-sound-created",
+        "screenplay-measure-sound-level": "screenplay-measure-sound-level-created",
+        "screenplay-make-waveform": "screenplay-make-waveform-sound-created",
+    }
+    for old, new in pairs.items():
+        before, after = blueprints[old]["payload"]["definition"], blueprints[new]["payload"]["definition"]
+        assert (before["trigger"]["event"], after["trigger"]["event"]) == ("entry_updated", "entry_created")  # the file is there from the start: no update follows
+        assert after["actions"] == before["actions"]  # the same job or change
+        assert not any(c.get("op") == "changed" for c in after["conditions"])  # nothing has changed on a new entry
+        assert blueprints[new]["name"] != blueprints[old]["name"]
+    assert {"field": "entry.entry_type", "op": "in", "value": "sound"} in blueprints["screenplay-make-waveform-sound-created"]["payload"]["definition"]["conditions"]  # sounds only: a take or a line has its own
+
+
 def test_a_lines_volume_and_muffling_are_its_own_fields_the_take_points_back_to_its_line_and_the_timeline_plays_the_level():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     line = {f["key"]: f for f in blueprints["speech-line"]["payload"]["schema_json"]["fields"]}

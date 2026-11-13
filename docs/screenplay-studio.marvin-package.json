@@ -4610,6 +4610,68 @@
     },
     {
       "kind": "workflow",
+      "slug": "screenplay-measure-sound-created",
+      "name": "Measure the length of a sound added with its file",
+      "description": "When a sound you uploaded or recorded has a file and no length, read the file's real length and write it to the sound, so the Timeline draws an effect at the right width.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Measure the length of a sound added with its file",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_created"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "sound"
+            },
+            {
+              "field": "entry.data.source",
+              "op": "in",
+              "value": [
+                "uploaded",
+                "recorded"
+              ]
+            },
+            {
+              "field": "entry.data.audio",
+              "op": "exists"
+            },
+            {
+              "field": "entry.data.duration_seconds",
+              "op": "exists",
+              "value": false
+            }
+          ],
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Measure the sound: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "measure-audio",
+                "args": {
+                  "entry": "${entry.slug}",
+                  "field": "audio",
+                  "seconds_field": "duration_seconds"
+                },
+                "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
       "slug": "screenplay-measure-sound-level",
       "name": "Measure how loud a sound's take is",
       "description": "Whenever a sound gets a take (made, uploaded or recorded, or a new one after a redo), listen to it and write its average level and loudest moment to the sound, so its page draws them as meters beside the volume slider.",
@@ -4664,6 +4726,56 @@
     },
     {
       "kind": "workflow",
+      "slug": "screenplay-measure-sound-level-created",
+      "name": "Measure how loud a sound is when it is added with its file",
+      "description": "Whenever a sound gets a take (made, uploaded or recorded, or a new one after a redo), listen to it and write its average level and loudest moment to the sound, so its page draws them as meters beside the volume slider.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Measure how loud a sound is when it is added with its file",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_created"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "sound"
+            },
+            {
+              "field": "entry.data.audio",
+              "op": "exists"
+            }
+          ],
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Measure the level of the sound: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "measure-level",
+                "args": {
+                  "entry": "${entry.slug}",
+                  "field": "audio",
+                  "level_field": "level_db",
+                  "peak_field": "peak_db"
+                },
+                "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
       "slug": "screenplay-make-waveform",
       "name": "Draw a take as a waveform",
       "description": "Whenever a sound, a line or a take gets a recording (made, uploaded, recorded, or a new one after a redo), work out its waveform and write it to the entry, so the Timeline draws it in the block.",
@@ -4692,6 +4804,55 @@
             {
               "field": "entry.data.audio",
               "op": "changed"
+            }
+          ],
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Draw the waveform of: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "make-waveform",
+                "args": {
+                  "entry": "${entry.slug}",
+                  "field": "audio",
+                  "wave_field": "waveform"
+                },
+                "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-make-waveform-sound-created",
+      "name": "Draw a sound added with its file as a waveform",
+      "description": "Whenever a sound, a line or a take gets a recording (made, uploaded, recorded, or a new one after a redo), work out its waveform and write it to the entry, so the Timeline draws it in the block.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Draw a sound added with its file as a waveform",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_created"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "in",
+              "value": "sound"
+            },
+            {
+              "field": "entry.data.audio",
+              "op": "exists"
             }
           ],
           "actions": [
@@ -5430,6 +5591,75 @@
           "trigger": {
             "type": "event",
             "event": "entry_updated"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "sound"
+            },
+            {
+              "field": "entry.data.status",
+              "op": "eq",
+              "value": "queued"
+            },
+            {
+              "field": "entry.data.source",
+              "op": "in",
+              "value": [
+                "uploaded",
+                "recorded"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.slug}",
+              "data": {
+                "status": "recorded",
+                "take_notes": "Your own sound: kept exactly as you recorded or uploaded it, never sent to ElevenLabs. Fades are applied when it is mixed."
+              },
+              "when": {
+                "field": "entry.data.audio",
+                "op": "exists"
+              }
+            },
+            {
+              "kind": "entry",
+              "op": "set_data",
+              "entity_slug": "${entry.slug}",
+              "data": {
+                "status": "draft",
+                "take_notes": "This sound is your own (uploaded or recorded) and has no file yet: attach it in Take, then queue again. Nothing was sent to ElevenLabs."
+              },
+              "when": {
+                "field": "entry.data.audio",
+                "op": "exists",
+                "value": false
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
+      "slug": "screenplay-own-sound-created",
+      "name": "Screenplay: prepare a sound added with its own file (no ElevenLabs)",
+      "description": "",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Screenplay: prepare a sound added with its own file (no ElevenLabs)",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_created"
           },
           "conditions": [
             {
