@@ -243,7 +243,7 @@ def test_pull_passes_a_beats_camera_move_and_keeps_a_silent_held_beat(marvin, tm
     assert "move" not in shots["b01"]  # a beat with no move keeps the render's default
 
 
-def test_pull_gives_each_beat_its_camera_from_its_own_choice_then_its_own_numbers_then_its_scene_then_the_story(marvin, tmp_path):
+def test_pull_gives_each_beat_its_camera_from_its_own_numbers_then_its_own_choice_then_its_scene_then_the_story(marvin, tmp_path):
     rows = [dict(r) for r in _ROWS]
     rows[0] = {**rows[0], "dataJson": {"camera": "drift"}}  # the story's own
     rows += [
@@ -264,7 +264,7 @@ def test_pull_gives_each_beat_its_camera_from_its_own_choice_then_its_own_number
     assert shots["b04"]["move"] == camera.move_of("pan-left")  # the beat's own preset
     assert shots["b05"]["move"] == camera.move_of("tilt-up")  # else its scene's
     assert shots["b06"]["move"] == camera.move_of("drift")  # else the story's
-    assert shots["b07"]["move"] == camera.move_of("push-in")  # a camera the beat chose by name beats numbers it also holds
+    assert shots["b07"]["move"]["from"]["x"] == 0.2  # numbers the beat holds (a preset's, then changed) beat the camera it also chose by name
     assert shots["b09"]["move"]["from"]["x"] == 0.2  # numbers written out on the beat beat its scene's and the story's camera
     assert shots["b08"]["move"] == camera.move_of("drift")  # a name that is no preset is skipped, so the story's holds
 
