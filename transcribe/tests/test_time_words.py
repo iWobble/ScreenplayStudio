@@ -117,3 +117,27 @@ def test_a_silent_recording_a_missing_take_and_a_take_with_no_recording_each_say
 def test_it_declares_what_it_takes():
     meta = META["time-words"]
     assert meta["inputs"]["entry"]["type"] == "string" and meta["inputs"]["language"]["required"] is False and "faster-whisper" in meta["needs"]
+
+
+def test_a_report_also_writes_what_was_heard_how_fast_and_how_much_of_the_line_was_said(tmp_path, monkeypatch):
+    written = []
+    entry = {"slug": "take-1", "dataJson": {"audio": "asset-1", "spoken": "Your feast. Make do."}}
+    _wire(monkeypatch, entry, patched=[])
+    monkeypatch.setattr(jobs.marvin_api, "update_entry", lambda creds, slug, data: written.append((slug, data)))
+    monkeypatch.setattr(jobs, "load_model", lambda name: _Model([("Your", 0.0, 0.3), ("feast", 0.4, 0.9), ("Make", 1.2, 1.5), ("do", 1.5, 2.0)]))
+    done = jobs.time_words({"job": "j", "args": {"entry": "take-1", "report": "yes"}}, _ctx(tmp_path))
+    (slug, report), = written
+    assert slug == "take-1" and report == {"heard": "Your feast Make do", "language": "en", "words_per_minute": 120, "match": 100}
+    assert "120 words a minute" in done["log"]
+    written.clear()
+    jobs.time_words({"job": "j", "args": {"entry": "take-1"}}, _ctx(tmp_path))
+    assert written == []  # without the report, only the times are written
+
+
+def test_how_much_of_the_line_was_said_and_the_pace():
+    from storytranscribe import align
+
+    heard = [{"text": "Your", "start": 0, "end": 0.3}, {"text": "feast", "start": 0.4, "end": 0.9}]
+    assert align.match_percent("Your feast. Make do.", heard) == 50  # the take stops short
+    assert align.match_percent("Your feast.", heard) == 100 and align.match_percent("", heard) == 0 and align.match_percent("x", []) == 0
+    assert align.words_per_minute(heard) == 133 and align.words_per_minute(heard[:1]) == 0  # under half a second of speech has no pace

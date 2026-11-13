@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "169",
+  "version": "171",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -3171,8 +3171,7 @@
                 "uploaded",
                 "recorded"
               ],
-              "defaultValue": "generated",
-              "helpText": "generated: made by ElevenLabs. uploaded or recorded: your own file, kept as it is. Add one yourself by making a take for the line (Line = the line's slug), attaching the audio, and setting Status to In use and this to uploaded or recorded: the line then uses it.",
+              "helpText": "Empty until the worker listens to the file: a take made by ElevenLabs says generated, a file recorded in the browser says recorded, any other file says uploaded. generated: made by ElevenLabs. uploaded or recorded: your own file, kept as it is. Add one yourself by making a take for the line (Line = the line's slug), attaching the audio, and setting Status to In use and this to uploaded or recorded: the line then uses it.",
               "group": "Recording"
             },
             {
@@ -3189,6 +3188,106 @@
               "type": "number",
               "helpText": "How long the recording is.",
               "group": "Recording"
+            },
+            {
+              "key": "format",
+              "label": "Format",
+              "type": "text",
+              "readOnly": true,
+              "helpText": "The file's make: codec, sample rate, mono or stereo. Written by the worker when a take arrives; nothing to edit.",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "level_lufs",
+              "label": "Loudness (LUFS)",
+              "type": "number",
+              "readOnly": true,
+              "helpText": "How loud the take sounds overall (integrated loudness). Speech for film sits near -23 to -16.",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "rms_db",
+              "label": "Average level (dB)",
+              "type": "number",
+              "readOnly": true,
+              "helpText": "The take's average level, in dB below full scale. ACX asks for -23 to -18 dB.",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "peak_db",
+              "label": "Loudest moment (dB)",
+              "type": "number",
+              "readOnly": true,
+              "helpText": "The take's loudest peak, in dB below full scale. ACX asks for no more than -3 dB.",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "noise_floor_db",
+              "label": "Noise floor (dB)",
+              "type": "number",
+              "readOnly": true,
+              "helpText": "The quietest stretch of the take: the room's noise when nobody speaks. ACX asks for -60 dB or lower.",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "clipped",
+              "label": "Clipped",
+              "type": "select",
+              "options": [
+                "no",
+                "yes"
+              ],
+              "readOnly": true,
+              "helpText": "yes when the loudest moment touched the ceiling, so the top of the wave is probably cut off. A clipped take is worth recording again.",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "lead_silence",
+              "label": "Silence before (seconds)",
+              "type": "number",
+              "readOnly": true,
+              "helpText": "How long before the first sound.",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "tail_silence",
+              "label": "Silence after (seconds)",
+              "type": "number",
+              "readOnly": true,
+              "helpText": "How long after the last sound.",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "heard",
+              "label": "What was heard",
+              "type": "textarea",
+              "readOnly": true,
+              "helpText": "The words the worker heard in the take. Written when the words are timed (uploaded or recorded takes).",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "language",
+              "label": "Language heard",
+              "type": "text",
+              "readOnly": true,
+              "helpText": "The language the worker detected, as a code (en).",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "words_per_minute",
+              "label": "Pace (words a minute)",
+              "type": "number",
+              "readOnly": true,
+              "helpText": "How fast the voice speaks, from the first word to the last.",
+              "group": "What the worker heard"
+            },
+            {
+              "key": "match",
+              "label": "Matches the line (%)",
+              "type": "number",
+              "readOnly": true,
+              "helpText": "How much of the line's written text the take says, in order. Low means the take says something else or stops short.",
+              "group": "What the worker heard"
             },
             {
               "key": "voice",
@@ -4394,6 +4493,59 @@
     },
     {
       "kind": "workflow",
+      "slug": "screenplay-describe-take",
+      "name": "Describe a take's recording",
+      "description": "A take made with a recording is listened to by a worker, which writes what it says about itself to the take: its make, loudness, noise floor, loudest moment, clipping, the silence at each end and where it came from. Nothing is changed in the file.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Describe a take's recording",
+        "definition": {
+          "trigger": {
+            "type": "event",
+            "event": "entry_created"
+          },
+          "conditions": [
+            {
+              "field": "entry.entry_type",
+              "op": "eq",
+              "value": "take"
+            },
+            {
+              "field": "entry.data.audio",
+              "op": "exists"
+            },
+            {
+              "field": "entry.data.format",
+              "op": "exists",
+              "value": false
+            }
+          ],
+          "actions": [
+            {
+              "kind": "entry",
+              "op": "create",
+              "entry_type": "job",
+              "title": "Describe the take: ${entry.title}",
+              "status": "draft",
+              "data": {
+                "kind": "describe-audio",
+                "args": {
+                  "entry": "${entry.slug}",
+                  "field": "audio"
+                },
+                "status": "queued"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "workflow",
       "slug": "screenplay-measure-sound",
       "name": "Measure an uploaded sound",
       "description": "When a sound you uploaded or recorded has a file and no length, read the file's real length and write it to the sound, so the Timeline draws an effect at the right width.",
@@ -4586,11 +4738,8 @@
             },
             {
               "field": "entry.data.source",
-              "op": "in",
-              "value": [
-                "uploaded",
-                "recorded"
-              ]
+              "op": "neq",
+                "value": "generated"
             },
             {
               "field": "entry.data.audio",
@@ -4608,7 +4757,8 @@
                 "kind": "time-words",
                 "args": {
                   "entry": "${entry.slug}",
-                  "field": "audio"
+                  "field": "audio",
+                "report": "yes"
                 },
                 "status": "queued"
               }
@@ -10637,7 +10787,10 @@
               "start_fade": "start_fade_seconds",
               "volume": "music_volume",
               "entry_fade_in": "music_fade_in",
-              "entry_fade_out": "music_fade_out"
+              "entry_fade_out": "music_fade_out",
+              "ramp": 0.5,
+              "item_ramp_in": "music_fade_in",
+              "item_ramp_out": "music_fade_out"
             },
             "audio": "audio",
             "seconds": "duration_seconds",

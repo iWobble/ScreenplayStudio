@@ -201,6 +201,57 @@ def measure_level(job: dict, ctx: Context) -> dict:
 
 
 @job_kind(
+    "describe-audio",
+    description="Listen to the recording in a take and write what it says about itself: its make (codec, rate, mono or stereo), how loud it sounds (LUFS, average level) and its loudest moment, the quietest stretch (its noise floor), whether it hit the ceiling, the silence before the first sound and after the last, and where it came from (recorded in the browser, uploaded or generated) when the take does not say. Nothing is changed in the file",
+    inputs={
+        "entry": {"type": "string", "description": "the entry's slug, e.g. the take holding the recording"},
+        "field": {"type": "string", "required": False, "description": "the field holding the recording (audio by default)"},
+    },
+    produces=[],
+    needs=["ffmpeg"],
+)
+def describe_audio(job: dict, ctx: Context) -> dict:
+    """A recording in an entry's audio field → its make, loudness, peak, lead and tail silence and (when empty) its source, written to the entry."""
+    args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
+    slug = str(args.get("entry") or "").strip()
+    field = str(args.get("field") or "audio").strip()
+    if not slug:
+        raise JobError("this kind of job needs args.entry (the entry's slug)")
+    row = next(iter(marvin_api.query(ctx.creds, {"entries": slug}, limit=1)), None)
+    if row is None:
+        raise JobError(f"no entry “{slug}”")
+    data = row.get("dataJson") or row.get("data") or {}
+    held = data.get(field)
+    if not held or not isinstance(held, str):
+        raise JobError(f"“{slug}” has nothing in “{field}”: record or upload a sound there first")
+    asset = marvin_api.asset(ctx.creds, held)
+    name = asset.get("name") or asset.get("slug") or "recording"
+    if not audio_convert.is_audio(asset.get("mimeType"), name):
+        raise JobError(f"“{name}” ({asset.get('mimeType') or 'unknown type'}) is not a sound")
+    src = ctx.work / f"describe{Path(name).suffix or '.bin'}"
+    marvin_api.download_asset(ctx.creds, asset.get("id") or held, src)
+    try:
+        seconds = round(audio_measure.seconds(src), 3)
+        lead, tail = audio_measure.silence_edges(src, seconds)
+        heard = audio_measure.loudness(src)
+        _mean, peak = audio_measure.levels(src)
+        make = audio_measure.format_summary(audio_measure.probe_audio(src))
+        spread = audio_measure.stats(src)
+    except ffmpeg.FfmpegError as e:
+        raise JobError(f"could not read “{name}” as sound: {e}") from e
+    found: dict = {"format": make, "peak_db": peak, "lead_silence": lead, "tail_silence": tail}
+    if spread:  # the average level, the quietest stretch (what a standard calls the noise floor) and whether the loudest moment hit the ceiling
+        found.update(rms_db=spread["rms_db"], noise_floor_db=spread["noise_floor_db"], clipped="yes" if peak >= audio_measure.CLIP_DB else "no")
+    if heard:
+        found["level_lufs"] = heard[0]
+    if not str(data.get("source") or "").strip():  # a take that says where it came from is believed; one that does not is told by its file
+        found["source"] = audio_measure.source_of(asset.get("metadataJson"))
+    marvin_api.update_entry(ctx.creds, slug, found)
+    say = f"{name}: {make}; {found.get('level_lufs', '?')} LUFS, peak {peak:.1f} dB" + (f", noise floor {found['noise_floor_db']:.1f} dB" if "noise_floor_db" in found else "") + (", clipped" if found.get("clipped") == "yes" else "") + f"; {lead:g} s of silence before, {tail:g} s after" + (f"; source {found['source']}" if "source" in found else "")
+    return {"result": {"entry": slug, "field": field, **found}, "log": say}
+
+
+@job_kind(
     "make-waveform",
     description="Work out a recording's waveform and write it to the entry: the loudest and quietest point of each of 240 stretches, in the audiowaveform JSON format, so the Timeline can draw the take in its block. Nothing is changed in the file.",
     inputs={
