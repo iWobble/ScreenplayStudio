@@ -1,7 +1,7 @@
 """How a line is said lives on the line, so the script comes out of the records as it went in: the parenthetical under a cue is the line's direction,
 an extension on the cue is its extension, and a tag inside the speech ([sighs]) is delivery, kept apart from the words the caption shows."""
 
-from storyrender import delivery, fountain, script
+from storyrender import cards, delivery, fountain, script
 from tests.test_fountain import casting, run  # noqa: F401  (the fake workspace and the import runner)
 from tests.test_script_roundtrip import _facts, _records_from
 
@@ -96,3 +96,16 @@ def test_a_band_groups_beats_the_timeline_draws_it_above_the_scenes_and_nothing_
     assert blueprints["band"]["payload"]["schema_json"]["children"] == [{"title": "Beats", "entry_type": "beat", "field": "band"}]
     bands = blueprints["story-timeline"]["payload"]["spine"]["bands"]
     assert [b["entry_type"] for b in bands] == ["band", "scene"]  # the bigger band on top, the scenes under it
+
+
+def test_the_timeline_draws_a_beats_info_card_in_the_overlay_lane_after_its_delay():
+    import json
+    from pathlib import Path
+
+    package = Path(__file__).resolve().parents[2] / "docs" / "screenplay-studio.marvin-package.json"
+    blueprints = {b["slug"]: b for b in json.loads(package.read_text(encoding="utf-8"))["blueprints"]}
+    lane = {lane["id"]: lane for lane in blueprints["story-timeline"]["payload"]["lanes"]}["overlay"]
+    card = lane["cover"]["card"]
+    beat = {f["key"] for f in blueprints["beat"]["payload"]["schema_json"]["fields"]}
+    assert {card["title"], card["text"], card["delay"]} <= beat  # the fields the lane reads are the beat's
+    assert card["default_delay"] == cards.INFO_DELAY  # the render's own delay, so the block starts when the card does

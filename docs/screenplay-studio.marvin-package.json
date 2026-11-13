@@ -198,16 +198,224 @@
                 "Heavy rocking",
                 "Drift"
               ],
-              "helpText": "A still has no depth, so these are the moves a still can show: the frame moves across the picture or in on it, or rocks like a ship. Replaces the scene's and the story's camera for this beat. Empty: the scene's, else the story's, else a slow push in. It wins over the numbers below if both are filled in. still: the camera does not move; push in: moves in toward the middle: tension, closeness; pull out: moves back to show the surroundings, or isolate; zoom in: a long close in on the middle; zoom out: a long reveal out from the middle; pan left: swings left across the picture; pan right: swings right across the picture; tilt up: pivots up to reveal height; tilt down: pivots down; pedestal up: rises straight up, without tilting; pedestal down: sinks straight down; truck left: slides left alongside the action; truck right: slides right alongside the action; rocking: rolls gently from side to side, like a ship at sea; heavy rocking: rolls hard and heaves, like a ship in a storm; drift: a slow, small float that gives the picture life.",
+              "helpText": "A still has no depth, so these are the moves a still can show: the frame moves across the picture or in on it, or rocks like a ship. Replaces the scene's and the story's camera for this beat. Empty: the scene's, else the story's, else a slow push in. If you change the numbers below, they win over this choice for this beat. still: the camera does not move; push in: moves in toward the middle: tension, closeness; pull out: moves back to show the surroundings, or isolate; zoom in: a long close in on the middle; zoom out: a long reveal out from the middle; pan left: swings left across the picture; pan right: swings right across the picture; tilt up: pivots up to reveal height; tilt down: pivots down; pedestal up: rises straight up, without tilting; pedestal down: sinks straight down; truck left: slides left alongside the action; truck right: slides right alongside the action; rocking: rolls gently from side to side, like a ship at sea; heavy rocking: rolls hard and heaves, like a ship in a storm; drift: a slow, small float that gives the picture life.",
               "group": "Camera and transitions"
             },
             {
               "key": "move",
-              "label": "Camera move: exact numbers (advanced)",
+              "label": "Camera move: the numbers",
               "type": "json",
-              "helpText": "Only for a move the Camera choices above cannot make: where in this one picture to look. `from` and `to` each have x and y (0 to 1: where the view is centred across and down the picture) and zoom (1 = the whole frame, 1.2 = closer); `rock` can add a ship's roll (degrees, seconds, heave). It belongs to this picture alone, so scenes and the story have no such field. If this beat's Camera above is chosen, the Camera is used and these numbers are ignored; if it is empty, these numbers are used, ahead of the scene's and the story's Camera. Leave this empty to use a Camera choice.",
+              "helpText": "Starts as the numbers of the Camera choice above, so you can see what it does. Leave it alone and the Camera choice is used; change a number and this beat has its own move, which wins over the choice and over the scene's and the story's. Clear the box to go back to the choice. `from` and `to` each have x and y (0 to 1: where the view is centred across and down the picture) and zoom (1 = the whole frame, 1.2 = closer): a bigger gap between from and to is a bigger move. `rock` rolls the picture like a ship: degrees (how far), seconds (one full sway), heave (the up and down bob). It belongs to this picture alone, so scenes and the story have no such field.",
               "placeholder": "{\"from\": {\"x\": 0.5, \"y\": 0.5, \"zoom\": 1.0}, \"to\": {\"x\": 0.5, \"y\": 0.5, \"zoom\": 1.12}}",
-              "group": "Camera and transitions"
+              "group": "Camera and transitions",
+              "suggest": {
+                "from": "camera",
+                "values": {
+                  "Still": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.0
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.0
+                    }
+                  },
+                  "Push in": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.0
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.22
+                    }
+                  },
+                  "Pull out": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.22
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.0
+                    }
+                  },
+                  "Zoom in": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.0
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.6
+                    }
+                  },
+                  "Zoom out": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.6
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.0
+                    }
+                  },
+                  "Pan left": {
+                    "from": {
+                      "x": 0.64,
+                      "y": 0.5,
+                      "zoom": 1.3
+                    },
+                    "to": {
+                      "x": 0.36,
+                      "y": 0.5,
+                      "zoom": 1.3
+                    }
+                  },
+                  "Pan right": {
+                    "from": {
+                      "x": 0.36,
+                      "y": 0.5,
+                      "zoom": 1.3
+                    },
+                    "to": {
+                      "x": 0.64,
+                      "y": 0.5,
+                      "zoom": 1.3
+                    }
+                  },
+                  "Tilt up": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.64,
+                      "zoom": 1.3
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.36,
+                      "zoom": 1.3
+                    }
+                  },
+                  "Tilt down": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.36,
+                      "zoom": 1.3
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.64,
+                      "zoom": 1.3
+                    }
+                  },
+                  "Pedestal up": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.6,
+                      "zoom": 1.1
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.4,
+                      "zoom": 1.1
+                    }
+                  },
+                  "Pedestal down": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.4,
+                      "zoom": 1.1
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.6,
+                      "zoom": 1.1
+                    }
+                  },
+                  "Truck left": {
+                    "from": {
+                      "x": 0.6,
+                      "y": 0.5,
+                      "zoom": 1.15
+                    },
+                    "to": {
+                      "x": 0.4,
+                      "y": 0.5,
+                      "zoom": 1.15
+                    }
+                  },
+                  "Truck right": {
+                    "from": {
+                      "x": 0.4,
+                      "y": 0.5,
+                      "zoom": 1.15
+                    },
+                    "to": {
+                      "x": 0.6,
+                      "y": 0.5,
+                      "zoom": 1.15
+                    }
+                  },
+                  "Rocking": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.12
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.12
+                    },
+                    "rock": {
+                      "degrees": 2.5,
+                      "seconds": 6.0,
+                      "heave": 0.012
+                    }
+                  },
+                  "Heavy rocking": {
+                    "from": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.16
+                    },
+                    "to": {
+                      "x": 0.5,
+                      "y": 0.5,
+                      "zoom": 1.16
+                    },
+                    "rock": {
+                      "degrees": 6.0,
+                      "seconds": 4.0,
+                      "heave": 0.03
+                    }
+                  },
+                  "Drift": {
+                    "from": {
+                      "x": 0.46,
+                      "y": 0.52,
+                      "zoom": 1.08
+                    },
+                    "to": {
+                      "x": 0.54,
+                      "y": 0.48,
+                      "zoom": 1.12
+                    }
+                  }
+                },
+                "note": "The numbers of {pick}. Change one to make this beat's move your own."
+              }
             },
             {
               "key": "transition",
@@ -10446,7 +10654,14 @@
               "blend": "overlay_blend",
               "opacity": "overlay_opacity",
               "via": "scene",
-              "entry_type": "scene"
+              "entry_type": "scene",
+              "card": {
+                "title": "info_title",
+                "text": "info_text",
+                "delay": "overlay_delay",
+                "default_delay": 0.6,
+                "name": "Info card"
+              }
             }
           },
           {

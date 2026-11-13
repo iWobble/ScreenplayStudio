@@ -72,7 +72,15 @@ The stages, the records and the first workflows are in marvin.md. This file hold
 
 **The Camera lane draws a scene's rocking as one block (v167).** When a scene (or the story) sets a Camera that carries on across a cut (Still, Rocking, Heavy rocking), the Timeline's Camera lane draws one block across all the scene's consecutive beats, not a chip each. A move that starts afresh at every beat (a push in, a pan) stays one chip per beat, as does a move a beat chose or wrote out itself. Needs Marvin's marks `merge`.
 
-## v169: a line keeps how it is said
+## v168: the camera numbers start from the choice
+
+On a Beat, **Camera move: the numbers** shows the numbers of the Camera choice above (Push in, Rocking, ...) as a starting point, greyed, with a note. Leave it alone and nothing is saved: the Camera choice is used. Change a number and the beat has its own move, which now wins over the beat's Camera choice and over the scene's and the story's; the Camera lane draws it as "Custom move". Clear the box to go back to the choice. `from` / `to` have `x`, `y` (0 to 1, where the view is centred) and `zoom` (1 = the whole frame); `rock` has `degrees`, `seconds` and `heave`. The suggested numbers are the render's own (`camera.move_of`), checked by a test. The numbers box shows nothing for a beat with no Camera choice of its own, even when its scene has one. Needs Marvin #217 (a json field's `suggest`).
+
+## v169: a line keeps how it is said; bands; info cards on the Timeline
 
 A Speech Line carries its delivery, so the script made from the records is the one that went in. The parenthetical under a cue is the line's **Direction** (read in, written back). The extension on a cue (`MARA (O.S.)`, `NARRATOR (V.O.)`) is the new **Extension** pick (V.O., O.S., O.C.); `(CONT'D)` is dropped by the reader and never kept, since a formatter adds it. A tag inside the speech (`Fine. [sighs] Go on.`) is delivery: Text keeps the words the caption shows (`Fine. Go on.`), **Delivery text** keeps the same words with the tag, and the script writes the tags back into the speech. An aside in ordinary parentheses stays in the words. The beat's picture still carries its `Delivery:` note, which an older line is read from.
+
+A **Band** is a named run of beats you group yourself (the opening, the storm). A beat names its band; the Timeline draws it above the scene bands. It changes nothing in the film.
+
+The Timeline's **Overlay** lane also draws a beat's **Info card** (its title, else its sentence) as a block named "Info card: ...", in after the beat's Overlay start delay (0.6 s when none is set), and, as in the render, in place of any overlay file for that beat. Needs Marvin #218.
 
