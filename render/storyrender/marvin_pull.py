@@ -187,8 +187,11 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             shot["overlay"] = cover
         scene_row = scenes.get(str(data(beat).get("scene")))
         shot.update(music_in(data(beat), data(scene_row) if scene_row else {}))
-        if not spoken and (data(beat).get("hold_seconds") or has_still):
-            shot["hold"] = float(data(beat).get("hold_seconds") or DEFAULT_HOLD)  # a sound-only or silent beat lasts its hold, else the default the Timeline also draws it at (a spoken one, as long as its audio)
+        own_hold = _positive(data(beat).get("hold_seconds"))
+        if own_hold is not None:
+            shot["hold"] = own_hold  # the least this beat lasts: a silent one holds that long, a spoken one at least that long (the picture stays up after the last line)
+        elif not spoken and has_still:
+            shot["hold"] = DEFAULT_HOLD  # a silent beat with a picture and no time set lasts the default the Timeline also draws it at
         if data(beat).get("chapter"):
             shot["chapter"] = str(data(beat)["chapter"])  # the chapter's slug, as the chapter list below names it
         if chosen := camera.move_of(camera.pick(data(beat), None, {})):

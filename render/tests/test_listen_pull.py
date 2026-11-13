@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from storyrender import build, camera, ffmpeg, manifest, marvin_pull
+from storyrender.manifest import Line, Manifest, Shot
 
 needs_ffmpeg = pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg not installed")
 
@@ -303,3 +304,33 @@ def test_pull_passes_a_lines_own_level_and_muffling_and_leaves_a_plain_line_alon
     marvin_pull.pull("the-last-onion", tmp_path, creds=(marvin, "tok"))
     plain = json.loads((tmp_path / "manifest.json").read_text())["shots"][0]["lines"][0]
     assert "volume" not in plain and "muffled" not in plain
+
+
+def test_pull_passes_a_beats_own_hold_even_when_it_has_speech_and_never_invents_one_for_a_spoken_beat(marvin, tmp_path):
+    rows = [dict(r) for r in _ROWS]
+    rows.append({"slug": f"{S}-beat-07", "dataJson": {"story": S, "number": "07", "hold_seconds": 8}})  # silent: holds
+    rows.append({"slug": f"{S}-line-07-1", "dataJson": {"story": S, "beat": f"{S}-beat-07", "speaker": "narrator", "text": "Seven.", "audio": "asset-1"}})  # ...and it also speaks
+    rows.append({"slug": f"{S}-beat-08", "dataJson": {"story": S, "number": "08", "hold_seconds": 0}})  # 0 is no hold at all
+    rows.append({"slug": f"{S}-line-08-1", "dataJson": {"story": S, "beat": f"{S}-beat-08", "speaker": "narrator", "text": "Eight.", "audio": "asset-1"}})
+    _FakeMarvin.rows = rows
+    try:
+        marvin_pull.pull("the-last-onion", tmp_path, creds=(marvin, "tok"))
+    finally:
+        _FakeMarvin.rows = _ROWS
+    shots = {s["id"]: s for s in json.loads((tmp_path / "manifest.json").read_text())["shots"]}
+    assert shots["b07"]["hold"] == 8 and shots["b07"]["lines"]  # a spoken beat keeps its own hold: the least it lasts
+    assert "hold" not in shots["b08"]  # a spoken beat that sets none gets none (no invented default: its speech sets its length)
+    assert "hold" not in shots["b01"]
+
+
+def _timed(hold: float, *seconds: float) -> manifest.Timeline:
+    lines = [Line(speaker="a", text="x", audio=Path("a.mp3"), duration=d, words=[]) for d in seconds]
+    return manifest.plan(Manifest("t", (360, 640), 30, [Shot("s", Path("s.png"), hold=hold, lines=lines)]))
+
+
+def test_a_beat_lasts_its_speech_with_the_silences_or_its_hold_when_that_is_longer():
+    speech = 0.3 + 2.5 + 0.35  # lead, the line, tail
+    assert _timed(0.0, 2.5).shots[0].duration == pytest.approx(speech)  # no hold: the speech
+    assert _timed(2.0, 2.5).shots[0].duration == pytest.approx(speech)  # a hold shorter than the speech changes nothing
+    assert _timed(8.0, 2.5).shots[0].duration == pytest.approx(8.0)  # a longer one is the least the beat lasts
+    assert _timed(8.0, 2.5, 1.0).shots[0].duration == pytest.approx(8.0)  # with two lines too
