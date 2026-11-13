@@ -221,7 +221,9 @@ def _narration(planned: PlannedShot, out: Path) -> None:
         ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo", "-t", f"{planned.duration:.3f}", str(out)])
         return
     mix = f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest,apad,atrim=0:{planned.duration:.3f}[out]"
-    ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), str(out)])
+    # `apad` makes the mix endless and `atrim` cuts it; on some ffmpeg builds that does not end the stream, so the output is also bounded by `-t` (and
+    # ffmpeg never waits on a keyboard), or a mix could run until the disk is full instead of finishing.
+    ffmpeg.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), "-t", f"{planned.duration:.3f}", str(out)])
 
 
 MUFFLE_HZ = 700  # heard through a wall: the highs go, the low wash of the sea stays
