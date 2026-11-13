@@ -76,3 +76,8 @@ def test_a_silence_ffmpeg_closes_at_the_end_of_the_file_is_still_the_tail():
 def test_astats_values_that_are_not_numbers_read_as_the_floor_and_not_as_nothing():
     block = "[Parsed_astats_0 @ 0x1] Overall\n[Parsed_astats_0 @ 0x1] Peak level dB: -inf\n[Parsed_astats_0 @ 0x1] RMS level dB: -nan\n[Parsed_astats_0 @ 0x1] RMS trough dB: nan\n"
     assert am.parse_stats(block) == {"rms_db": am.LEVEL_FLOOR, "noise_floor_db": am.NOISE_FLOOR_LOW, "peak_db": am.LEVEL_FLOOR}
+
+
+def test_ffmpeg_8_spells_the_quietest_stretch_through_and_it_is_still_read():
+    block = "[Parsed_astats_0 @ 0x1] Overall\n[Parsed_astats_0 @ 0x1] Peak level dB: -24.082135\n[Parsed_astats_0 @ 0x1] RMS level dB: -30.104547\n[Parsed_astats_0 @ 0x1] RMS through dB: -113.952201\n"
+    assert am.parse_stats(block) == {"rms_db": -30.1, "noise_floor_db": am.NOISE_FLOOR_LOW, "peak_db": -24.1}

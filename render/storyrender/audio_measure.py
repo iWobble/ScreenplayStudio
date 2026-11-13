@@ -147,7 +147,7 @@ def parse_stats(stderr: str) -> dict | None:
     """(average level `rms_db`, quietest stretch `noise_floor_db`, loudest moment `peak_db`) from the "Overall" block of ffmpeg's astats filter, in dB
     below full scale, or None when there is none. The quietest stretch's RMS is how a standard such as ACX reads the noise floor."""
     overall = stderr[stderr.rfind("Overall") :] if "Overall" in stderr else ""
-    found = {key: re.search(rf"{pattern}:\s*([-+]?(?:inf|nan|[\d.]+))", overall) for key, pattern in (("rms_db", "RMS level dB"), ("noise_floor_db", "RMS trough dB"), ("peak_db", "Peak level dB"))}
+    found = {key: re.search(rf"{pattern}:\s*([-+]?(?:inf|nan|[\d.]+))", overall) for key, pattern in (("rms_db", "RMS level dB"), ("noise_floor_db", "RMS t(?:rough|hrough) dB"), ("peak_db", "Peak level dB"))}
     if not all(found.values()):
         return None
     def read(m: re.Match, floor: float) -> float:
