@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "168",
+  "version": "169",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -44,6 +44,16 @@
               "type": "text",
               "helpText": "The chapter this beat is in, for a story cut into chapters: pick it from the list (only this story's). Leave empty for a short with none.",
               "ref": "chapter",
+              "ref_match": {
+                "story": "story"
+              }
+            },
+            {
+              "key": "band",
+              "label": "Band (band entry slug)",
+              "type": "text",
+              "helpText": "A stretch of the film you group yourself (the opening, the storm): pick it from the list (only this story's). On the Timeline a band above the scenes wraps its consecutive beats. It changes nothing in the film. Empty: in no band.",
+              "ref": "band",
               "ref_match": {
                 "story": "story"
               }
@@ -1635,6 +1645,48 @@
     },
     {
       "kind": "entry_type",
+      "slug": "band",
+      "name": "Band",
+      "description": "A named run of beats (the opening, the storm) that you group yourself: it is drawn as a band above the scenes on the Timeline, so you can see a stretch of the film as one piece and make a quick preview of just that. It changes nothing in the film. Each beat names its band.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Band",
+        "icon": "\ud83c\udff7\ufe0f",
+        "description": "A named run of beats (the opening, the storm) that you group yourself: it is drawn as a band above the scenes on the Timeline, so you can see a stretch of the film as one piece and make a quick preview of just that. It changes nothing in the film. Each beat names its band.",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "story",
+              "label": "Story (story entry slug)",
+              "type": "text",
+              "required": true,
+              "helpText": "Slug of the story this band belongs to. There is no entry-to-entry relation field, so children hold the parent's slug."
+            },
+            {
+              "key": "notes",
+              "label": "Notes",
+              "type": "textarea",
+              "helpText": "What this stretch is for (a sentence for yourself)."
+            }
+          ],
+          "children": [
+            {
+              "title": "Beats",
+              "entry_type": "beat",
+              "field": "band"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
       "slug": "series",
       "name": "Series",
       "description": "A set of stories (episodes) that share a world, a cast and a premise. Each episode is a story that names its series and its number.",
@@ -2073,11 +2125,23 @@
               "helpText": "The highs are cut, as if the line were heard from another room. A setting of the line, so it applies to every take of it. A render applies it (the Timeline's Play cannot)."
             },
             {
+              "key": "extension",
+              "label": "Extension",
+              "type": "select",
+              "options": [
+                "V.O.",
+                "O.S.",
+                "O.C."
+              ],
+              "helpText": "Written after the speaker's name in the script: V.O. (a voice over the picture, like a narrator), O.S. (heard from out of the picture) or O.C. (out of camera). The Fountain writes MARA (O.S.) and reads it back into this. Empty for none. (CONT'D is added by the script itself and is never kept here.)",
+              "group": "How it is said"
+            },
+            {
               "key": "direction",
               "label": "Direction",
               "type": "textarea",
               "rows": 3,
-              "helpText": "How this line should sound and feel, in your own words (\"tired, a little amused, almost to herself\"). Read by people and by Claude when choosing the voice settings and the delivery tags; the voice itself cannot read it.",
+              "helpText": "How this line is said, in your own words (\"without looking up\"). The Fountain writes it as the parenthetical under the speaker's name, and reads that back into this; people and Claude use it when choosing the voice settings and the delivery tags. The voice itself cannot read it.",
               "group": "How it is said"
             },
             {
@@ -2085,7 +2149,7 @@
               "label": "Delivery text",
               "type": "textarea",
               "rows": 3,
-              "helpText": "Optional: the same words with ElevenLabs v3 tags, like [sighs] or [whispers] or [pause]. When filled in, the next take speaks this (on the v3 model) instead of Text. Captions always use Text, never this.",
+              "helpText": "Optional: the same words as Text with ElevenLabs v3 tags, like [sighs], [whispers] or [pause]. When filled in, the next take speaks this (on the v3 model) instead of Text. A tag written in the speech in the Fountain, `Fine. [sighs] Go on.`, is split on the way in: the words go in Text, the same words with the tag go here, and the script writes the tags back into the speech. Captions always use Text, never this.",
               "group": "How it is said"
             },
             {
@@ -10446,6 +10510,11 @@
           },
           "bands": [
             {
+              "entry_type": "band",
+              "field": "band",
+              "title": "Band"
+            },
+            {
               "entry_type": "scene",
               "field": "scene",
               "title": "Scene"
@@ -10585,7 +10654,14 @@
               "blend": "overlay_blend",
               "opacity": "overlay_opacity",
               "via": "scene",
-              "entry_type": "scene"
+              "entry_type": "scene",
+              "card": {
+                "title": "info_title",
+                "text": "info_text",
+                "delay": "overlay_delay",
+                "default_delay": 0.6,
+                "name": "Info card"
+              }
             }
           },
           {
