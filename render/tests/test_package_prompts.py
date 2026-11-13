@@ -316,6 +316,17 @@ def test_a_take_keeps_what_the_worker_hears_in_it_a_new_take_is_described_and_mu
     assert (bed["ramp"], bed["item_ramp_in"], bed["item_ramp_out"]) == (0.5, "music_fade_in", "music_fade_out")
 
 
+def test_a_sound_card_can_take_the_persons_own_file_and_the_make_step_never_makes_a_sound_that_has_one():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    found = next(s for s in blueprints["sounds-for-a-story"]["payload"]["steps"] if s["id"] == "found")
+    own = next(a for a in found["card_actions"] if a["label"] == "Use my own sound")
+    assert own["file"] == {"field": "audio", "accept": "audio/*", "assets": True}  # upload, or choose from the assets
+    assert own["set"] == {"source": "uploaded", "status": "approved"} and "when" not in own  # on every card; its file is kept as it is, nothing is made
+    assert len(found["card_actions"]) <= 4 and found["add"]["file"]["assets"] is True
+    where = blueprints["screenplay-make-sounds"]["payload"]["definition"]["actions"][0]["query"]["where"]
+    assert {"field": "audio", "op": "missing"} in where  # a sound with any file is left alone, whatever its source says
+
+
 def test_a_lines_volume_and_muffling_are_its_own_fields_the_take_points_back_to_its_line_and_the_timeline_plays_the_level():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     line = {f["key"]: f for f in blueprints["speech-line"]["payload"]["schema_json"]["fields"]}

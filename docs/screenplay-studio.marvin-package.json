@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "171",
+  "version": "172",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -5954,6 +5954,10 @@
                     "field": "prompt",
                     "op": "exists"
                   },
+                {
+                  "field": "audio",
+                  "op": "missing"
+                },
                   {
                     "field": "kind",
                     "op": "neq",
@@ -10391,8 +10395,9 @@
                 "field": "audio",
                 "accept": "audio/*",
                 "seconds": "duration_seconds",
+                "assets": true,
                 "label": "Your own sound",
-                "help": "Optional: record or upload a sound instead of having one made."
+                "help": "Optional: record or upload a sound, or choose one from your assets, instead of having one made."
               },
               "buttons": [
                 {
@@ -10465,6 +10470,18 @@
                   "op": "eq",
                   "value": "recorded"
                 }
+              },
+              {
+                "label": "Use my own sound",
+                "set": {
+                  "source": "uploaded",
+                  "status": "approved"
+                },
+                "file": {
+                  "field": "audio",
+                  "accept": "audio/*",
+                  "assets": true
+                }
               }
             ]
           },
@@ -10503,7 +10520,7 @@
             "id": "make",
             "kind": "run",
             "title": "Make what is waiting",
-            "help": "One approval for every sound that is on the list as a draft with its description written. They are made together; nothing more is asked per sound, and each uses ElevenLabs sound-effect credit. Music and your own files are not included.",
+            "help": "One approval for every sound that is on the list as a draft with its description written. They are made together; nothing more is asked per sound, and each uses ElevenLabs sound-effect credit. Music is not included, and neither is any sound that already has a file (your own, uploaded or chosen from your assets): those are never made and cost nothing.",
             "workflow": "screenplay-make-sounds",
             "inputs": {
               "story": "${story}"
