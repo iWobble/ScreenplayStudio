@@ -235,7 +235,7 @@ def import_plan(story: str, rows: list[dict], existing: "dict[str, dict] | set[s
                 if refresh:
                     _refresh(plan, lslug, records[lslug], ltitle, ldata, _worked_on_line)
             else:
-                plan["lines"].append((lslug, ltitle, ldata))
+                plan["lines"].append((lslug, ltitle, {**ldata, "order": n}))  # new lines are numbered in the order written; a refresh never renumbers one a person has moved
         plan["sounds"] += [f"beat {number}: {s['text']}" for s in row["sounds"]]
     plan["gone"] = sorted(slug for slug in records if slug not in wanted)
     plan["trash"], plan["orphans_kept"] = [], []

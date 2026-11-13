@@ -74,7 +74,7 @@ def test_the_plan_makes_what_is_missing_and_leaves_what_is_there():
     assert plan["have"] == {"beats": 1, "lines": 1, "chapters": 0} and plan["sounds"] == ["beat 02: wind in the rigging"]
     slug, title, data = plan["beats"][0]
     assert title.startswith("Beat 02: Narrator: Tonight") and data == {"story": "s", "number": "02", "status": "draft", "picture": "Exterior establishing shot of the hull.", "audio_notes": "Sound: wind in the rigging"}  # a spoken beat has no hold; the sound cue is kept as a note
-    assert plan["lines"][0][2] == {"story": "s", "beat": "s-beat-02", "speaker": "narrator", "text": "Tonight, she said.", "status": "draft"}
+    assert plan["lines"][0][2] == {"story": "s", "beat": "s-beat-02", "speaker": "narrator", "text": "Tonight, she said.", "status": "draft", "order": 1}
 
 
 def test_a_repeated_beat_number_is_reported_and_only_the_first_is_used():
