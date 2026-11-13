@@ -197,8 +197,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             shot["chapter"] = str(data(beat)["chapter"])  # the chapter's slug, as the chapter list below names it
         if isinstance(data(beat).get("move"), dict) and data(beat)["move"]:
             shot["move"] = data(beat)["move"]  # numbers written on the beat (a preset's, then changed): its own move, ahead of any Camera choice: {"from": {x, y, zoom}, "to": {...}, "rock": {...}}
-        elif chosen := camera.move_of(camera.pick(data(beat), None, {})):
-            shot["move"] = chosen  # the beat chose a camera by name
+        elif own := camera.move_of(camera.pick(data(beat), None, {})):
+            shot["move"] = own  # the beat chose a camera by name
         elif preset := camera.move_of(camera.pick({}, data(scene_row) if scene_row else None, data(story_row))):
             shot["move"] = preset  # nothing of its own: the camera preset of its scene, else the story
         if data(beat).get("still"):

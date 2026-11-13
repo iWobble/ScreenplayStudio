@@ -269,6 +269,25 @@ def test_pull_gives_each_beat_its_camera_from_its_own_numbers_then_its_own_choic
     assert shots["b08"]["move"] == camera.move_of("drift")  # a name that is no preset is skipped, so the story's holds
 
 
+def test_a_beats_camera_choice_never_decides_whether_the_film_gets_its_title_and_end_cards(marvin, tmp_path):
+    rows = [dict(r) for r in _ROWS]
+    rows[0] = {**rows[0], "dataJson": {"intro_title": "The Last Onion", "outro_title": "The End"}}
+    rows += [
+        {"slug": f"{S}-beat-04", "dataJson": {"story": S, "number": "04", "hold_seconds": 2}},
+        {"slug": f"{S}-beat-05", "dataJson": {"story": S, "number": "05", "hold_seconds": 2, "camera": "pan-left"}},  # the last beat chose a camera by name
+    ]
+    _FakeMarvin.rows = rows
+    try:
+        marvin_pull.pull("the-last-onion", tmp_path / "whole", creds=(marvin, "tok"))
+        marvin_pull.pull("the-last-onion", tmp_path / "draft", creds=(marvin, "tok"), beats="04")  # a look at one beat, which chose no camera
+    finally:
+        _FakeMarvin.rows = _ROWS
+    whole = [s["id"] for s in json.loads((tmp_path / "whole" / "manifest.json").read_text())["shots"]]
+    assert whole[0] == "intro" and whole[-1] == "outro"  # the whole film keeps both cards
+    draft = [s["id"] for s in json.loads((tmp_path / "draft" / "manifest.json").read_text())["shots"]]
+    assert draft == ["b04"]  # a draft of some beats gets neither
+
+
 def test_a_beat_with_a_picture_and_nothing_else_plays_for_the_default_hold_and_a_beat_with_nothing_is_named_as_left_out(marvin, tmp_path, monkeypatch):
     def fake_fetch(creds, asset_id, dest_stem, ext):
         dest = Path(str(dest_stem) + ".png")
