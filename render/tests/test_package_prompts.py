@@ -323,6 +323,9 @@ def test_a_sound_card_can_take_the_persons_own_file_and_the_make_step_never_make
     assert own["file"] == {"field": "audio", "accept": "audio/*", "assets": True}  # upload, or choose from the assets
     assert own["set"] == {"source": "uploaded", "status": "approved"} and "when" not in own  # on every card; its file is kept as it is, nothing is made
     assert len(found["card_actions"]) <= 4 and found["add"]["file"]["assets"] is True
+    save = next(b for b in found["add"]["buttons"] if b["label"] == "Save my own sound")
+    assert save["skip_required"] is True and save["file"] == "required"  # a sound you bring needs no description of how to make one
+    assert not any(b.get("skip_required") for b in found["add"]["buttons"] if b is not save)  # making one still asks for it
     where = blueprints["screenplay-make-sounds"]["payload"]["definition"]["actions"][0]["query"]["where"]
     assert {"field": "audio", "op": "missing"} in where  # a sound with any file is left alone, whatever its source says
 

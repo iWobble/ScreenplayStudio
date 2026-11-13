@@ -93,3 +93,5 @@ The Timeline's **Overlay** lane also draws a beat's **Info card** (its title, el
 
 On a Beat, **Reference pictures** (The shot) is now an asset picker with upload, like the Story's: the pictures the still goes by. The import still adds the cast's masters to it (they show there beside any picture you add, such as the place or a prop), and the still workflow passes the list on with the scene's anchor. An older beat that held the pictures as comma text is moved over to the list. Needs Marvin #221 (a reference list may hold lists).
 
+
+**Saving your own sound asks for no description (v174).** In the Sounds setup's *Add a sound* form, **What it sounds like** is only needed to have a sound made, but the browser asked for it on every button, so *Save my own sound* did nothing until you wrote one. That button now skips the form's required fields (it still needs a name); the two that make a sound still ask for the description. Needs Marvin #227.
