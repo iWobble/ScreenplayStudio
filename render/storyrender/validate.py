@@ -226,7 +226,7 @@ def check(text: str) -> list[Finding]:
     stripped = F._NOTE.sub(F._blank_out, F._BONEYARD.sub(F._blank_out, plain))
     found, speakers, lower = _blocks(stripped)
     out += found + _speakers(speakers, lower)
-    for message in F.lint(text):  # the capitals rules the import has always warned about, now with a place in this list
+    for message in F.lint(text, limit=None):  # the capitals rules the import has always warned about, every one of them, with a place in this list
         m = re.match(r"line (\d+): (.*)$", message, re.S)
         if not m:
             continue
@@ -255,19 +255,38 @@ def summary(text: str) -> str:
     return f"It reads as {len(plan.chapters)} chapter{'s' if len(plan.chapters) != 1 else ''}, {beats} beats, {lines} spoken lines, {len(plan.characters)} characters and {len(plan.places)} places."
 
 
+def verdict(findings: list[Finding]) -> str:
+    """The report's first line: whether the import will stop, and what else there is to read."""
+    stops = blocking(findings)
+    rest = len(findings) - len(stops)
+    if stops:
+        also = f" The other {rest} {'are' if rest != 1 else 'is'} worth a look." if rest else ""
+        return f"The import will stop: {len(stops)} mistake{'s' if len(stops) != 1 else ''} to fix first (under “Fix before importing”).{also}"
+    if rest:
+        return f"The import will go ahead: nothing stops it. {rest} line{'s are' if rest != 1 else ' is'} worth a look (below)."
+    return "The import will go ahead: nothing to fix."
+
+
 def report(findings: list[Finding], text: str = "") -> tuple[str, int, int]:
-    """The findings in words, and how many are errors and how many are worth a look."""
+    """The findings in words, and how many are errors and how many are worth a look. It opens with whether the import will stop; what the
+    import stops for is under "Fix before importing", and everything else (the capitals it has always only warned about too) under "Worth a
+    look". Every finding is listed: the count is the real one."""
     errors = [f for f in findings if f.level == "error"]
     looks = [f for f in findings if f.level == "look"]
-    head = ["Checked the Fountain" + (f" ({len(F._normal(text).splitlines())} lines)." if text else ".")]
+    stops = blocking(findings)
+    head = [verdict(findings), "Checked the Fountain" + (f" ({len(F._normal(text).splitlines())} lines)." if text else ".")]
     if text:
         head.append(summary(text))
     if not findings:
         return "\n".join(head + ["Nothing to fix: it reads the way it is written."]), 0, 0
     out = list(head)
-    for title, group in (("Fix before importing", errors), ("Worth a look", looks)):
+    worth = [f for f in findings if f not in stops]
+    for title, said, group in (
+        ("Fix before importing", "the import stops until these are fixed", stops),
+        ("Worth a look", "the import goes ahead with these; change one only if it is not what you meant", worth),
+    ):
         if group:
-            out += ["", f"{title} ({len(group)}):"]
+            out += ["", f"{title} ({len(group)}): {said}."]
             for f in group:
                 where = f"line {f.line}: " if f.line else ""
                 out.append(f"  {where}{f.problem}. {f.fix[:1].upper() + f.fix[1:]}.")
