@@ -10057,7 +10057,7 @@
             "added": "Added to the shortlist.",
             "empty": "Nobody considered yet. Pick an actor below.",
             "empty_next": {
-              "text": "Nobody fits? Add an actor: Open call",
+              "text": "Not in the troupe? Add an actor: Open call",
               "href": "/workspace/setups/open-call"
             }
           },
