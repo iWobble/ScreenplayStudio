@@ -279,7 +279,7 @@ def test_a_beat_has_a_time_of_day_field_next_to_its_scene():
 def test_the_fountain_check_is_a_workflow_a_story_field_and_a_step_before_the_split():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     steps = [s["id"] for s in blueprints["narrate-a-story"]["payload"]["steps"]]
-    assert "fountain_report" not in steps and steps.index("details") < steps.index("fountain_upload") < steps.index("fountain_check") < steps.index("split")
+    assert "fountain_report" not in steps and "fountain_upload" not in steps and steps.index("details") < steps.index("fountain_check") < steps.index("split")
     step = next(s for s in blueprints["narrate-a-story"]["payload"]["steps"] if s["id"] == "fountain_check")
     assert blueprints[step["workflow"]]["kind"] == "workflow"
     field = next(f for f in blueprints["story"]["payload"]["schema_json"]["fields"] if f["key"] == "fountain_check")
@@ -516,7 +516,7 @@ def test_the_fountain_reports_are_big_enough_to_read_and_say_how_to_fix_an_uploa
     assert fields["fountain_check"]["rows"] >= 16 and fields["split_plan"]["rows"] >= 16
     steps = {s["id"]: s for s in blueprints["narrate-a-story"]["payload"]["steps"]}
     for said in (fields["fountain_check"]["helpText"], steps["fountain_check"]["help"]):
-        assert "Replace it" in said and "cannot be edited in Marvin" in said and "Nothing needs approving" in said, said
+        assert "Story details" in said and "cannot be edited in Marvin" in said and "Nothing needs approving" in said, said
     assert "(above)" not in steps["fountain_check"]["help"]
 
 
