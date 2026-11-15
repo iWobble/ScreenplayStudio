@@ -580,3 +580,64 @@ def test_the_narrate_setup_offers_the_clear_right_after_the_import_and_no_other_
     assert "Check the split" in clear["help"] and "Bring in the chapters" in clear["help"] and "30 days" in clear["help"]
     forever = [b["slug"] for b in blueprints.values() if b["kind"] == "workflow" and '"mode": "permanent"' in json.dumps(b["payload"]["definition"])]
     assert forever == ["screenplay-clear-story"]
+
+
+def _setups() -> tuple[dict, dict]:
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    return blueprints, {slug: {s["id"]: s for s in b["payload"]["steps"]} for slug, b in blueprints.items() if b["kind"] == "wizard"}
+
+
+def test_an_empty_step_points_to_a_setup_the_package_brings_and_the_voice_step_to_the_form_that_fills_it():
+    blueprints, setups = _setups()
+    for slug, steps in setups.items():
+        for step in steps.values():
+            href = (step.get("empty_next") or {}).get("href", "")
+            if href.startswith("/workspace/setups/"):
+                assert href.rsplit("/", 1)[1] in setups, (slug, step["id"])
+    takes, casting = setups["takes-of-a-line"], setups["casting-call"]
+    for sid in ("character", "chapter", "beat"):  # nothing to pick before the Fountain is in: say so, and where it is brought in
+        assert takes[sid]["empty"] and takes[sid]["empty_next"]["href"] == "/workspace/setups/narrate-a-story", sid
+    assert takes["line"]["empty_next"]["href"] == "/workspace/setups/lines-in-a-beat"  # a beat with no words: add a line to it
+    assert setups["lines-in-a-beat"]["lines"]["empty_next"]["href"] == "/workspace/setups/narrate-a-story"
+    for sid in ("troupe", "candidates"):  # a new actor is made in Open call, not here
+        assert casting[sid]["empty_next"]["href"] == "/workspace/setups/open-call", sid
+    # "Voice for the lines" needs the role's voice: an earlier form of the same entry shows it, so the page links there when it is empty.
+    order = list(casting)
+    needs = casting["voice_lines"]["requires"]
+    fillers = [s["id"] for s in casting.values() if s["kind"] == "form" and s["entry"] == needs["entry"] and needs["field"] in s["fields"]]
+    assert fillers == ["assign"] and order.index("assign") < order.index("voice_lines")
+
+
+def test_a_paid_button_names_the_service_its_workflow_calls_and_only_the_fields_that_workflow_sends():
+    blueprints, setups = _setups()
+    fields = lambda slug: {f["key"] for f in blueprints[slug]["payload"]["schema_json"]["fields"]}
+    sent = lambda slug, key: "${entry.data." + key in workflow(slug)
+
+    def paid_of(step: dict) -> dict:
+        items = step["add"]["buttons"] + step["card_actions"]
+        assert all("paid" not in i for i in items if i.get("file") not in (None, "none")), "a button that saves the person's own file sends nothing"
+        return {i["label"]: i["paid"] for i in items if "paid" in i}
+
+    takes = paid_of(setups["takes-of-a-line"]["takes"])
+    assert set(takes) == {"Make it with ElevenLabs", "Try again"}
+    for label, paid in takes.items():
+        assert paid["service"] == "ElevenLabs" and set(paid["needs"]) <= set(paid["sends"]) <= fields("take"), label
+        assert "direction" not in paid["sends"]  # a note for people: the voice never gets it
+        for slug in ("screenplay-make-take", "screenplay-remake-take"):
+            assert '"integration": "elevenlabs"' in workflow(slug) and all(sent(slug, key) for key in paid["sends"]), (label, slug)
+
+    sounds = paid_of(setups["sounds-for-a-story"]["found"])
+    assert set(sounds) == {"Make this one", "Make it again", "Make it now with ElevenLabs"}
+    for label, paid in sounds.items():
+        assert paid["service"] == "ElevenLabs" and paid["needs"] == ["prompt"] and set(paid["sends"]) <= fields("sound"), label
+        assert all(sent("screenplay-take-sound", key) for key in paid["sends"]) and sent("screenplay-take-music", "prompt"), label
+    assert "Make step" not in setups["sounds-for-a-story"]["found"]["added"]  # that step went in v179
+
+    casting = setups["casting-call"]
+    master, write = casting["master"]["paid"], casting["master_prompt_write"]["paid"]
+    assert master["service"] == "OpenAI Images" and '"integration": "openai_images"' in workflow(casting["master"]["workflow"])
+    assert master["entry"] == "role" and master["sends"] == master["needs"] == ["master_prompt"] and sent(casting["master"]["workflow"], "master_prompt")
+    assert '"kind": "agent"' in workflow(casting["master_prompt_write"]["workflow"])  # an AI call, by whichever model the workspace runs
+    assert write["entry"] == "role" and set(write["needs"]) <= set(write["sends"]) <= fields("cast-member")
+    assert all(sent(casting["master_prompt_write"]["workflow"], key) for key in write["sends"])
+    assert "paid" not in casting["voice_lines"]  # it only copies the voice onto the lines: nothing leaves the workspace
