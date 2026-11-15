@@ -211,7 +211,7 @@ def test_the_sounds_setup_starts_from_what_the_story_has_and_every_field_workflo
     wizard = blueprints["sounds-for-a-story"]["payload"]
     steps = {s["id"]: s for s in wizard["steps"]}
     order = [s["id"] for s in wizard["steps"]]
-    assert order.index("story") < order.index("found") < order.index("beds") < order.index("make") < order.index("keep") < order.index("check")
+    assert order.index("story") < order.index("found") < order.index("beds") < order.index("check")
     sound = {f["key"]: f for f in blueprints["sound"]["payload"]["schema_json"]["fields"]}
     scene = {f["key"] for f in blueprints["scene"]["payload"]["schema_json"]["fields"]}
     story = {f["key"] for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
@@ -220,7 +220,8 @@ def test_the_sounds_setup_starts_from_what_the_story_has_and_every_field_workflo
     wanted = {b["data"]["status"] for b in steps["found"]["add"]["buttons"]} | {a["set"]["status"] for a in steps["found"]["card_actions"]}
     wanted |= {c["query"]["fields"]["status"] for c in steps["check"]["checks"] if "status" in c["query"]["fields"]}
     assert wanted <= statuses  # a button or a check can only name a status the Sound type has
-    for slug in [*steps["found"]["approve"], steps["make"]["workflow"], steps["keep"]["workflow"]]:
+    assert "make" not in steps and "keep" not in steps  # a batch is a workflow, not a step
+    for slug in [*steps["found"]["approve"], "screenplay-make-sounds", "screenplay-keep-sounds"]:
         assert blueprints[slug]["kind"] == "workflow", slug
     assert [b["data"]["source"] for b in steps["found"]["add"]["buttons"]] == ["uploaded", "generated", "generated"]  # an own file is never sent to ElevenLabs
     assert wizard["button"]["step"] in steps and wizard["open"]["view"] in blueprints
@@ -278,12 +279,11 @@ def test_a_beat_has_a_time_of_day_field_next_to_its_scene():
 def test_the_fountain_check_is_a_workflow_a_story_field_and_a_step_before_the_split():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     steps = [s["id"] for s in blueprints["narrate-a-story"]["payload"]["steps"]]
-    assert steps.index("fountain_upload") < steps.index("fountain_check") < steps.index("fountain_report") < steps.index("split")
+    assert "fountain_report" not in steps and steps.index("details") < steps.index("fountain_upload") < steps.index("fountain_check") < steps.index("split")
     step = next(s for s in blueprints["narrate-a-story"]["payload"]["steps"] if s["id"] == "fountain_check")
     assert blueprints[step["workflow"]]["kind"] == "workflow"
-    shown = next(s for s in blueprints["narrate-a-story"]["payload"]["steps"] if s["id"] == "fountain_report")
     field = next(f for f in blueprints["story"]["payload"]["schema_json"]["fields"] if f["key"] == "fountain_check")
-    assert shown["fields"] == ["fountain_check"] and field["readOnly"] is True
+    assert step["report"]["field"] == "fountain_check" and field["readOnly"] is True  # the report shows under the button: no step of its own
     by_story = blueprints["screenplay-check-fountain"]["payload"]["definition"]["actions"][0]["data"]
     by_text = blueprints["screenplay-check-fountain-text"]["payload"]["definition"]
     assert by_story["kind"] == "check-fountain" and by_story["args"] == {"story": "${entry.slug}"}
@@ -515,9 +515,9 @@ def test_the_fountain_reports_are_big_enough_to_read_and_say_how_to_fix_an_uploa
     fields = {f["key"]: f for f in blueprints["story"]["payload"]["schema_json"]["fields"]}
     assert fields["fountain_check"]["rows"] >= 16 and fields["split_plan"]["rows"] >= 16
     steps = {s["id"]: s for s in blueprints["narrate-a-story"]["payload"]["steps"]}
-    for said in (fields["fountain_check"]["helpText"], steps["fountain_check"]["help"], steps["fountain_report"]["help"]):
+    for said in (fields["fountain_check"]["helpText"], steps["fountain_check"]["help"]):
         assert "Replace it" in said and "cannot be edited in Marvin" in said and "Nothing needs approving" in said, said
-    assert "(above)" not in steps["fountain_report"]["help"]
+    assert "(above)" not in steps["fountain_check"]["help"]
 
 
 def test_clearing_a_story_counts_first_then_asks_an_admin_before_anything_is_deleted():
