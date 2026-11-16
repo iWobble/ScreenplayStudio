@@ -1083,3 +1083,17 @@ def test_what_the_jobs_write_on_a_story_shows_as_a_report():
     fields = {f["key"]: f for f in story["payload"]["schema_json"]["fields"]}
     for key in ("fountain_check", "split_plan", "sheet_log"):
         assert fields[key]["display"] == "report" and fields[key]["readOnly"] is True and fields[key]["type"] == "textarea", key
+
+
+def test_the_script_is_in_the_box_or_the_file_one_or_the_other_and_the_file_reads_as_text():
+    """A story's Fountain text and Fountain file take turns (Marvin's `exclusive_with`): the form closes the other one and a save that fills
+    both is refused, as the import refuses to guess between them. The file is read in Marvin as text with its line numbers (`preview`)."""
+    package = json.loads(PACKAGE.read_text(encoding="utf-8"))
+    story = next(b for b in package["blueprints"] if b["kind"] == "entry_type" and b["slug"] == "story")
+    fields = {f["key"]: f for f in story["payload"]["schema_json"]["fields"]}
+    assert fields["fountain"]["exclusive_with"] == ["fountain_file"] and fields["fountain_file"]["exclusive_with"] == ["fountain"]
+    assert fields["fountain_file"]["preview"] == "text" and fields["fountain_file"]["type"] == "asset"
+    assert fields["fountain"]["helpText"].startswith("Use one: write the script here, or attach a file")
+    assert fields["fountain_file"]["helpText"].startswith("Use one: attach the script as a file here, or write it in Fountain")
+    steps = {s["id"]: s for s in next(b for b in package["blueprints"] if b["slug"] == "narrate-a-story")["payload"]["steps"]}
+    assert {"fountain", "fountain_file"} <= set(steps["details"]["fields"]) and "not both" not in steps["details"]["help"]
