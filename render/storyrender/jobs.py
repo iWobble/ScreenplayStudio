@@ -770,15 +770,6 @@ def _skip_if_busy(ctx: Context, job: dict, story: str) -> "dict | None":
     return {"result": {"skipped": True, "story": story, "already": other.get("slug"), "already_since": _utc(started or asked), "summary": said}, "log": f"{said}\n{more}"}
 
 
-RECORDS_PER_SECOND = 2.4  # how fast an import writes, one call to Marvin a record (a feature's 1,880 records took 13.5 minutes)
-
-
-def _time_to_write(records: int) -> str:
-    """How long writing so many records takes at the import's speed, in words: "under a minute", "about 13 minutes"."""
-    minutes = records / RECORDS_PER_SECOND / 60
-    return "under a minute" if minutes < 1 else f"about {round(minutes)} minute{'s' if round(minutes) != 1 else ''}"
-
-
 def _says_why_it_failed(handler):
     """A job kind whose failure leaves its reason in one line on the record's `result.summary` ("Failed: …"), where a page can show it: the
     worker writes only the log of a job that fails. It is written to the job's record before the failure is passed on, which keeps it (the
@@ -1020,7 +1011,9 @@ def check_fountain(job: dict, ctx: Context) -> dict:
     if story_row is not None:
         _save_story(ctx, story_row, {"fountain_check": note})
     stops = len(validate.blocking(findings))
-    result = {"summary": validate.verdict_line(findings), "errors": errors, "looks": looks, "import_stops": stops, "report": body, "findings": [f.__dict__ for f in findings]}
+    records = validate.records_to_write(text)  # the same estimate the import says before it writes
+    said = validate.verdict_line(findings) + (f" Bringing it in takes {fountain.time_to_write(records)}." if records else "")
+    result = {"summary": said, "errors": errors, "looks": looks, "import_stops": stops, "report": body, "findings": [f.__dict__ for f in findings]}
     if story:
         result["story"] = story
     return {"result": result, "log": note}
@@ -1280,7 +1273,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     people = [] if fresh else _people_fill(ctx, story, fplan)  # a replace starts afresh: its Characters are made new
     writes = len(extra) + len(plan["chapters"]) + len(plan["beats"]) + len(plan["lines"]) + len(plan["updates"]) + len(link) + len(fill) + len(people) + len(plan["trash"])
     if writes:  # said once, before the first write: a feature takes minutes, and the page shows only that the job is running
-        ctx.note(f"{'Bringing this in would write' if dry else 'Writing'} {writes} records: {_time_to_write(writes)} at this speed ({RECORDS_PER_SECOND} a second).")
+        ctx.note(f"{'Bringing this in would write' if dry else 'Writing'} {writes} records: {fountain.time_to_write(writes)} at this speed ({fountain.RECORDS_PER_SECOND} a second).")
     if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link or people):
         types = {t["slug"]: t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types"))}
         for needed in ("beat", "speech-line") + (("chapter",) if plan["chapters"] else ()):

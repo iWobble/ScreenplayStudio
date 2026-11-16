@@ -83,7 +83,7 @@ def test_a_lower_case_cue_is_an_error_when_the_same_speaker_is_written_in_capita
         ("INT. ROOM - DAY\n\n===\n\n===\n\nA hand.\n", "empty-picture", 5),
         ("INT. ROOM - DAY\n\n> THE END <\n", "centered", 3),
         ("INT. ROOM - DAY\n\n(softly) she says\n\nA hand.\n", "paren-alone", 3),
-        ("INT. ROOM - DAY\n\nMARA \nHello.\n", "invisible", 3),
+        ("INT. ROOM - DAY\n\nMARA‮\nHello.\n", "invisible", 3),  # a direction mark changes how the name reads (a no-break space does not: see test_import_quality)
     ],
 )
 def test_each_rule_finds_its_slip_on_the_right_line(text, code, line):
@@ -117,7 +117,7 @@ def test_the_check_job_takes_the_text_and_reports_what_it_found_without_marvin(t
     out = jobs.check_fountain({"job": "j", "args": {"text": BROKEN}}, ctx)
     assert out["result"]["errors"] == 7 and out["result"]["looks"] == 4 and out["result"]["import_stops"] >= 5
     assert "line 13: `(without looking up` is opened with (" in out["result"]["report"] and out["log"].startswith("The import will stop: 5 mistakes to fix first")
-    assert out["result"]["summary"] == "Check: the import will stop: 5 mistakes to fix first; 6 more are worth a look."  # one line for a page; the log opens with the report
+    assert out["result"]["summary"] == "Check: the import will stop: 5 mistakes to fix first; 6 more are worth a look. Bringing it in takes under a minute."  # one line for a page; the log opens with the report
     assert {f["code"] for f in out["result"]["findings"]} >= {"note-open", "scene-number", "transition-colon"}
     with pytest.raises(JobError, match="a story, the text, or an uploaded file"):
         jobs.check_fountain({"job": "j", "args": {}}, ctx)

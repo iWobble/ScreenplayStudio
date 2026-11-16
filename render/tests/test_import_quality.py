@@ -2,6 +2,8 @@
 camera words and names in capitals, speakers whose short names clash, capitals lines standing alone, and the one line each job leaves to say
 how it went."""
 
+import re
+
 import pytest
 
 from marvin_worker.jobs import Context, JobError
@@ -268,12 +270,12 @@ def casting(monkeypatch, tmp_path):
 def test_the_check_says_in_one_line_whether_the_import_can_go_on(jobs_marvin):  # noqa: F811
     head = "Title: T\nSetting: s\nPremise: p\n\n"
     fake, ctx = jobs_marvin(head + "INT. ROOM - DAY\n\nTHE STORM RISES.\n\nMARA\nHello.\n")
-    assert _check(ctx)["result"]["summary"] == "Check: the import can go on; 1 line is worth a look."
+    assert _check(ctx)["result"]["summary"] == "Check: the import can go on; 1 line is worth a look. Bringing it in takes under a minute."
     fake.story["dataJson"]["fountain"] = head + "INT. ROOM - DAY\n\nMARA\nHello.\n"
-    assert _check(ctx)["result"]["summary"] == "Check: nothing to fix; the import can go on."
+    assert _check(ctx)["result"]["summary"] == "Check: nothing to fix; the import can go on. Bringing it in takes under a minute."
     fake.story["dataJson"]["fountain"] = head + "INT. ROOM - DAY\n\n[[a note never closed\n\nCUT TO\n\nTHE STORM RISES.\n"
     stops = _check(ctx)["result"]["summary"]
-    assert stops.startswith("Check: the import will stop: 2 mistakes to fix first") and stops.endswith("; 1 more is worth a look.")
+    assert stops.startswith("Check: the import will stop: 2 mistakes to fix first") and stops.endswith("; 1 more is worth a look. Bringing it in takes under a minute.")
 
 
 def test_an_import_says_what_it_made_and_how_long_writing_takes(jobs_marvin):  # noqa: F811
@@ -313,3 +315,154 @@ def test_a_failure_summary_that_cannot_be_written_does_not_hide_the_failure(jobs
     monkeypatch.setattr(jobs.marvin_api, "update_entry", unreachable)
     with pytest.raises(JobError, match="no story"):
         jobs.import_beats({"job": "import-2", "args": {"story": "nobody"}}, ctx)
+
+
+# --- scene headings written inside and outside at once (Big Fish: `EXT/INT.  SWAMP SHACK - DAY`) ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("start", "kind"),
+    [("EXT/INT.", "both"), ("EXT./INT.", "both"), ("INT/EXT.", "both"), ("INT./EXT.", "both"), ("I/E.", "both"), ("E/I.", "both"), ("INT/EXT", "both"), ("EXT / INT.", "both"), ("EST.", "exterior")],
+)
+def test_every_way_of_writing_inside_and_outside_starts_a_scene(start, kind):
+    text = f"{start}  SWAMP SHACK - DAY\n\nThe door creaks open.\n\nEDWARD\nHello?\n"
+    els = fountain.parse(text)
+    assert els[0] == {"t": "scene", "text": f"{start}  SWAMP SHACK - DAY"}
+    assert fountain.place_of(els[0]["text"]) == {"slug": "swamp-shack", "name": "Swamp Shack", "kind": kind, "time": "Day"}
+    plan = fountain.cut(fountain.parse(text, lines=True), text=text)
+    assert list(plan.places) == ["swamp-shack"] and [c["handle"] for c in plan.characters] == ["Edward"]
+    assert not [f for f in validate.check(text) if f.code in ("heading-without-kind", "capitals-alone", "capitals-above-text")]
+
+
+SHACK = """EXT. SWAMP SHACK - DAY
+
+Edward wades up to the porch.
+
+EXT/INT.  SWAMP SHACK - NIGHT
+
+The witch's eye glints in the doorway.
+
+EXT/INT. SORORITY HOUSE - THE DOORWAY
+
+Sandra waits.
+"""
+
+
+def test_a_heading_written_inside_and_outside_is_the_same_place_as_the_plain_one_and_keeps_its_words():
+    plan = fountain.cut(fountain.parse(SHACK, lines=True), text=SHACK)
+    assert list(plan.places) == ["swamp-shack", "sorority-house-the-doorway"]  # one shack, not two: the second heading names the place the first made
+    assert plan.places["swamp-shack"]["kinds"] == ["exterior", "both"] and fountain.kind_of_places(plan.places["swamp-shack"]["kinds"]) == "both"
+    assert fountain.lint(SHACK) == []
+    beats_ = [b for _c, _n, b in plan.rows()]
+    assert beats_[1]["fountain"].startswith("EXT/INT.  SWAMP SHACK - NIGHT\n")  # the piece the writer wrote, as written
+    records = {"story": {"dataJson": {"fountain_front": plan.front}}, "beats": [{"dataJson": {"fountain": b["fountain"]}} for b in beats_]}
+    assert script.fountain_as_written(records) == SHACK  # the Fountain made again is the one written, the heading as typed
+    assert script._without_lead_heading("E/I. SWAMP SHACK - NIGHT. The eye glints.", "Swamp Shack") == "The eye glints."
+
+
+
+def test_a_heading_written_inside_and_outside_with_its_action_right_under_it_is_a_scene_not_a_speaker():
+    text = "INT. ROOM - DAY\n\nA hand.\n\nEXT/INT.  SWAMP SHACK - DAY\nThe witch looks up.\n\nEDWARD\nHello.\n"
+    plan = fountain.cut(fountain.parse(text, lines=True), text=text)
+    assert [c["cue"] for c in plan.characters] == ["EDWARD"] and list(plan.places) == ["room", "swamp-shack"]
+
+# --- the check's advice for a heading it does not know --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("line", "write"),
+    [
+        ("EXTERIOR SWAMP SHACK - DAY", "EXT. SWAMP SHACK - DAY"),
+        ("INTERIOR HOSPITAL ROOM - NIGHT", "INT. HOSPITAL ROOM - NIGHT"),
+        ("INT-EXT SWAMP SHACK - DAY", "INT./EXT. SWAMP SHACK - DAY"),
+        ("INTERIOR/EXTERIOR SWAMP SHACK - DAY", "INT./EXT. SWAMP SHACK - DAY"),
+        ("ESTABLISHING SWAMP SHACK - DAY", "EST. SWAMP SHACK - DAY"),
+        ("EXT, INT. SWAMP SHACK - DAY", "INT./EXT. SWAMP SHACK - DAY"),
+        ("I.E. SWAMP SHACK - DAY", "INT./EXT. SWAMP SHACK - DAY"),
+        ("SWAMP SHACK - DAY", "EXT. SWAMP SHACK - DAY"),
+    ],
+)
+def test_a_heading_the_check_does_not_know_is_told_how_to_start_without_a_second_kind_put_in_front(line, write):
+    text = f"INT. ROOM - DAY\n\nA hand.\n\n{line}\n\nThe door creaks open.\n"
+    said = fountain.lint(text)
+    assert len(said) == 1 and f"write `{write}`" in said[0] and f"`.{line}`" in said[0], said
+    suggested = re.search(r"write `([^`]*)`", said[0]).group(1)
+    assert not re.search(r"^(?:INT|EXT)\S* (?:EXT|INT)", suggested)  # never `EXT. EXTERIOR …` or `EXT. INT-EXT …`
+    found = [f for f in validate.check(text) if f.code == "heading-without-kind"]
+    assert len(found) == 1 and found[0].fix.startswith(f"write `{write}`") and not validate.blocking(found)
+
+
+# --- characters you cannot see that change nothing --------------------------------------------------------------------------------------
+
+UNSEEN = "INT. ROOM - DAY\n\nBIG EDWARD\nHello.\n\nBIG EDWARD\nAgain.\n\nBIG EDWARD\nThird.\n\nBIG ED​WARD\nFourth.\n\nBIG EDWARD﻿\nFifth.\n"
+
+
+def test_a_no_break_or_zero_width_space_is_read_as_the_space_it_looks_like_and_the_writers_text_is_kept():
+    plan = fountain.cut(fountain.parse(UNSEEN, lines=True), text=UNSEEN)
+    assert [c["cue"] for c in plan.characters] == ["BIG EDWARD"]  # one speaker, not four
+    assert [ln["speaker"] for _c, _n, b in plan.rows() for ln in b["lines"]] == ["Edward"] * 5
+    assert fountain.check(plan) == []
+    assert "BIG EDWARD" in "".join(b["fountain"] for _c, _n, b in plan.rows())  # the as-written piece keeps what was typed
+    assert {f.code for f in validate.check(UNSEEN)} == {"plan", "title-page"}  # nothing about the characters: it reads the way it looks
+
+
+@pytest.mark.parametrize("char", ["‮", "‎", "­", "\x07"])
+def test_a_character_that_changes_how_a_line_reads_or_cannot_be_read_is_still_worth_a_look(char):
+    found = [f for f in validate.check(f"INT. ROOM - DAY\n\nMA{char}RA\nHello.\n") if f.code == "invisible"]
+    assert len(found) == 1 and found[0].line == 3 and found[0].level == "look"
+
+
+# --- how long bringing it in takes, said by the check ---------------------------------------------------------------------------------------
+
+
+def test_the_time_to_write_is_said_in_minutes_or_as_under_a_minute():
+    assert fountain.time_to_write(1880) == "about 13 minutes" and fountain.time_to_write(100) == "under a minute"
+    assert fountain.time_to_write(144) == "about 1 minute" and fountain.RECORDS_PER_SECOND == 2.4
+
+
+def test_the_check_says_how_long_bringing_it_in_takes_with_the_count_the_import_writes(jobs_marvin):  # noqa: F811
+    fake, ctx = jobs_marvin()
+    checked = _check(ctx)["result"]
+    said = re.search(r"^Bringing it in will take (under a minute|about \d+ minutes?) \((\d+) records at about 2\.4 a second\)\.$", checked["report"], re.M)
+    assert said, checked["report"].splitlines()[:4]
+    assert checked["report"].splitlines()[3] == said.group(0)  # under what the import would make
+    assert checked["summary"].endswith(f" Bringing it in takes {said.group(1)}.") and "\n" not in checked["summary"]
+    _import(ctx, dry_run="yes")
+    wrote = next(n for n in ctx.notes if "would write" in n)
+    assert f"would write {said.group(2)} records" in wrote  # the check's count is the one the import writes into an empty story
+
+
+def test_a_start_the_check_cannot_rewrite_is_never_given_a_second_start_in_front():
+    said = fountain.lint("INT. ROOM - DAY\n\nA hand.\n\nEXTR. SWAMP SHACK - DAY\n\nThe door creaks open.\n")
+    assert len(said) == 1 and "EXT. EXTR" not in said[0] and "write its start as INT., EXT. or INT./EXT." in said[0], said
+
+
+ONE_CHAPTER = """Title: Rain
+Setting: A shack.
+Premise: Two wait out a storm.
+
+EXT. SWAMP SHACK - NIGHT
+
+Rain hammers the tin roof. Waves lap at the stilts.
+
+[[Sound: a door bangs at 1s.]]
+
+EDWARD
+Let me in.
+
+EXT/INT.  SWAMP SHACK - NIGHT
+
+The witch opens the door.
+
+WITCH
+You're late.
+"""
+
+
+def test_the_checks_count_is_the_imports_for_one_chapter_with_sounds_ambience_and_two_speakers(jobs_marvin):  # noqa: F811
+    _fake, ctx = jobs_marvin(ONE_CHAPTER)
+    plan = fountain.cut(fountain.parse(ONE_CHAPTER, lines=True), text=ONE_CHAPTER)
+    assert plan.single and plan.ambience and any(b["sounds"] for _c, _n, b in plan.rows()) and len(plan.characters) == 2
+    count = validate.records_to_write(ONE_CHAPTER)
+    _import(ctx, dry_run="yes")
+    assert any(f"would write {count} records" in n for n in ctx.notes), (count, ctx.notes)
