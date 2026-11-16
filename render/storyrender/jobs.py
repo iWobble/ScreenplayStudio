@@ -580,13 +580,23 @@ def _made_for_a_beat(story: str, slug: str) -> bool:
     return bool(re.fullmatch(rf"{re.escape(story)}-sound-\d+[a-z]*-\d+", slug))
 
 
-def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link: list, fresh: bool = False) -> list[tuple[str, tuple[str, str, dict]]]:
-    """The characters and scenes a screenplay implies: a Character for each speaker, with what the screenplay says of them (name, age, sex, the sentences
-    that introduce them), and a Scene for each place its headings name (inside or outside, the time of day), which the new beats are put in. One that
-    exists is left as it is. Nothing is cast, dressed or lit: what the writer did not say is left empty."""
+def _characters_of(fplan, parts: "set[int] | None", have: "set[str]") -> list[dict]:
+    """The screenplay's characters an import of `parts` deals with: every one for the whole script; for some chapters, those who speak in them and
+    those the story already has. Handles and descriptions are the whole script's (`fountain.characters`), so a chapter brought in later gives a
+    speaker the handle a whole import would have, and a beat is cast only with Characters that exist or are made now."""
+    if parts is None:
+        return fplan.characters
+    spoke = {str(ln.get("speaker") or "").lower() for ch in fplan.chapters if ch.number in parts for b in ch.beats for ln in b.get("lines") or []}
+    return [c for c in fplan.characters if str(c["handle"]).lower() in spoke | have]
+
+
+def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link: list, characters: list[dict], fresh: bool = False) -> list[tuple[str, tuple[str, str, dict]]]:
+    """The characters and scenes a screenplay implies: a Character for each speaker in `characters` (see `_characters_of`), with what the screenplay
+    says of them (name, age, sex, the sentences that introduce them), and a Scene for each place its headings name (inside or outside, the time of
+    day), which the new beats are put in. One that exists is left as it is. Nothing is cast, dressed or lit: what the writer did not say is left empty."""
     out: list[tuple[str, tuple[str, str, dict]]] = []
     have_chars = {str((e.get("dataJson") or {}).get("speaker") or "").lower() for e in _all(ctx.creds, {"entry_type": "cast-member", "data": {"story": story}})}
-    for c in fplan.characters:
+    for c in characters:
         speaker = c["handle"].lower()
         if speaker in have_chars:
             continue
@@ -1103,7 +1113,7 @@ def apply_revision(job: dict, ctx: Context) -> dict:
     inputs={
         "story": {"type": "string", "description": "the story entry's slug, e.g. devils-due-one-small-boat"},
         "revision": {"type": "string", "required": False, "description": "a revision record's slug: read the Fountain that revision holds instead of the story's own and say what bringing it in would do. Always a preview: nothing is written to the story"},
-        "part": {"type": "string", "required": False, "description": "which chapters to make, so a long script is brought in a piece at a time: all (default), 3, 2-4, or 1,3,5. Anything in Marvin outside these chapters is left alone, whatever the mode"},
+        "part": {"type": "string", "required": False, "description": "which chapters to make, so a long script is brought in a piece at a time: all (default), 3, 2-4, or 1,3,5. Anything in Marvin outside these chapters is left alone, whatever the mode, and Characters are made only for those who speak in these chapters"},
         "chapter_pages": {"type": "string", "required": False, "description": "when the Fountain has no `#` section lines: about how many pages a chapter should be (default 12); a chapter always ends between two scenes"},
         "dry_run": {"type": "string", "required": False, "description": "yes: say what would be made or changed, write nothing"},
         "accept_errors": {"type": "string", "required": False, "description": "yes: go on although the Fountain check found mistakes the import would read differently from what was meant (see the check-fountain job); by default the import stops and lists them"},
@@ -1262,6 +1272,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
         if (n := _chapter_of(story, slug)) in extras and (missing := {k: v for k, v in extras[n].items() if not str((rec.get("dataJson") or {}).get(k) or "").strip()})
     ]
     people = {str((e.get("dataJson") or {}).get("speaker") or "").lower(): e for e in _all(ctx.creds, {"entry_type": "cast-member", "data": {"story": story}})}
+    characters = _characters_of(fplan, parts, set(people))  # some chapters: the people who speak in them, beside those the story has
     extra: list[tuple[str, tuple[str, str, dict]]] = []  # the characters and scenes the screenplay implies that this story does not have yet
     link: list[tuple[dict, dict]] = []  # records that are already there and lack something the Fountain gives them (a Scene, sounds, their own piece of the text), with what to add
     hand_set: list[str] = []  # beats whose transition a person changed, so the script's line is not followed
@@ -1283,7 +1294,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
                 hand_set.append(f"beat {number} {said}")
             if (seconds := fountain.transition_seconds(beat)) and not data.get("transition_seconds"):
                 add["transition_seconds"] = seconds
-            add.update(_cast_for(story, beat, fplan.characters, people, data))
+            add.update(_cast_for(story, beat, characters, people, data))
         if rec and add:
             link.append((rec, add))
         for i, ln in enumerate(beat.get("lines") or [], 1):
@@ -1299,11 +1310,11 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     rows_by_number = {str(number): beat for _chapter, number, beat in fplan.rows()}
     for _slug, _title, data in plan["beats"]:  # a beat made now is cast the same way: who speaks in it and who its action names, with their masters
         if beat := rows_by_number.get(str(data.get("number"))):
-            data.update(_cast_for(story, beat, fplan.characters, people, data))
+            data.update(_cast_for(story, beat, characters, people, data))
     for _slug, _title, data in plan["lines"]:  # a line made now names its Character, so a setup can offer "just the narrator's lines"
         if data.get("speaker"):
             data.setdefault("character", _character_slug(story, str(data["speaker"]), people))
-    extra = _implied(ctx, story, story_row, fplan, plan, link, fresh=fresh)
+    extra = _implied(ctx, story, story_row, fplan, plan, link, characters, fresh=fresh)
     people = [] if fresh else _people_fill(ctx, story, fplan)  # a replace starts afresh: its Characters are made new
     writes = len(extra) + len(plan["chapters"]) + len(plan["beats"]) + len(plan["lines"]) + len(plan["updates"]) + len(link) + len(fill) + len(people) + len(plan["trash"])
     if writes:  # said once, before the first write: a feature takes minutes, and the page shows only that the job is running
@@ -1320,6 +1331,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
         extra = [(t, r) for t, r in extra if t in types]  # an older workspace without these types simply goes without
         wrote = _write(ctx, types, extra, plan, link, fill, people)
     verb, uverb = ("would make", "would update") if dry else ("made", "updated")
+    whose = "" if parts is None else f" (the speakers of chapter{'s' if len(parts) > 1 else ''} {str(part_text).strip()})"  # a part makes only its own speakers' Characters
     note = f"{verb} {len(plan['beats'])} beats and {len(plan['lines'])} spoken lines"
     held = sum(1 for c in plan["chapters"] if c[2].get("fountain")) + sum(1 for _r, m in fill if m.get("fountain"))
     if held:
@@ -1328,7 +1340,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
         note += f" and {len(plan['chapters'])} chapters ({plan['have']['chapters']} already there)"
     if extra:
         made = {t: [r[1] for u, r in extra if u == t] for t in ("cast-member", "scene", "sound")}
-        note += f", {len(made['cast-member'])} characters ({', '.join(made['cast-member'])}), {len(made['scene'])} scenes ({', '.join(made['scene'])}) and {len(made['sound'])} sounds to fill in ({', '.join(made['sound'][:8])}{'…' if len(made['sound']) > 8 else ''})"
+        note += f", {len(made['cast-member'])} characters{whose} ({', '.join(made['cast-member'])}), {len(made['scene'])} scenes ({', '.join(made['scene'])}) and {len(made['sound'])} sounds to fill in ({', '.join(made['sound'][:8])}{'…' if len(made['sound']) > 8 else ''})"
     if link:
         note += f", and {'would fill' if dry else 'filled'} in {len(link)} records made earlier (their scene, sounds, cast, reference pictures and own piece of the Fountain)"
     if refresh:
@@ -1378,7 +1390,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     anything = changed or extra or link or fill or people  # a run that makes or changes nothing says so, and is not logged as an import
     of = lambda kind: sum(1 for t, _r in extra if t == kind)  # noqa: E731
     counted = [(len(plan["chapters"]), "chapter", "chapters"), (len(plan["beats"]), "beat", "beats"), (len(plan["lines"]), "spoken line", "spoken lines")]
-    counted += [(of("cast-member"), "character", "characters"), (of("scene"), "scene", "scenes"), (of("sound"), "sound to fill in", "sounds to fill in")]
+    counted += [(of("cast-member"), "character" + whose, "characters" + whose), (of("scene"), "scene", "scenes"), (of("sound"), "sound to fill in", "sounds to fill in")]
     said = [f"{n} {one if n == 1 else many}" for n, one, many in counted if n]
     said_text = ", ".join(said[:-1]) + " and " + said[-1] if len(said) > 1 else "".join(said)
     if dry:
@@ -1420,7 +1432,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     what = "Preview only: nothing was made" if dry else "import" if anything else "import, nothing new"
     split_plan = f"{stamp} · {what}, chapters {part_text or 'all'}\n\n{summary}\n\n{report}\n\n{note}"  # kept on the story, where a wizard step (or the person) reads it before and after importing
-    bits = [f"+{len(plan['beats'])} beats, +{len(plan['lines'])} lines" + (f", +{len(plan['chapters'])} chapters" if plan["chapters"] else "")]
+    bits = [f"+{len(plan['beats'])} beats, +{len(plan['lines'])} lines" + (f", +{len(plan['chapters'])} chapters" if plan["chapters"] else "") + (f", +{n} character{'' if n == 1 else 's'}{whose}" if (n := of("cast-member")) else "")]
     if plan["updates"]:
         bits.append(f"{len(plan['updates'])} updated")
     if plan["trash"]:
