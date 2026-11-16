@@ -1031,3 +1031,11 @@ def test_the_prompt_box_starts_with_exactly_the_words_the_call_sent_before_it_co
         acts = _flow(slug)["actions"]
         for call, _, key in calls:
             assert sent_text(acts, call, key) == was[call]["args"][key], (slug, call)
+
+
+def test_the_import_step_keeps_showing_what_the_import_made_when_a_person_comes_back_to_it():
+    # A run step shows nothing once its run is over and the page is left and opened again, unless it names a report; Preview and Make
+    # share one workflow, so the step cannot tell its own last run from the other's. The sheet log is one dated line per import.
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    steps = {s["id"]: s for s in blueprints["narrate-a-story"]["payload"]["steps"]}
+    assert steps["import"]["report"] == {"entry": "story", "field": "sheet_log", "label": "What the import made"}
