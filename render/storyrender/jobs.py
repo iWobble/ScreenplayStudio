@@ -1413,7 +1413,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
         other = "\n".join(f"{k}: {v}" for k, v in meta.items() if k not in ("title", *credits, *fountain.SETTING_KEYS))
         if other:
             fill_in["title_page_other"] = other
-        if any(t == "sound" and r[0] == f"{story}-score" for t, r in extra) or _score_waiting(ctx, story, story_data):
+        if any(t == "sound" and r[0] == f"{story}-score" for t, r in extra):
             fill_in["music"] = f"{story}-score"  # the placeholder is the story's music until a recording or a generated take replaces it, or it is deleted
         if fplan.front.strip():
             fill_in["fountain_front"] = fplan.front  # what the writer put before the first beat, as written: the export writes it back first
@@ -1434,6 +1434,8 @@ def _import_beats(job: dict, ctx: Context) -> dict:
         via = f" · from the Fountain{' (chapters ' + str(part_text) + ')' if parts is not None else ''}"
         entry = f"{stamp} · {'refresh' if refresh else 'add'}{via} · " + " · ".join(bits)
     try:
+        if not dry and "music" not in fill_in and _score_waiting(ctx, story, story_data):
+            fill_in["music"] = f"{story}-score"
         _save_story(ctx, story_row, {"split_plan": split_plan}, fill_in, entry)  # onto the story as it is now: what a person changed while this ran is kept
     except marvin_api.MarvinUnreachable as e:
         raise _LostConnection(wrote, e) from e
