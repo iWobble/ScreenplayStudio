@@ -641,3 +641,93 @@ def test_a_paid_button_names_the_service_its_workflow_calls_and_only_the_fields_
     assert write["entry"] == "role" and set(write["needs"]) <= set(write["sends"]) <= fields("cast-member")
     assert all(sent(casting["master_prompt_write"]["workflow"], key) for key in write["sends"])
     assert "paid" not in casting["voice_lines"]  # it only copies the voice onto the lines: nothing leaves the workspace
+
+
+# The person's sheet as v181 sent it: an animal branch must not change a word of it.
+PERSON_SHEET_PROMPT = (
+    "A character sheet of one actor on a portrait canvas, the four views arranged in a 2 by 2 grid that fills the whole picture, each view large and "
+    "full length with soft ground shadows on a plain warm cream background: front and three-quarter on the top row, side and back on the bottom row, "
+    "standing relaxed, the same person in all four. Built on the attached base sheet's proportions and style: keep its construction and scale of head "
+    "to body. The second attached picture is an existing actor sheet of this world: draw the faces, hands, hair, skin and cloth exactly in its way, as "
+    "flat soft matte shapes: two small dark dot eyes, a small plain nose, a tiny smile, simple brow lines, no skin pores, no arm hair, no shaded nose, "
+    "no fine fabric weave; any stubble or beard is one simple flat speckled shape. Never realistic, never glossy. The actor: ${entry.title}, an adult "
+    "${entry.data.base}, age ${entry.data.age}. Build: ${entry.data.build} Hair: ${entry.data.hair} Skin tone: ${entry.data.skin_tone} Look: "
+    "${entry.data.look} Distinguishing features, the same in every view: ${entry.data.distinguishing_features} Wearing, in every view: "
+    "${entry.data.baseline_wardrobe}. Both legs whole, empty hands, no props. ${steps.world.output.rows.0.data.rules}"
+)
+BASE_SHEET = "${entry.data.world}-base-${entry.data.base}"
+ANIMAL = {"field": "entry.data.base", "op": "in", "value": "${input.animal_bases}"}
+
+
+def _sheet_steps() -> tuple[dict, dict]:
+    flow = _flow("screenplay-make-actor-sheet")
+    return flow, {a.get("id") or f"{a['kind']}{i}": a for i, a in enumerate(flow["actions"])}
+
+
+def test_a_persons_sheet_is_sent_as_before_with_arthur_for_the_style_and_never_for_an_animal():
+    flow, steps = _sheet_steps()
+    person = steps["sheet"]
+    assert person["args"]["prompt"] == PERSON_SHEET_PROMPT and person["references"] == BASE_SHEET + ",${input.style_actor}"
+    assert PERSON_SHEET_PROMPT in steps["spend"]["message"]  # what is approved is what is sent
+    assert next(i for i in flow["trigger"]["inputs"] if i["name"] == "style_actor")["default"] == "arthur"
+    for sid in ("spend", "sheet"):
+        assert {"not": ANIMAL} in steps[sid]["when"], sid
+    for sid in ("spend_animal", "sheet_animal"):
+        assert ANIMAL in steps[sid]["when"], sid
+    assert next(a for a in flow["actions"] if a.get("kind") == "integration")["id"] == "sheet"
+
+
+def test_an_animals_sheet_is_three_views_of_a_quadruped_from_its_own_fields_on_the_worlds_base_sheet():
+    flow, steps = _sheet_steps()
+    inputs = {i["name"]: i for i in flow["trigger"]["inputs"]}
+    assert inputs["animal_bases"]["default"] == "dog,cat,horse,bird" and "default" not in inputs["style_animal"]  # arthur is a person
+    animal = steps["sheet_animal"]
+    sent = animal["args"]["prompt"]
+    assert animal["references"] == BASE_SHEET + ",${input.style_animal}"  # an empty style animal is dropped: the base sheet alone
+    assert sent in steps["spend_animal"]["message"] and BASE_SHEET in steps["spend_animal"]["message"]
+    assert "three full-body views" in sent and "front, right-side profile, back" in sent and "quadruped" in sent
+    assert "cream studio background" in sent and "No collar, no clothes, no props, no scenery, no labels, no text" in sent
+    assert "no hands or fingers" in sent and "four views" not in sent and "2 by 2" not in sent
+    for key in ("base", "age", "build", "look", "distinguishing_features"):
+        assert "${entry.data." + key + "}" in sent, key
+    for key in ("hair", "skin_tone", "baseline_wardrobe"):
+        assert "${entry.data." + key + "}" not in sent, key
+    for brand in ("playmobil", "lego", "fisher", "sylvanian", "calico", "schleich", "duplo"):
+        assert brand not in sent.lower(), brand
+    assert animal["args"]["size"] == '${input.size|default:"1536x1024"}' and "Picture size: ${input.size" in steps["spend_animal"]["message"]
+
+
+def test_an_actors_sheet_spends_nothing_without_a_build_or_the_base_sheet_and_every_step_runs_under_the_step_limit():
+    flow, steps = _sheet_steps()
+    assert len(flow["actions"]) <= 10  # Marvin's default steps per workflow: a step past it never runs, so Keep would stop approving
+    assert flow["actions"][0] == {"kind": "collect", "id": "base_sheet", "entity": "asset", "query": {"ids": BASE_SHEET, "versions": "all"}}
+    lacking = steps["missing"]["when"]["any"]
+    assert {"field": "steps.base_sheet.output.count", "op": "lt", "value": 1} in lacking
+    assert {"field": "entry.data.build", "op": "shorter_than", "value": 5} in lacking
+    assert BASE_SHEET in steps["missing"]["message"] and "no credit was spent" in steps["missing"]["message"]
+    ready = {"field": "steps.base_sheet.output.count", "op": "gte", "value": 1}
+    for sid in ("spend", "sheet", "spend_animal", "sheet_animal"):
+        assert ready in steps[sid]["when"], sid
+    made = steps["entry7"]
+    assert made["data"]["general_view"] == "${steps.sheet.output.asset.id}${steps.sheet_animal.output.asset.id}"  # whichever was drawn
+    assert made["when"] == steps["keep"]["when"] == {
+        "any": [{"field": f"steps.{s}.output.asset.id", "op": "exists"} for s in ("sheet", "sheet_animal")]
+    }  # nothing drawn: the sheet's picture is never emptied
+
+
+def test_open_call_offers_to_make_the_sheet_with_ai_right_after_the_sheet_form():
+    blueprints, setups = _setups()
+    steps = setups["open-call"]
+    order = list(steps)
+    make = steps["make_sheet"]
+    assert order.index("make_sheet") == order.index("sheet") + 1 and make["kind"] == "run"
+    assert make["workflow"] == "screenplay-make-actor-sheet" and make["inputs"] == {"actor": "${actor}"}
+    assert make["requires"] == {"entry": "actor", "field": "build"} and "build" in steps["sheet"]["fields"]  # the page links back to the form
+    paid = make["paid"]
+    fields = {f["key"] for f in blueprints["actor"]["payload"]["schema_json"]["fields"]}
+    assert paid["service"] == "OpenAI Images" and paid["entry"] == "actor" and set(paid["needs"]) <= set(paid["sends"]) <= fields
+    sheet_flow = workflow("screenplay-make-actor-sheet")
+    animal = next(a for a in _flow("screenplay-make-actor-sheet")["actions"] if a.get("id") == "sheet_animal")["args"]["prompt"]
+    for key in paid["sends"]:  # what the notice shows goes to the model for a person and for an animal alike
+        assert "${entry.data." + key in sheet_flow and "${entry.data." + key in animal, key
+    assert "next step" in steps["sheet"]["help"] and "Approvals shows the exact prompt" in make["help"]

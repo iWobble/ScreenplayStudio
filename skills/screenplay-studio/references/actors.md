@@ -4,7 +4,7 @@ Three records, kept apart. An **actor** belongs to the *world's troupe*: the loo
 
 ## Bases belong to the world
 
-A *base* is the general figure an actor is made from: proportions and silhouette. A world lists its bases in its `bases` field, each with a base sheet picture (`base_sheets`). Add a base only when making an actor from another one would look wrong (a different body, not a different person). Age within a base is the actor's business.
+A *base* is the general figure an actor is made from: proportions and silhouette. A world lists its bases in its `bases` field, each with a base sheet picture (`base_sheets`). Add a base only when making an actor from another one would look wrong (a different body, not a different person). Age within a base is the actor's business. An animal is a base of its own (`dog`): its sheet is three views in a row, not four, and its coat goes in `look` and its markings in `distinguishing_features` (hair, skin tone and wardrobe do not apply). *Make an actor's sheet* draws either from the world's base sheet, the asset `<world>-base-<base>` (see recent.md, v182).
 
 ## The actor record
 
