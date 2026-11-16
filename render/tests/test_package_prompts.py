@@ -812,3 +812,48 @@ def test_a_sound_made_now_is_made_by_the_created_twin_and_an_edit_to_queued_by_t
         assert _made_by("entry_created", sound) == [slug + "-created"], kind
         assert _made_by("entry_updated", sound) == [slug], kind
         assert _flow(slug + "-created")["actions"] == _flow(slug)["actions"] and _flow(slug + "-created")["conditions"] == _flow(slug)["conditions"]
+
+
+def _spending_takers() -> list[str]:
+    """Every workflow that takes an entry off the queue (its status is queued) and asks to spend first."""
+    flows = [b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"] if b["kind"] == "workflow"]
+    return [
+        b["slug"] for b in flows
+        if any(q in (b["payload"]["definition"].get("conditions") or []) for q in _QUEUED)
+        and any(a.get("kind") == "approval" and a.get("id") == "spend" for a in b["payload"]["definition"]["actions"])
+    ]  # fmt: skip
+
+
+def test_a_gallery_that_queues_an_entry_shows_the_spend_approval_of_whichever_workflow_takes_it():
+    # The approval asked about a sound made with Make it now comes from the created twin: a gallery that named only the original never
+    # showed it, and the sound sat at queued with its question somewhere else (Automation, Approvals).
+    _, setups = _setups()
+    by_step = {s["id"]: s for steps in setups.values() for s in steps.values() if s["kind"] == "gallery"}
+    for label, event, entry in _queued_by_buttons():
+        step = by_step[label.split(":")[0]]
+        asking = [s for s in _made_by(event, entry) if s in _spending_takers()]
+        assert set(asking) <= set(step.get("approve") or []), (label, asking, step.get("approve"))  # a sound of your own asks nothing
+        if label.split(" {")[0] in ("found: Make it now with ElevenLabs", "found: Make this one", "takes: Make it with ElevenLabs"):
+            assert asking, label
+    assert set(by_step["found"]["approve"]) == {f"screenplay-take-{k}{t}" for k in ("sound", "music") for t in ("", "-created")}
+
+
+_RESET = {"field": "steps.spend.output.decision", "op": "in", "value": ["denied", "expired"]}
+
+
+def test_a_denied_spend_puts_the_entry_back_to_draft_before_anything_else_runs():
+    # A run goes on after its approval is answered, with the answer in steps.spend.output.decision; denied (or left to expire) the paid
+    # step is refused and the run ends, so without this the entry stayed at queued for good and no button could start it again.
+    blueprints, _ = _setups()
+    for slug in _spending_takers():
+        acts = _flow(slug)["actions"]
+        at = next(n for n, a in enumerate(acts) if a.get("id") == "spend")
+        reset = acts[at + 1]
+        assert reset["kind"] == "entry" and reset["op"] == "set_data" and reset["data"] == {"status": "draft"} and reset["when"] == _RESET, slug
+        assert [a for a in acts if a.get("when") == _RESET] == [reset], slug  # once, and never on the Keep / Redo question
+        kind = next(c["value"] for c in _flow(slug)["conditions"] if c["field"] == "entry.entry_type")
+        status = next(f for f in blueprints[kind]["payload"]["schema_json"]["fields"] if f["key"] == "status")
+        assert "draft" in status["options"], kind  # draft is the not-made-yet status of every type these make
+    # approved (Make it, or a take's Cancel, which its own step sets to draft), stale (changed meanwhile: a new run asks again) and a
+    # batch's flag (no spend question asked, so no decision) are not in _RESET
+    assert len(_spending_takers()) == 7
