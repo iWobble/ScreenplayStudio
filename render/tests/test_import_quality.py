@@ -5,7 +5,7 @@ how it went."""
 import pytest
 
 from marvin_worker.jobs import Context, JobError
-from storyrender import beat_import, fountain, jobs, script, validate
+from storyrender import beat_import, beats, fountain, jobs, script, validate
 from tests.test_fountain import run
 from tests.test_import_guard import _check, _import, jobs_marvin  # noqa: F401  (a fixture)
 
@@ -94,6 +94,76 @@ def test_a_speaker_brought_in_before_under_the_squashed_handle_keeps_it():
     assert fountain.handles(["A DEEP VOICE", "VOICE"], keep={"adeepvoice", "a-deep-voice"})["A DEEP VOICE"] == "A-deep-voice"  # both there: the new one
 
 
+POSSESSIVE = ["A GIRL'S VOICE", "A MAN’S VOICE", "MAN'S VOICE", "WOMAN’S VOICE", "VOICE", "WILL'S DATE", "DR. BENNETT", "YOUNG DR. BENNETT"]
+
+
+def test_a_possessive_drops_its_apostrophe_and_is_not_cut_into_a_word_of_its_own():
+    h = fountain.handles(POSSESSIVE)
+    assert h == {
+        "A GIRL'S VOICE": "A-girls-voice", "A MAN’S VOICE": "A-mans-voice", "MAN'S VOICE": "Mans-voice", "WOMAN’S VOICE": "Womans-voice",
+        "VOICE": "Voice", "WILL'S DATE": "Date", "DR. BENNETT": "Dr-bennett", "YOUNG DR. BENNETT": "Young-dr-bennett",
+    }  # fmt: skip
+    assert fountain.handles(["O'BRIEN"]) == {"O'BRIEN": "Obrien"}
+
+
+def test_a_speaker_brought_in_with_the_apostrophe_cut_into_a_word_keeps_that_handle():
+    h = fountain.handles(["A GIRL'S VOICE", "VOICE", "O'BRIEN"], keep={"a-girl-s-voice", "voice", "brien"})  # as #162 made them
+    assert (h["A GIRL'S VOICE"], h["O'BRIEN"], h["VOICE"]) == ("A-girl-s-voice", "Brien", "Voice")
+    assert fountain.handles(["A GIRL'S VOICE", "VOICE"], keep={"agirlsvoice"})["A GIRL'S VOICE"] == "Agirlsvoice"  # as it was before #162
+    assert fountain.handles(["A GIRL'S VOICE", "VOICE"], keep={"a-girl-s-voice", "a-girls-voice"})["A GIRL'S VOICE"] == "A-girls-voice"  # both there: the new one
+
+
+VOICES = """INT. HOSPITAL ROOM - NIGHT
+
+Will sits by the bed.
+
+A GIRL'S VOICE
+Edward?
+
+A MAN’S VOICE
+Not now.
+
+MAN'S VOICE
+Later, then.
+
+WOMAN’S VOICE
+Hush.
+
+WILL'S DATE
+Who is that?
+
+VOICE
+Nobody.
+"""
+
+
+def test_possessive_handles_survive_the_sheet_and_the_script_and_the_fountain_keeps_the_name_as_written():
+    plan = fountain.cut(fountain.parse(VOICES, lines=True), text=VOICES)
+    assert fountain.check(plan) == []
+    _kind, rows = beat_import.parse_any(plan.sheet())
+    speakers = [ln["speaker"] for r in rows for ln in r["lines"]]
+    assert speakers == ["A-girls-voice", "A-mans-voice", "Mans-voice", "Womans-voice", "Date", "Voice"]
+    assert [script._cue(s.lower()) for s in speakers[:4]] == ["A GIRLS VOICE", "A MANS VOICE", "MANS VOICE", "WOMANS VOICE"]
+    written = "".join(ln["fountain"] for _c, _n, b in plan.rows() for ln in b["lines"])
+    assert "A GIRL'S VOICE\n" in written and "A MAN’S VOICE\n" in written  # the words as the writer wrote them, for the Fountain made again
+    for cell, who in (("A-girls-voice: Edward?", "A-girls-voice"), ("Mans-voice: Later, then.", "Mans-voice"), ("Voice: Hush. ¶ Womans-voice: Hush.", "Voice")):
+        assert beats.split_audio(cell)[0]["speaker"] == who  # a cell of one line (no ¶) as well as one of several
+    again = fountain.handles([script._cue(s.lower()) for s in speakers])  # the complete script's cues read back as the same handles
+    assert list(again.values()) == speakers
+
+
+def test_a_reimport_finds_the_characters_made_with_the_apostrophe_cut_into_a_word(casting):
+    fake, ctx = casting(VOICES)
+    fake.on_hand["cast-member"]["s-a-girl-s-voice"] = {"id": "c1", "slug": "s-a-girl-s-voice", "title": "A Girl's Voice", "dataJson": {"story": "s", "speaker": "a-girl-s-voice"}}
+    done = run(ctx)
+    made = sorted(done["result"]["characters_made"])
+    assert "s-a-girl-s-voice" not in made and "s-a-girls-voice" not in made and "s-a-mans-voice" in made
+    lines = {m["dataJson"]["speaker"] for m in fake.made if m["entryTypeId"] == "T-line"}
+    assert {"a-girl-s-voice", "a-mans-voice", "mans-voice", "womans-voice"} <= lines
+    cast_ids = {m["dataJson"]["cast_id"] for m in fake.made if m["entryTypeId"] == "T-cast"}
+    assert "a-mans-voice" in cast_ids and "womans-voice" in cast_ids  # the stable id drops the apostrophe too
+
+
 CLASH = """INT. CAVE - NIGHT
 
 A DEEP VOICE
@@ -141,6 +211,30 @@ def test_a_capitals_line_standing_alone_is_action_kept_in_the_picture_and_never_
     assert "read as action" in river and "nothing to say" not in river and "[[Sound:" in river
     found = [f for f in validate.check(CLASH) if f.code == "capitals-alone"]
     assert found and not validate.blocking(found)  # worth a look, never a stop
+
+
+INTERCUT = """INT. HALLWAY - NIGHT
+
+Will paces.
+
+INTERCUT WITH:
+
+INT. BEDROOM - NIGHT
+
+Sandra waits.
+
+INTERCUT HALLWAY / BEDROOM
+
+WILL
+Are you there?
+"""
+
+
+def test_an_intercut_line_is_action_kept_in_the_picture_with_nothing_to_check():
+    plan = fountain.cut(fountain.parse(INTERCUT, lines=True), text=INTERCUT)
+    pictures = " ".join(b["picture"] for _c, _n, b in plan.rows())
+    assert "INTERCUT WITH:" in pictures and "INTERCUT HALLWAY / BEDROOM" in pictures and not any(b.get("transition") for _c, _n, b in plan.rows())
+    assert not [f for f in validate.check(INTERCUT) if "INTERCUT" in f.problem]
 
 
 def test_a_reimport_finds_the_characters_it_made_under_the_old_handles(casting):

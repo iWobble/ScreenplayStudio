@@ -688,7 +688,7 @@ def test_a_transition_belongs_to_the_beat_that_comes_after_it_in_the_words_the_v
 @pytest.mark.parametrize(
     ("line", "kind"),
     [("CUT TO:", "cut"), ("SMASH CUT TO:", "cut"), ("MATCH CUT TO:", "cut"), ("DISSOLVE TO:", "dissolve"), ("CROSSFADE TO:", "dissolve"), ("CROSS DISSOLVE TO:", "dissolve"),
-     ("FADE TO:", "fade"), ("FADE OUT.", "fade"), ("FADE TO BLACK.", "fade"), ("FADE IN:", "fade"), ("WIPE TO:", None)],
+     ("FADE TO:", "fade"), ("FADE OUT.", "fade"), ("FADE TO BLACK.", "fade"), ("FADE IN:", "fade"), ("WIPE TO:", "cut"), ("BACK TO:", "cut"), ("FLASHBACK TO:", "cut")],
 )
 def test_a_transition_line_is_a_cut_a_fade_or_a_dissolve(line, kind):
     assert fountain.transition_kind(line) == kind
