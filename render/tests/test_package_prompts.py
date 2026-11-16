@@ -731,3 +731,84 @@ def test_open_call_offers_to_make_the_sheet_with_ai_right_after_the_sheet_form()
     for key in paid["sends"]:  # what the notice shows goes to the model for a person and for an animal alike
         assert "${entry.data." + key in sheet_flow and "${entry.data." + key in animal, key
     assert "next step" in steps["sheet"]["help"] and "Approvals shows the exact prompt" in make["help"]
+
+
+def _holds(cond, entry: dict) -> bool:
+    """Marvin's condition matcher (services/automation/matcher.py), for the operators the package's triggers use, on a plain entry."""
+    if isinstance(cond, list):
+        return all(_holds(c, entry) for c in cond)
+    if "all" in cond or "any" in cond:
+        return (all if "all" in cond else any)(_holds(c, entry) for c in cond.get("all") or cond.get("any"))
+    if "not" in cond:
+        return not _holds(cond["not"], entry)
+    actual = entry["entry_type"] if cond["field"] == "entry.entry_type" else entry["data"].get(cond["field"].removeprefix("entry.data."))
+    op, value = cond.get("op", "eq"), cond.get("value")
+    if op.startswith("changed"):  # an update's diff: `changed` holds the fields the button set, as {key: (before, after)}
+        before, after = entry.get("changed", {}).get(cond["field"].removeprefix("entry.data.").removeprefix("entry."), (None, None))
+        return {"changed": after is not None, "changed_to": after is not None and after == value, "changed_from": before == value}[op]
+    length = len(str(actual)) if actual is not None else 0
+    checks = {
+        "eq": lambda: actual == value,
+        "neq": lambda: actual != value,
+        "in": lambda: actual in ([v.strip() for v in value.split(",")] if isinstance(value, str) else value),
+        "exists": lambda: (actual is not None) == (value is not False),
+        "longer_than": lambda: length > value,
+        "shorter_than": lambda: length < value,
+    }
+    return checks[op]()
+
+
+def _made_by(event: str, entry: dict) -> list[str]:
+    flows = [b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"] if b["kind"] == "workflow"]
+    return [
+        b["slug"] for b in flows
+        if b["payload"]["definition"].get("trigger") == {"type": "event", "event": event} and _holds(b["payload"]["definition"].get("conditions") or [], entry)
+    ]  # fmt: skip
+
+
+def _queued_by_buttons() -> list[tuple[str, str, dict, str]]:
+    """(button, event, entry, status word) for every gallery button that leaves an entry queued: an add button makes it (entry_created),
+    a card action changes it (entry_updated). Each select field the add form asks for is tried with each of its options."""
+    blueprints, setups = _setups()
+    out = []
+    for steps in setups.values():
+        for step in steps.values():
+            if step["kind"] != "gallery":
+                continue
+            fields = {f["key"]: f for f in blueprints[step["entry_type"]]["payload"]["schema_json"]["fields"]}
+            add = step.get("add") or {}
+            asked = [k for k in add.get("fields", []) if fields[k].get("type") == "select"]
+            filled = {k: "words" for k in add.get("fields", []) if fields[k].get("type") in ("text", "textarea")}
+            for button in add.get("buttons", []):
+                if (button.get("data") or {}).get("status") != "queued":
+                    continue
+                own = {add["file"]["field"]: "an-asset"} if button.get("file") == "required" else {}
+                for choice in ([{}] if not asked else [{k: o} for k in asked for o in fields[k]["options"]]):
+                    data = {**filled, **add.get("data", {}), **choice, **own, **button["data"]}
+                    out.append((f"{step['id']}: {button['label']} {choice}", "entry_created", {"entry_type": step["entry_type"], "data": data}))
+            for card in step.get("card_actions", []):
+                if card["set"].get("status") == "queued":
+                    for choice in ([{}] if not asked else [{k: o} for k in asked for o in fields[k]["options"]]):
+                        data = {**filled, "source": "generated", **choice, **card["set"]}
+                        changed = {k: ("draft", v) for k, v in card["set"].items()}
+                        out.append((f"{step['id']}: {card['label']} {choice}", "entry_updated", {"entry_type": step["entry_type"], "data": data, "changed": changed}))
+    return out
+
+
+_QUEUED = [{"field": "entry.data.status", "op": op, "value": "queued"} for op in ("eq", "changed_to")]  # a workflow that works off the queue
+
+
+def test_every_button_that_leaves_an_entry_queued_has_a_workflow_that_hears_how_it_was_queued():
+    queued = _queued_by_buttons()
+    assert {label.split(" {")[0] for label, *_ in queued} >= {"found: Make it now with ElevenLabs", "takes: Make it with ElevenLabs", "found: Make this one"}
+    for label, event, entry in queued:
+        takers = [s for s in _made_by(event, entry) if any(q in _flow(s)["conditions"] for q in _QUEUED)]  # measuring may run beside
+        assert len(takers) == 1, (label, event, takers)  # one workflow takes it: none leaves it sitting at queued, two would pay twice
+
+
+def test_a_sound_made_now_is_made_by_the_created_twin_and_an_edit_to_queued_by_the_original_never_both():
+    for kind, slug in (("effect", "screenplay-take-sound"), ("ambience", "screenplay-take-sound"), ("music", "screenplay-take-music")):
+        sound = {"entry_type": "sound", "data": {"kind": kind, "prompt": "waves", "source": "generated", "status": "queued"}}
+        assert _made_by("entry_created", sound) == [slug + "-created"], kind
+        assert _made_by("entry_updated", sound) == [slug], kind
+        assert _flow(slug + "-created")["actions"] == _flow(slug)["actions"] and _flow(slug + "-created")["conditions"] == _flow(slug)["conditions"]
