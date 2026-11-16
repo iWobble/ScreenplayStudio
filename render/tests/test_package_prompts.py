@@ -875,3 +875,39 @@ def test_a_beat_has_shot_direction_for_fresh_and_older_workspaces_and_the_still_
     prompt = next(a["args"]["prompt"] for a in _flow("screenplay-take-still")["actions"] if "prompt" in (a.get("args") or {}))
     line = 'THIS MOMENT: ${entry.data.picture}\nShot direction (where the camera looks): ${entry.data.direction|default:"none"}\n'
     assert prompt.count(line) == 1
+
+
+def _redo_writes(slug: str) -> set[str]:
+    """The statuses a workflow's Redo answer writes (a step after its Keep / Redo question, when Redo was chosen)."""
+    return {
+        a["data"]["status"]
+        for a in _flow(slug)["actions"]
+        if a.get("kind") == "entry" and "status" in (a.get("data") or {})
+        and any(w.get("field", "").endswith(".output.choice") and w.get("value") == "Redo" for w in ([a["when"]] if isinstance(a.get("when"), dict) else a.get("when") or []))
+    }  # fmt: skip
+
+
+def test_every_paid_button_is_followed_on_its_page_from_the_click_to_the_result_and_through_every_redo():
+    # Jared: a paid job should flow like the import does: click, the page shows it running, its question inline, then the result,
+    # and a Redo shows the new run. A run step follows the run it starts (and `redo` starts it again); a gallery watches its cards.
+    _, setups = _setups()
+    for slug, steps in setups.items():
+        for step in steps.values():
+            items = [step, step.get("generate") or {}, *(step.get("add") or {}).get("buttons", []), *step.get("card_actions", [])]
+            if not any(i.get("paid") for i in items):
+                continue
+            where = (slug, step["id"])
+            assert not (step.get("generate") or {}).get("paid"), where  # no paid generate: it would follow no Redo
+            if step["kind"] == "run":
+                choices = {c for a in _flow(step["workflow"])["actions"] if a.get("kind") == "approval" for c in a.get("choices") or []}
+                assert ("Redo" in choices) == (step.get("redo") == "Redo"), where  # a Redo answered here starts the run again here
+                continue
+            assert step["kind"] == "gallery" and step.get("approve"), where
+            written = {i["data"]["status"] for i in step["add"]["buttons"] if i.get("paid")} | {
+                i["set"]["status"] for i in step["card_actions"] if i.get("paid")
+            }
+            redone = set().union(*(_redo_writes(w) for w in step["approve"]))
+            assert written | redone <= set(step.get("working") or {}), where  # every way it is being made is watched until it is made
+            for w in step["approve"]:
+                if w in _spending_takers():  # a failed run puts the card back where its button can start it again
+                    assert any(h.get("data") == {"status": "draft"} for h in _flow(w).get("on_failure") or []), (where, w)
