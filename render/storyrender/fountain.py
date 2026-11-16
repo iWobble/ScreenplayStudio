@@ -970,7 +970,7 @@ BEDROOM` end in no TO:, so the Fountain format reads them as action (they say ho
 next): their words stay in the picture, with nothing to check."""
 _HEADING_LIKE = re.compile(r"^[A-Z0-9][A-Z0-9 .'’,()/&\-]*\s-\s[A-Z][A-Z0-9 .'’,()/\-]*?(?:\s+#[\w.-]+#)?$")
 _KIND_WORD = r"(?:INT(?:ERIOR)?|EXT(?:ERIOR)?|EST(?:ABLISHING)?)"
-_MISWRITTEN_START = re.compile(rf"^((?:{_KIND_WORD}|[IE])\.?\s*(?:[/&+\-–]|AND)\s*(?:{_KIND_WORD}|[IE])\.?|{_KIND_WORD}\.?)[\s.:,\-–]+(?=\S)(?!(?:{_KIND_WORD}|[IE])(?![A-Z]))", re.I)
+_MISWRITTEN_START = re.compile(rf"^((?:{_KIND_WORD}|[IE])\.?\s*(?:[/&+\-–,.]|AND)\s*(?:{_KIND_WORD}|[IE])\.?|{_KIND_WORD}\.?)[\s.:,\-–]+(?=\S)(?!(?:{_KIND_WORD}|[IE])(?![A-Z]))", re.I)
 """A heading started in a way the format does not know (`EXTERIOR`, `INT-EXT`, `EXT / INT.`): the start to put in its place is said from it."""
 MAX_LINT = 12
 
@@ -980,6 +980,8 @@ def _heading_advice(first: str) -> str:
     (`EXTERIOR SWAMP SHACK - DAY` -> `EXT. SWAMP SHACK - DAY`, `INT-EXT …` -> `INT./EXT. …`), or EXT. put in front when it has no start at all.
     Never a second start in front of one that is there (`EXT. EXT/INT. …`)."""
     m = _MISWRITTEN_START.match(first)
+    if not m and re.match(r"(?:INT|EXT|EST|[IE][./])", first, re.I):
+        return "write its start as INT., EXT. or INT./EXT. (one of them, in place of the one written)"
     if not m:
         return f"write `EXT. {first}` (or `INT. …`)"
     start, rest = m.group(1).upper(), first[m.end() :]
@@ -1268,7 +1270,7 @@ def records_to_make(plan: Plan) -> int:
     rows = plan.rows()
     scenes = {p["slug"] for _c, _n, b in rows if (p := place_of(b.get("place", ""))) and p["slug"] in plan.places}
     return (
-        (0 if plan.single else len(plan.chapters))
+        (0 if plan.single else sum(1 for ch in plan.chapters if ch.beats))  # a chapter is made by its first beat
         + len(rows)
         + sum(len(b["lines"]) for _c, _n, b in rows)
         + len(plan.characters)

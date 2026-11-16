@@ -377,6 +377,8 @@ def test_a_heading_written_inside_and_outside_with_its_action_right_under_it_is_
         ("INT-EXT SWAMP SHACK - DAY", "INT./EXT. SWAMP SHACK - DAY"),
         ("INTERIOR/EXTERIOR SWAMP SHACK - DAY", "INT./EXT. SWAMP SHACK - DAY"),
         ("ESTABLISHING SWAMP SHACK - DAY", "EST. SWAMP SHACK - DAY"),
+        ("EXT, INT. SWAMP SHACK - DAY", "INT./EXT. SWAMP SHACK - DAY"),
+        ("I.E. SWAMP SHACK - DAY", "INT./EXT. SWAMP SHACK - DAY"),
         ("SWAMP SHACK - DAY", "EXT. SWAMP SHACK - DAY"),
     ],
 )
@@ -384,7 +386,8 @@ def test_a_heading_the_check_does_not_know_is_told_how_to_start_without_a_second
     text = f"INT. ROOM - DAY\n\nA hand.\n\n{line}\n\nThe door creaks open.\n"
     said = fountain.lint(text)
     assert len(said) == 1 and f"write `{write}`" in said[0] and f"`.{line}`" in said[0], said
-    assert not re.search(r"(?:INT|EXT)\.? (?:EXT|INT)", said[0])  # never `EXT. EXTERIOR …` or `EXT. INT-EXT …`
+    suggested = re.search(r"write `([^`]*)`", said[0]).group(1)
+    assert not re.search(r"^(?:INT|EXT)\S* (?:EXT|INT)", suggested)  # never `EXT. EXTERIOR …` or `EXT. INT-EXT …`
     found = [f for f in validate.check(text) if f.code == "heading-without-kind"]
     assert len(found) == 1 and found[0].fix.startswith(f"write `{write}`") and not validate.blocking(found)
 
@@ -427,3 +430,39 @@ def test_the_check_says_how_long_bringing_it_in_takes_with_the_count_the_import_
     _import(ctx, dry_run="yes")
     wrote = next(n for n in ctx.notes if "would write" in n)
     assert f"would write {said.group(2)} records" in wrote  # the check's count is the one the import writes into an empty story
+
+
+def test_a_start_the_check_cannot_rewrite_is_never_given_a_second_start_in_front():
+    said = fountain.lint("INT. ROOM - DAY\n\nA hand.\n\nEXTR. SWAMP SHACK - DAY\n\nThe door creaks open.\n")
+    assert len(said) == 1 and "EXT. EXTR" not in said[0] and "write its start as INT., EXT. or INT./EXT." in said[0], said
+
+
+ONE_CHAPTER = """Title: Rain
+Setting: A shack.
+Premise: Two wait out a storm.
+
+EXT. SWAMP SHACK - NIGHT
+
+Rain hammers the tin roof. Waves lap at the stilts.
+
+[[Sound: a door bangs at 1s.]]
+
+EDWARD
+Let me in.
+
+EXT/INT.  SWAMP SHACK - NIGHT
+
+The witch opens the door.
+
+WITCH
+You're late.
+"""
+
+
+def test_the_checks_count_is_the_imports_for_one_chapter_with_sounds_ambience_and_two_speakers(jobs_marvin):  # noqa: F811
+    _fake, ctx = jobs_marvin(ONE_CHAPTER)
+    plan = fountain.cut(fountain.parse(ONE_CHAPTER, lines=True), text=ONE_CHAPTER)
+    assert plan.single and plan.ambience and any(b["sounds"] for _c, _n, b in plan.rows()) and len(plan.characters) == 2
+    count = validate.records_to_write(ONE_CHAPTER)
+    _import(ctx, dry_run="yes")
+    assert any(f"would write {count} records" in n for n in ctx.notes), (count, ctx.notes)
