@@ -847,6 +847,10 @@ def test_a_denied_spend_puts_the_entry_back_to_draft_before_anything_else_runs()
     blueprints, _ = _setups()
     for slug in _spending_takers():
         acts = _flow(slug)["actions"]
+        if slug == "screenplay-take-still":  # already past Marvin's ten steps: one more would push its Keep question past a raised limit
+            assert not [a for a in acts if a.get("when") == _RESET]
+            continue
+        assert len(acts) <= 10, slug  # Marvin runs the first ten steps of a workflow unless the workspace raises it
         at = next(n for n, a in enumerate(acts) if a.get("id") == "spend")
         reset = acts[at + 1]
         assert reset["kind"] == "entry" and reset["op"] == "set_data" and reset["data"] == {"status": "draft"} and reset["when"] == _RESET, slug
@@ -856,4 +860,4 @@ def test_a_denied_spend_puts_the_entry_back_to_draft_before_anything_else_runs()
         assert "draft" in status["options"], kind  # draft is the not-made-yet status of every type these make
     # approved (Make it, or a take's Cancel, which its own step sets to draft), stale (changed meanwhile: a new run asks again) and a
     # batch's flag (no spend question asked, so no decision) are not in _RESET
-    assert len(_spending_takers()) == 7
+    assert len(_spending_takers()) == 7  # six reset; the still is left to the person (set the beat back to draft by hand)
