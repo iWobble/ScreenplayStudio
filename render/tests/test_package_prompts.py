@@ -861,3 +861,17 @@ def test_a_denied_spend_puts_the_entry_back_to_draft_before_anything_else_runs()
     # approved (Make it, or a take's Cancel, which its own step sets to draft), stale (changed meanwhile: a new run asks again) and a
     # batch's flag (no spend question asked, so no decision) are not in _RESET
     assert len(_spending_takers()) == 7  # six reset; the still is left to the person (set the beat back to draft by hand)
+
+
+def test_a_beat_has_shot_direction_for_fresh_and_older_workspaces_and_the_still_reads_it():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    own = next(f for f in blueprints["beat"]["payload"]["schema_json"]["fields"] if f["key"] == "direction")
+    added = blueprints["beat-direction-field"]
+    # an update never changes a type the workspace has: the entry_fields blueprint adds it there, the same field a fresh install gets
+    assert added["kind"] == "entry_fields" and added["payload"]["entry_type"] == "beat" and added["payload"]["fields"] == [own]
+    assert own["type"] == "textarea" and own["group"] == "The shot"
+    slugs = list(blueprints)
+    assert slugs.index("beat-direction-field") > slugs.index("beat")
+    prompt = next(a["args"]["prompt"] for a in _flow("screenplay-take-still")["actions"] if "prompt" in (a.get("args") or {}))
+    line = 'THIS MOMENT: ${entry.data.picture}\nShot direction (where the camera looks): ${entry.data.direction|default:"none"}\n'
+    assert prompt.count(line) == 1
