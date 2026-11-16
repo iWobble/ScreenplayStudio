@@ -5,7 +5,7 @@ how it went."""
 import pytest
 
 from marvin_worker.jobs import Context, JobError
-from storyrender import beat_import, fountain, jobs, script, validate
+from storyrender import beat_import, beats, fountain, jobs, script, validate
 from tests.test_fountain import run
 from tests.test_import_guard import _check, _import, jobs_marvin  # noqa: F401  (a fixture)
 
@@ -146,6 +146,8 @@ def test_possessive_handles_survive_the_sheet_and_the_script_and_the_fountain_ke
     assert [script._cue(s.lower()) for s in speakers[:4]] == ["A GIRLS VOICE", "A MANS VOICE", "MANS VOICE", "WOMANS VOICE"]
     written = "".join(ln["fountain"] for _c, _n, b in plan.rows() for ln in b["lines"])
     assert "A GIRL'S VOICE\n" in written and "A MAN’S VOICE\n" in written  # the words as the writer wrote them, for the Fountain made again
+    for cell, who in (("A-girls-voice: Edward?", "A-girls-voice"), ("Mans-voice: Later, then.", "Mans-voice"), ("Voice: Hush. ¶ Womans-voice: Hush.", "Voice")):
+        assert beats.split_audio(cell)[0]["speaker"] == who  # a cell of one line (no ¶) as well as one of several
     again = fountain.handles([script._cue(s.lower()) for s in speakers])  # the complete script's cues read back as the same handles
     assert list(again.values()) == speakers
 
