@@ -297,6 +297,40 @@ def test_everything_made_from_a_script_is_listed_in_the_scripts_order_never_by_t
     assert spine["order"] == "number" and spine["group"]["order"] == "number"
 
 
+def test_the_lists_on_an_entrys_page_are_in_the_scripts_order_too_never_by_title():
+    # The related lists (`children`) on a story's, chapter's, scene's, band's, beat's and line's page: a chapter is named after its first
+    # scene heading, so by title "Opening" came last. Each list names its order, asked of the entries query before the first 30 are cut.
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    fields = {s: {f["key"] for f in b["payload"]["schema_json"]["fields"]} for s, b in blueprints.items() if b["kind"] == "entry_type"}
+    lists = {
+        (s, c["title"]): c
+        for s, b in blueprints.items()
+        if b["kind"] == "entry_type"
+        for c in b["payload"]["schema_json"].get("children") or []
+    }
+    numbered, made = {"by": "number"}, {"by": "created_at"}
+    want = {
+        ("story", "Chapters"): numbered,
+        ("story", "Beats"): numbered,
+        ("story", "Scenes"): made,  # places as the script first meets them
+        ("story", "Speech lines"): {"by": "beat", "then": "order"},  # beat by beat (its slug ends in its number), then as spoken
+        ("story", "Takes"): {"by": "line", "then": "created_at"},  # line by line, each line's takes as recorded
+        ("story", "Characters"): made,  # as they first appear
+        ("story", "Sounds"): made,
+        ("story", "Revisions"): {"by": "created_at", "direction": "desc"},  # newest first (number is set only when applied)
+        ("chapter", "Beats"): numbered,
+        ("scene", "Beats"): numbered,
+        ("band", "Beats"): numbered,
+        ("beat", "Speech lines"): {"by": "order"},
+        ("speech-line", "Takes"): made,
+    }
+    assert {k: c.get("sort") for k, c in lists.items()} == want
+    for (_, title), c in lists.items():  # a key the child type does not have would quietly sort nothing
+        keys = {c["sort"]["by"], c["sort"].get("then", "created_at")}
+        assert keys <= fields[c["entry_type"]] | {"created_at"}, (title, c["sort"])
+        assert set(c["sort"]) <= {"by", "direction", "then"} and c["sort"].get("direction", "asc") in ("asc", "desc")
+
+
 def test_a_sound_shows_its_takes_loudness_as_meters_beside_its_volume_slider_and_a_new_take_is_measured():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     fields = blueprints["sound"]["payload"]["schema_json"]["fields"]

@@ -93,7 +93,7 @@ def test_a_band_groups_beats_the_timeline_draws_it_above_the_scenes_and_nothing_
     beat = {f["key"]: f for f in blueprints["beat"]["payload"]["schema_json"]["fields"]}
     assert beat["band"]["ref"] == "band" and beat["band"]["ref_match"] == {"story": "story"}  # a beat picks from this story's bands
     assert {f["key"] for f in blueprints["band"]["payload"]["schema_json"]["fields"]} >= {"story"}
-    assert blueprints["band"]["payload"]["schema_json"]["children"] == [{"title": "Beats", "entry_type": "beat", "field": "band"}]
+    assert blueprints["band"]["payload"]["schema_json"]["children"] == [{"title": "Beats", "entry_type": "beat", "field": "band", "sort": {"by": "number"}}]
     bands = blueprints["story-timeline"]["payload"]["spine"]["bands"]
     assert [b["entry_type"] for b in bands] == ["band", "scene"]  # the bigger band on top, the scenes under it
 
