@@ -1,6 +1,7 @@
 """The media kinds of job: what the Storyworld worker image adds to the generic base (`marvin-worker-base`). The image names this
 module in WORKER_JOB_MODULES, so importing it registers them. Each is `(job, ctx) -> fields for the job's record`."""
 
+import functools
 import hashlib
 import json
 import os
@@ -769,6 +770,37 @@ def _skip_if_busy(ctx: Context, job: dict, story: str) -> "dict | None":
     return {"result": {"skipped": True, "story": story, "already": other.get("slug"), "already_since": _utc(started or asked), "summary": said}, "log": f"{said}\n{more}"}
 
 
+RECORDS_PER_SECOND = 2.4  # how fast an import writes, one call to Marvin a record (a feature's 1,880 records took 13.5 minutes)
+
+
+def _time_to_write(records: int) -> str:
+    """How long writing so many records takes at the import's speed, in words: "under a minute", "about 13 minutes"."""
+    minutes = records / RECORDS_PER_SECOND / 60
+    return "under a minute" if minutes < 1 else f"about {round(minutes)} minute{'s' if round(minutes) != 1 else ''}"
+
+
+def _says_why_it_failed(handler):
+    """A job kind whose failure leaves its reason in one line on the record's `result.summary` ("Failed: …"), where a page can show it: the
+    worker writes only the log of a job that fails. It is written to the job's record before the failure is passed on, which keeps it (the
+    worker merges what it writes); a record that cannot be written to (a job run by hand, Marvin out of reach) changes nothing."""
+
+    @functools.wraps(handler)
+    def run(job: dict, ctx: Context) -> dict:
+        try:
+            return handler(job, ctx)
+        except Exception as e:
+            first = next((ln.strip() for ln in str(e).splitlines() if ln.strip()), "") if isinstance(e, JobError) else f"{type(e).__name__}: {e}".splitlines()[0]
+            if job.get("job"):
+                try:
+                    said = first[:-1] + "." if first.endswith(":") else first
+                    marvin_api.update_entry(ctx.creds, job["job"], {"result": {"summary": "Failed: " + (said if len(said) <= 240 else said[:239] + "…")}})
+                except Exception:  # noqa: BLE001, S110 — the failure itself is what the record must say; the worker writes it next
+                    pass
+            raise
+
+    return run
+
+
 def _save_story(ctx: Context, story_row: dict, put: dict, fill: "dict | None" = None, log_line: str = "") -> None:
     """Write a job's own fields to its story, onto the story as it is now and not as it was when the job began: a long job (an import of a
     feature takes minutes) would otherwise put back everything a person changed meanwhile. `put` is written as it is; `fill` only where the
@@ -958,6 +990,7 @@ def check_ready(job: dict, ctx: Context) -> dict:
     },
     produces=[],
 )
+@_says_why_it_failed
 def check_fountain(job: dict, ctx: Context) -> dict:
     """A Fountain → the mistakes in it, with line numbers and fixes, as a report and as data."""
     args = job.get("args") or {}
@@ -987,7 +1020,7 @@ def check_fountain(job: dict, ctx: Context) -> dict:
     if story_row is not None:
         _save_story(ctx, story_row, {"fountain_check": note})
     stops = len(validate.blocking(findings))
-    result = {"summary": body.splitlines()[0], "errors": errors, "looks": looks, "import_stops": stops, "report": body, "findings": [f.__dict__ for f in findings]}
+    result = {"summary": validate.verdict_line(findings), "errors": errors, "looks": looks, "import_stops": stops, "report": body, "findings": [f.__dict__ for f in findings]}
     if story:
         result["story"] = story
     return {"result": result, "log": note}
@@ -1085,6 +1118,7 @@ def apply_revision(job: dict, ctx: Context) -> dict:
     },
     produces=[],
 )
+@_says_why_it_failed
 def import_beats(job: dict, ctx: Context) -> dict:
     """The records a story's Fountain implies: chapters, beats and spoken lines, characters, scenes and sounds. Skipped when another import of
     the story (an import, a preview or a revision check) was already working on it when this one was asked for."""
@@ -1124,7 +1158,11 @@ def _import_beats(job: dict, ctx: Context) -> dict:
         pages = float(args.get("chapter_pages") or fountain.CHAPTER_PAGES)
     except ValueError:
         raise JobError("chapter_pages is a number of pages, like 12") from None
-    fplan = fountain.cut(fountain.parse(screenplay, lines=True), chapter_pages=pages, text=screenplay)
+    fresh = _yes(args.get("fresh"))  # a replace: what was made before is being retired, so nothing is fitted to it and the numbers start again
+    have = {e["slug"]: e for kind_ in ("beat", "speech-line") for e in ([] if fresh else _all(ctx.creds, {"entry_type": kind_, "data": {"story": story}}))}
+    cast_before = _all(ctx.creds, {"entry_type": "cast-member", "data": {"story": story}})  # (a replace keeps the Characters that are there: see `_implied`)
+    speakers = {str((e.get("dataJson") or {}).get("speaker") or "").strip().lower() for e in [*cast_before, *have.values()]} - {""}  # the handles its records use, kept (see `fountain.handles`)
+    fplan = fountain.cut(fountain.parse(screenplay, lines=True), chapter_pages=pages, text=screenplay, speakers=speakers)
     if not fplan.chapters:
         raise JobError(fplan.warnings[0])
     if fplan.single:
@@ -1135,7 +1173,6 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     report = fplan.report(parts)
     if lost := fountain.check(fplan):
         raise JobError("the cut would lose part of the screenplay, so nothing was made: " + "; ".join(lost) + "\n\n" + report)
-    fresh = _yes(args.get("fresh"))  # a replace: what was made before is being retired, so nothing is fitted to it and the numbers start again
     made_pieces, made_count = {}, 0  # the beats already made from this Fountain, and the piece of it each holds: a revised Fountain is fitted to them by what it says
     for e in ([] if fresh else _all(ctx.creds, {"entry_type": "beat", "data": {"story": story}})):
         d_ = e.get("dataJson") or {}
@@ -1161,7 +1198,6 @@ def _import_beats(job: dict, ctx: Context) -> dict:
         )
     fountain.mark_cards(rows, fplan)  # centred text is a plain card: the beat shows its words and no picture is described, so none is ever made
     ctx.note(f"read {len(rows)} beats from {where}")
-    have = {e["slug"]: e for kind_ in ("beat", "speech-line") for e in ([] if fresh else _all(ctx.creds, {"entry_type": kind_, "data": {"story": story}}))}
     chapters_have = {e["slug"]: e for e in ([] if fresh else _all(ctx.creds, {"entry_type": "chapter", "data": {"story": story}}))}
     # A chapter inserted before others shifts their numbers (unless every title carries its own number), and the beats made under the old
     # numbers would then no longer match the screenplay. Say so in the plan, before anything is made.
@@ -1242,6 +1278,9 @@ def _import_beats(job: dict, ctx: Context) -> dict:
             data.setdefault("character", _character_slug(story, str(data["speaker"]), people))
     extra = _implied(ctx, story, story_row, fplan, plan, link, fresh=fresh)
     people = [] if fresh else _people_fill(ctx, story, fplan)  # a replace starts afresh: its Characters are made new
+    writes = len(extra) + len(plan["chapters"]) + len(plan["beats"]) + len(plan["lines"]) + len(plan["updates"]) + len(link) + len(fill) + len(people) + len(plan["trash"])
+    if writes:  # said once, before the first write: a feature takes minutes, and the page shows only that the job is running
+        ctx.note(f"{'Bringing this in would write' if dry else 'Writing'} {writes} records: {_time_to_write(writes)} at this speed ({RECORDS_PER_SECOND} a second).")
     if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link or people):
         types = {t["slug"]: t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types"))}
         for needed in ("beat", "speech-line") + (("chapter",) if plan["chapters"] else ()):
@@ -1338,7 +1377,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     if dry:
         summary = "Preview only: nothing was made." + (f" It would make {said_text}." if said_text else " There is nothing new to make.")
     elif anything:
-        summary = (f"Made {said_text}." if said_text else "Made nothing new.") + (f" Filled in {len(link)} records made earlier." if link else "")
+        summary = (f"Done: made {said_text}." if said_text else "Done: made nothing new.") + (f" Filled in {len(link)} records made earlier." if link else "")
         summary += (f" Updated {len(plan['updates'])}." if plan["updates"] else "") + (f" Moved {len(plan['trash'])} to the Trash." if plan["trash"] else "")
     else:
         summary = f"Nothing new: {plan['have']['beats']} beats and {plan['have']['lines']} lines were already there, so nothing was made."

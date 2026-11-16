@@ -165,7 +165,7 @@ def test_a_preview_says_it_made_nothing_and_names_what_it_would_make_not_what_it
 def test_an_import_says_what_it_made_in_one_line(jobs_marvin):
     fake, ctx = jobs_marvin()
     r = _import(ctx)["result"]
-    assert r["summary"].startswith("Made ") and "3 chapters" in r["summary"] and r["beats_made"] > 0 and "Preview" not in r["summary"]
+    assert r["summary"].startswith("Done: made ") and "3 chapters" in r["summary"] and r["beats_made"] > 0 and "Preview" not in r["summary"]
     again = _import(ctx)["result"]  # nothing new: the second run says so instead of reading like an import
     assert again["summary"].startswith("Nothing new")
 

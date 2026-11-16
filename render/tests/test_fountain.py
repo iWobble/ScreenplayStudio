@@ -940,7 +940,7 @@ def test_a_beats_own_words_call_for_sounds_and_a_place_for_its_bed():
     plan = fountain.cut(fountain.parse(SOUND_TEXT))
     cues = {n: [(c["kind"], c["title"]) for c in b["sounds"]] for _c, n, b in plan.rows()}
     first = next(iter(cues.values()))
-    assert ("effect", "Wood splintering") in first and ("effect", "Crunch") in first
+    assert ("effect", "Wood splintering") in first and ("effect", "Crunch") not in first  # a word in capitals is not a sound (see test_import_quality)
     assert not any("Cabin" in t or "Night" in t for _k, t in first)  # the scene heading is not a sound
     music = [c for _c, _n, b in plan.rows() for c in b["sounds"] if c["kind"] == "music"]
     assert len(music) == 1 and "Yo ho, yo ho A pirate's life" in music[0]["prompt"] and "ghostly low melody" in music[0]["prompt"]
@@ -1299,9 +1299,9 @@ def test_the_masters_follow_the_pictures_a_beat_already_lists_whether_it_holds_a
 
 def test_a_beat_whose_writer_named_its_sounds_gets_only_those():
     beat = {"picture": "Lightning reveals THE BARNACLE'S REVENGE. The ship LURCHES.", "place": "EXT. SEA - NIGHT", "sung": [], "fountain": "x\n[[Sound: timber grinding against rock at 0s.]]\n"}
-    assert [c["prompt"] for c in fountain.sound_cues(beat, set())] == ["timber grinding against rock"]
-    unnamed = {**beat, "fountain": "x"}
-    assert "Lurches" in [c["title"] for c in fountain.sound_cues(unnamed, set())]  # nobody named a sound: the words are read for one
+    assert [c["prompt"] for c in fountain.sound_cues(beat)] == ["timber grinding against rock"]
+    unnamed = {**beat, "fountain": "x", "picture": "The ship LURCHES. The sound of timber grinding fills the air."}
+    assert [c["title"] for c in fountain.sound_cues(unnamed)] == ["Timber grinding"]  # nobody named a sound: the words are read for one (never a word in capitals)
 
 
 # --- replace: start the story afresh from a revision --------------------------------------------------------------------------------------
@@ -1443,7 +1443,7 @@ THE END
 def test_lint_names_a_capitals_line_that_would_be_read_as_a_speaker_and_the_line_it_is_on():
     said = fountain.lint(LINTED)
     crunch = next(w for w in said if "`CRUNCH.`" in w)
-    assert crunch.startswith("line 18:") and "!CRUNCH." in crunch and "nothing to say" in crunch  # alone in capitals
+    assert crunch.startswith("line 18:") and "read as action" in crunch and "[[Sound: crunch]]" in crunch and "!CRUNCH." in crunch  # alone in capitals: action, and how to make it a sound
     plague = next(w for w in said if "PLAGUE" in w)
     assert plague.startswith("line 22:") and "read as a speaker" in plague and "!THE PLAGUE" in plague  # capitals above text
 
