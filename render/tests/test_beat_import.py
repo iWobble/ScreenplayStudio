@@ -99,7 +99,7 @@ class FakeMarvin:
         assert spec["data"] == {"story": "s"}
         return [r for slug, r in self.records.items() if want in slug]
 
-    def request(self, creds, path, *, method="GET", data=None, content_type=None, pause=1.0):
+    def request(self, creds, path, *, method="GET", data=None, content_type=None, **_):
         if path == "/api/platform/entries/query":  # the job pages through the records itself: a page at a time, until one is empty
             body = json.loads(data)
             rows = self.query(creds, body["spec"], body["limit"])[body.get("offset", 0) : body.get("offset", 0) + body["limit"]]

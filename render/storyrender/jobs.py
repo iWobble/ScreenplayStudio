@@ -1114,8 +1114,41 @@ def apply_revision(job: dict, ctx: Context) -> dict:
 @_says_why_it_failed
 def import_beats(job: dict, ctx: Context) -> dict:
     """The records a story's Fountain implies: chapters, beats and spoken lines, characters, scenes and sounds. Skipped when another import of
-    the story (an import, a preview or a revision check) was already working on it when this one was asked for."""
-    return _skip_if_busy(ctx, job, story_of(job)) or _import_beats(job, ctx)
+    the story (an import, a preview or a revision check) was already working on it when this one was asked for. One that loses the line to
+    Marvin partway says how far it got and that running it again carries on: it makes only what is missing."""
+    try:
+        return _skip_if_busy(ctx, job, story_of(job)) or _import_beats(job, ctx)
+    except marvin_api.MarvinUnreachable as e:  # a failure of the line, not of the screenplay or a record (those fail as they are)
+        written = getattr(e, "written", 0)
+        args = job.get("args") or {}
+        again = "Run it again." if _yes(args.get("dry_run")) or args.get("revision") else RESUME
+        so_far = f"after {written} records" if written else "before it wrote anything"
+        raise JobError(f"lost the connection to Marvin {so_far}. {again}\n\n{e}") from e
+
+
+RESUME = "Run Bring these chapters in again: it carries on from where it stopped."
+
+
+class _LostConnection(marvin_api.MarvinUnreachable):
+    """The line to Marvin failed partway through an import's writes, after `written` records."""
+
+    def __init__(self, written: int, cause: Exception):
+        self.written = written
+        super().__init__(f"{cause} (after {written} records)")
+
+
+def _score_waiting(ctx: Context, story: str, story_data: dict) -> bool:
+    """The story has no music and its score placeholder is there, made by an import that stopped before it could point the story at it: the
+    run that carries on points it there, as a run that does not stop does."""
+    return not str(story_data.get("music") or "").strip() and bool(marvin_api.query(ctx.creds, {"entries": f"{story}-score"}, limit=1))
+
+
+def _text_unchanged(fplan, made: dict[str, str]) -> bool:
+    """Each beat already made holds the piece of the Fountain the beat of its number holds now: an import that stopped partway and is run
+    again, or a chapter brought in after another. Nothing is to be fitted to them (`fountain.align` would number the rest after the last made,
+    1010a, as if inserted), so the missing beats take their own numbers."""
+    now = {str(number): beat.get("fountain") or "" for _chapter, number, beat in fplan.rows()}
+    return all(n in now and fountain._sameness(now[n]) == fountain._sameness(piece) for n, piece in made.items())
 
 
 def _import_beats(job: dict, ctx: Context) -> dict:
@@ -1173,7 +1206,8 @@ def _import_beats(job: dict, ctx: Context) -> dict:
         if str(d_.get("number") or "").strip() and str(d_.get("fountain") or "").strip():
             made_pieces[str(d_["number"]).strip()] = str(d_["fountain"])
     try:  # only when every beat made has its piece: a story made before beats kept them is matched by number, as it was
-        revision = fountain.align(fplan, made_pieces) if made_count and len(made_pieces) == made_count else None
+        revised = made_count and len(made_pieces) == made_count and not _text_unchanged(fplan, made_pieces)
+        revision = fountain.align(fplan, made_pieces) if revised else None
     except ValueError as e:
         raise JobError(str(e)) from e
     if revision and (revision["new"] or revision["reworded"] or revision["removed"]):
@@ -1273,38 +1307,18 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     people = [] if fresh else _people_fill(ctx, story, fplan)  # a replace starts afresh: its Characters are made new
     writes = len(extra) + len(plan["chapters"]) + len(plan["beats"]) + len(plan["lines"]) + len(plan["updates"]) + len(link) + len(fill) + len(people) + len(plan["trash"])
     if writes:  # said once, before the first write: a feature takes minutes, and the page shows only that the job is running
+        there = plan["have"]["beats"] + plan["have"]["lines"] + plan["have"]["chapters"]
+        if there and not dry and (plan["beats"] or plan["lines"] or plan["chapters"]):  # a run after one that stopped partway makes only the rest
+            ctx.note(f"Carrying on: {there} records already there")
         ctx.note(f"{'Bringing this in would write' if dry else 'Writing'} {writes} records: {fountain.time_to_write(writes)} at this speed ({fountain.RECORDS_PER_SECOND} a second).")
+    wrote = 0
     if not dry and (plan["beats"] or plan["lines"] or plan["updates"] or plan["chapters"] or extra or link or people):
         types = {t["slug"]: t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types"))}
         for needed in ("beat", "speech-line") + (("chapter",) if plan["chapters"] else ()):
             if needed not in types:
                 raise JobError(f"this workspace has no “{needed}” entry type: install the Screenplay Studio package first")
-        done_count = 0
         extra = [(t, r) for t, r in extra if t in types]  # an older workspace without these types simply goes without
-        for type_slug, (slug, title, data) in extra + [("chapter", c) for c in plan["chapters"]] + [("beat", b) for b in plan["beats"]] + [("speech-line", ln) for ln in plan["lines"]]:
-            body = json.dumps({"entryTypeId": types[type_slug], "title": title, "slug": slug, "status": "draft", "dataJson": data}).encode()
-            marvin_api.request(ctx.creds, "/api/platform/entries", method="POST", data=body, content_type="application/json")
-            done_count += 1
-            if done_count % 10 == 0:
-                ctx.note(f"{done_count} records written")
-        for slug, record_id, title, data in plan["updates"]:  # a PATCH replaces dataJson and renames by title unless the slug is named: send both whole
-            body = json.dumps({"title": title, "slug": slug, "dataJson": data}).encode()
-            marvin_api.request(ctx.creds, f"/api/platform/entries/{record_id}", method="PATCH", data=body, content_type="application/json")
-        refreshed = {slug: (title, data) for slug, _id, title, data in plan["updates"]}  # what a record holds after the updates above: the base of any further change to it
-        for rec, add in link:  # a beat made before the scenes and sounds were: put it in its scene and place its sounds (a PATCH replaces dataJson, so send it whole)
-            title, held = refreshed.get(rec["slug"], (rec.get("title"), rec.get("dataJson") or {}))
-            merged = {k: v for k, v in {**held, **add}.items() if not (v is None and k in add)}  # None takes a field out (a transition whose line is gone)
-            payload = json.dumps({"title": title, "slug": rec["slug"], "dataJson": merged}).encode()
-            marvin_api.request(ctx.creds, f"/api/platform/entries/{rec['id']}", method="PATCH", data=payload, content_type="application/json")
-        for rec, missing in fill:  # a chapter made before chapters held their own text and summary gets them; a PATCH replaces dataJson, so send it whole
-            data = {**(rec.get("dataJson") or {}), **missing}
-            payload = json.dumps({"title": rec.get("title"), "slug": rec["slug"], "dataJson": data}).encode()
-            marvin_api.request(ctx.creds, f"/api/platform/entries/{rec['id']}", method="PATCH", data=payload, content_type="application/json")
-        for rec, missing in people:  # a Character made before Age and Sex were fields gets them from the screenplay (a PATCH replaces dataJson, so send it whole)
-            payload = json.dumps({"title": rec.get("title"), "slug": rec["slug"], "dataJson": {**(rec.get("dataJson") or {}), **missing}}).encode()
-            marvin_api.request(ctx.creds, f"/api/platform/entries/{rec['id']}", method="PATCH", data=payload, content_type="application/json")
-        for slug, record_id in plan["trash"]:  # DELETE moves an entry to the Trash, where it can be restored
-            marvin_api.request(ctx.creds, f"/api/platform/entries/{record_id}", method="DELETE")
+        wrote = _write(ctx, types, extra, plan, link, fill, people)
     verb, uverb = ("would make", "would update") if dry else ("made", "updated")
     note = f"{verb} {len(plan['beats'])} beats and {len(plan['lines'])} spoken lines"
     held = sum(1 for c in plan["chapters"] if c[2].get("fountain")) + sum(1 for _r, m in fill if m.get("fountain"))
@@ -1419,9 +1433,50 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     if changed and not dry:
         via = f" · from the Fountain{' (chapters ' + str(part_text) + ')' if parts is not None else ''}"
         entry = f"{stamp} · {'refresh' if refresh else 'add'}{via} · " + " · ".join(bits)
-    _save_story(ctx, story_row, {"split_plan": split_plan}, fill_in, entry)  # onto the story as it is now: what a person changed while this ran is kept
+    try:
+        if not dry and "music" not in fill_in and _score_waiting(ctx, story, story_data):
+            fill_in["music"] = f"{story}-score"
+        _save_story(ctx, story_row, {"split_plan": split_plan}, fill_in, entry)  # onto the story as it is now: what a person changed while this ran is kept
+    except marvin_api.MarvinUnreachable as e:
+        raise _LostConnection(wrote, e) from e
     return {"result": result, "log": log}
 
+
+
+def _write(ctx: Context, types: dict, extra: list, plan: dict, link: list, fill: list, people: list) -> int:
+    """An import's writes, in an order a run stopped partway leaves whole: what beats point at (characters, scenes, sounds) and their chapters
+    first, then the beats, then their lines, then the changes to what was there. Each record made is made once (`create_entry` looks a lost
+    answer up by its slug), and a failure of the line says how many were written (`_LostConnection`)."""
+    written = 0
+
+    def patch(record_id: str, body: dict) -> None:
+        nonlocal written
+        marvin_api.request(ctx.creds, f"/api/platform/entries/{record_id}", method="PATCH", data=json.dumps(body).encode(), content_type="application/json")
+        written += 1
+
+    try:
+        for type_slug, (slug, title, data) in extra + [("chapter", c) for c in plan["chapters"]] + [("beat", b) for b in plan["beats"]] + [("speech-line", ln) for ln in plan["lines"]]:
+            marvin_api.create_entry(ctx.creds, types[type_slug], slug, title, data)
+            written += 1
+            if written % 10 == 0:
+                ctx.note(f"{written} records written")
+        for slug, record_id, title, data in plan["updates"]:  # a PATCH replaces dataJson and renames by title unless the slug is named: send both whole
+            patch(record_id, {"title": title, "slug": slug, "dataJson": data})
+        refreshed = {slug: (title, data) for slug, _id, title, data in plan["updates"]}  # what a record holds after the updates above: the base of any further change to it
+        for rec, add in link:  # a beat made before the scenes and sounds were: put it in its scene and place its sounds (a PATCH replaces dataJson, so send it whole)
+            title, held = refreshed.get(rec["slug"], (rec.get("title"), rec.get("dataJson") or {}))
+            merged = {k: v for k, v in {**held, **add}.items() if not (v is None and k in add)}  # None takes a field out (a transition whose line is gone)
+            patch(rec["id"], {"title": title, "slug": rec["slug"], "dataJson": merged})
+        for rec, missing in fill:  # a chapter made before chapters held their own text and summary gets them; a PATCH replaces dataJson, so send it whole
+            patch(rec["id"], {"title": rec.get("title"), "slug": rec["slug"], "dataJson": {**(rec.get("dataJson") or {}), **missing}})
+        for rec, missing in people:  # a Character made before Age and Sex were fields gets them from the screenplay (a PATCH replaces dataJson, so send it whole)
+            patch(rec["id"], {"title": rec.get("title"), "slug": rec["slug"], "dataJson": {**(rec.get("dataJson") or {}), **missing}})
+        for _slug, record_id in plan["trash"]:  # DELETE moves an entry to the Trash, where it can be restored
+            marvin_api.request(ctx.creds, f"/api/platform/entries/{record_id}", method="DELETE")
+            written += 1
+    except marvin_api.MarvinUnreachable as e:
+        raise _LostConnection(written, e) from e
+    return written
 
 
 PREVIEW_SIZE = "720:1280"
