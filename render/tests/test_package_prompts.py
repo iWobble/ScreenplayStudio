@@ -15,14 +15,30 @@ def workflow(slug: str) -> str:
     raise AssertionError(slug)
 
 
+FIELD = "${steps.%s.output.fields.prompt}"
+
+
+def sent_text(actions: list, step_id: str, key: str = "prompt") -> str:
+    """What a paid step sends: its argument, or, when it reads its spend approval's box (the person may change it before
+    approving), the text that box is asked with. The two are one text, assembled once, so the approval cannot show
+    other words than the call gets."""
+    steps = {a.get("id"): a for a in actions if a.get("id")}
+    arg = steps[step_id]["args"][key]
+    for ask_id, ask in steps.items():
+        if arg == FIELD % ask_id:
+            (box,) = ask["fields"]
+            assert box["name"] == "prompt"
+            return box["value"]
+    return arg
+
+
 def test_a_master_is_sent_with_the_portrait_guard_and_the_approval_shows_the_same_words():
     made = json.loads(PACKAGE.read_text(encoding="utf-8"))
     flow = next(b for b in made["blueprints"] if b.get("slug") == "screenplay-make-master")["payload"]["definition"]["actions"]
-    spend = next(a for a in flow if a.get("id") == "spend")["message"]
-    sent = next(a for a in flow if a.get("id") == "master")["args"]["prompt"]
+    assert next(a for a in flow if a.get("id") == "master")["args"]["prompt"] == FIELD % "spend"  # what is approved is what is sent
+    sent = sent_text(flow, "master")
     guard = sent.split("${entry.data.master_prompt}", 1)[1].strip()
     assert "MASTER, NOT A SCENE" in guard and "anatomical left and right" in guard and "never mirror" in guard
-    assert guard in spend  # what is approved is what is sent
 
 
 def test_the_master_prompt_writer_ignores_scene_words_in_the_notes_and_writes_anatomical_sides():
@@ -58,9 +74,11 @@ def test_a_batch_approval_covers_every_still_and_sound_so_the_single_workflow_as
     for single in ("screenplay-take-still", "screenplay-take-sound"):
         acts = _flow(single)["actions"]
         assert acts[0]["data"] == {"spend_approved": "used"} and acts[0]["when"]["value"] == "yes"  # used up first: a later redo asks again
-        asked = [a for a in acts if a.get("kind") == "approval"]
-        assert {a["id"] for a in asked} == {"spend", "keep"}
-        assert all(a["when"] == {"field": "entry.data.spend_approved", "op": "neq", "value": "yes"} for a in asked)
+        asked = {a["id"]: a for a in acts if a.get("kind") == "approval"}
+        assert set(asked) == {"spend", "keep"}
+        # a page that already had it approved: the spend goes on unasked (its prompt box still feeds the call), Keep is not asked
+        assert asked["spend"]["approved_when"] == {"field": "entry.data.spend_approved", "op": "eq", "value": "yes"} and "when" not in asked["spend"]
+        assert asked["keep"]["when"] == {"field": "entry.data.spend_approved", "op": "neq", "value": "yes"}
     for batch, noun in (("screenplay-make-stills", "beat"), ("screenplay-make-sounds", "sound")):
         acts = _flow(batch)["actions"]
         assert len([a for a in acts if a.get("kind") == "approval" and a["id"] == "spend"]) == 1
@@ -103,7 +121,7 @@ def test_a_still_is_told_the_changes_from_earlier_beats_and_the_beat_has_the_fie
     acts = _flow("screenplay-take-still")["actions"]
     changes = next(a for a in acts if a.get("id") == "changes")
     assert {"field": "number", "op": "lte", "value": "${entry.data.number}"} in changes["query"]["where"]  # this beat's own note counts too
-    prompt = next(a for a in acts if a.get("kind") == "integration")["args"]["prompt"]
+    prompt = sent_text(acts, next(a for a in acts if a.get("kind") == "integration")["id"])
     assert prompt.index("CHANGES THAT HOLD") < prompt.index("THIS MOMENT: ") and "steps.changes.output.text" in prompt
     for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]:
         if b.get("slug") == "beat":
@@ -667,8 +685,8 @@ def _sheet_steps() -> tuple[dict, dict]:
 def test_a_persons_sheet_is_sent_as_before_with_arthur_for_the_style_and_never_for_an_animal():
     flow, steps = _sheet_steps()
     person = steps["sheet"]
-    assert person["args"]["prompt"] == PERSON_SHEET_PROMPT and person["references"] == BASE_SHEET + ",${input.style_actor}"
-    assert PERSON_SHEET_PROMPT in steps["spend"]["message"]  # what is approved is what is sent
+    assert sent_text(flow["actions"], "sheet") == PERSON_SHEET_PROMPT and person["references"] == BASE_SHEET + ",${input.style_actor}"
+    assert person["args"]["prompt"] == FIELD % "spend"  # what is approved (the box, maybe changed) is what is sent
     assert next(i for i in flow["trigger"]["inputs"] if i["name"] == "style_actor")["default"] == "arthur"
     for sid in ("spend", "sheet"):
         assert {"not": ANIMAL} in steps[sid]["when"], sid
@@ -682,9 +700,9 @@ def test_an_animals_sheet_is_three_views_of_a_quadruped_from_its_own_fields_on_t
     inputs = {i["name"]: i for i in flow["trigger"]["inputs"]}
     assert inputs["animal_bases"]["default"] == "dog,cat,horse,bird" and "default" not in inputs["style_animal"]  # arthur is a person
     animal = steps["sheet_animal"]
-    sent = animal["args"]["prompt"]
+    sent = sent_text(flow["actions"], "sheet_animal")
     assert animal["references"] == BASE_SHEET + ",${input.style_animal}"  # an empty style animal is dropped: the base sheet alone
-    assert sent in steps["spend_animal"]["message"] and BASE_SHEET in steps["spend_animal"]["message"]
+    assert animal["args"]["prompt"] == FIELD % "spend_animal" and BASE_SHEET in steps["spend_animal"]["message"]
     assert "three full-body views" in sent and "front, right-side profile, back" in sent and "quadruped" in sent
     assert "cream studio background" in sent and "No collar, no clothes, no props, no scenery, no labels, no text" in sent
     assert "no hands or fingers" in sent and "four views" not in sent and "2 by 2" not in sent
@@ -727,7 +745,7 @@ def test_open_call_offers_to_make_the_sheet_with_ai_right_after_the_sheet_form()
     fields = {f["key"] for f in blueprints["actor"]["payload"]["schema_json"]["fields"]}
     assert paid["service"] == "OpenAI Images" and paid["entry"] == "actor" and set(paid["needs"]) <= set(paid["sends"]) <= fields
     sheet_flow = workflow("screenplay-make-actor-sheet")
-    animal = next(a for a in _flow("screenplay-make-actor-sheet")["actions"] if a.get("id") == "sheet_animal")["args"]["prompt"]
+    animal = sent_text(_flow("screenplay-make-actor-sheet")["actions"], "sheet_animal")
     for key in paid["sends"]:  # what the notice shows goes to the model for a person and for an animal alike
         assert "${entry.data." + key in sheet_flow and "${entry.data." + key in animal, key
     assert "next step" in steps["sheet"]["help"] and "Approvals shows the exact prompt" in make["help"]
@@ -872,7 +890,7 @@ def test_a_beat_has_shot_direction_for_fresh_and_older_workspaces_and_the_still_
     assert own["type"] == "textarea" and own["group"] == "The shot"
     slugs = list(blueprints)
     assert slugs.index("beat-direction-field") > slugs.index("beat")
-    prompt = next(a["args"]["prompt"] for a in _flow("screenplay-take-still")["actions"] if "prompt" in (a.get("args") or {}))
+    prompt = sent_text(_flow("screenplay-take-still")["actions"], "still")
     line = 'THIS MOMENT: ${entry.data.picture}\nShot direction (where the camera looks): ${entry.data.direction|default:"none"}\n'
     assert prompt.count(line) == 1
 
@@ -911,3 +929,51 @@ def test_every_paid_button_is_followed_on_its_page_from_the_click_to_the_result_
             for w in step["approve"]:
                 if w in _spending_takers():  # a failed run puts the card back where its button can start it again
                     assert any(h.get("data") == {"status": "draft"} for h in _flow(w).get("on_failure") or []), (where, w)
+
+
+EDITABLE = {  # each workflow's paid call, the approval whose box it sends, and the argument the box fills
+    "screenplay-take-sound": [("fx", "spend", "text")],
+    "screenplay-take-sound-created": [("fx", "spend", "text")],
+    "screenplay-take-music": [("music", "spend", "prompt")],
+    "screenplay-take-music-created": [("music", "spend", "prompt")],
+    "screenplay-make-take": [("say", "spend", "text")],
+    "screenplay-remake-take": [("say", "spend", "text")],
+    "screenplay-take-still": [("still", "spend", "prompt")],
+    "screenplay-make-master": [("master", "spend", "prompt")],
+    "screenplay-make-actor-sheet": [("sheet", "spend", "prompt"), ("sheet_animal", "spend_animal", "prompt")],
+    "screenplay-make-cover": [("cover", "spend", "prompt")],
+}
+
+
+def test_every_paid_call_sends_its_approvals_prompt_box_and_redo_carries_a_change_to_the_next_try():
+    for slug, calls in EDITABLE.items():
+        acts = _flow(slug)["actions"]
+        steps = {a.get("id"): a for a in acts if a.get("id")}
+        for call, ask, key in calls:
+            assert steps[call]["args"][key] == FIELD % ask, slug  # the text approved, changed or not
+            (box,) = steps[ask]["fields"]
+            assert box["name"] == "prompt" and box["value"].strip(), slug
+        keep = steps.get("keep")
+        if keep and keep.get("choices") == ["Keep", "Redo"]:
+            assert keep["redo"] == "Redo" and keep["fields"][0]["value"] == "".join(FIELD % ask for _, ask, _ in calls), slug
+        assert len(acts) <= 10 or slug == "screenplay-take-still", slug  # take-still runs on the workspace's raised limit, as before
+
+
+def test_the_prompt_box_starts_with_exactly_the_words_the_call_sent_before_it_could_be_changed():
+    """Unchanged, the call sends byte for byte what it did: the box's text is the old argument, moved, not rewritten."""
+    import subprocess
+
+    try:
+        before = json.loads(subprocess.run(["git", "show", "origin/main:docs/screenplay-studio.marvin-package.json"], cwd=PACKAGE.parents[1], capture_output=True, check=True).stdout)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        import pytest
+
+        pytest.skip("no git history to compare with")
+    old = {b["slug"]: b for b in before["blueprints"] if b.get("kind") == "workflow"}
+    for slug, calls in EDITABLE.items():
+        was = {a.get("id"): a for a in old[slug]["payload"]["definition"]["actions"] if a.get("id")}
+        if FIELD % calls[0][1] in json.dumps(was):
+            continue  # main already has the boxes: nothing to compare against
+        acts = _flow(slug)["actions"]
+        for call, _, key in calls:
+            assert sent_text(acts, call, key) == was[call]["args"][key], (slug, call)
