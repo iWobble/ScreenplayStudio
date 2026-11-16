@@ -231,9 +231,24 @@ def _split_cues(start: int, block: list[str], known: set[str]) -> list[tuple[int
 def handles(names: list[str], keep: "set[str] | None" = None) -> dict[str, str]:
     """Character cue -> the handle the importer reads (a capital, then lower case: Granny, Cook). A name of several words takes its last
     (`OLD COOK` -> Cook); two different names that would share one keep all their words, joined by hyphens (`MRS HALE` -> Mrs-hale, `DR HALE` ->
-    Dr-hale). `keep` is the handles a story already has (lower case, as its records hold them): a speaker brought in when the words were run
-    together (Mrshale) keeps that handle, so a new import finds their Character and lines and makes no second one."""
-    clean = lambda n: [w for w in re.sub(r"[^A-Za-z ]", " ", n).split() if w]  # noqa: E731
+    Dr-hale). An apostrophe is dropped, not made a break between words (`A GIRL'S VOICE` -> A-girls-voice, `O'BRIEN` -> Obrien). `keep` is the
+    handles a story already has (lower case, as its records hold them): a speaker brought in when the words were run together (Mrshale), or
+    when an apostrophe still cut a word in two (A-girl-s-voice, Brien), keeps that handle, so a new import finds their Character and lines and
+    makes no second one."""
+    chosen = _handles(names, "")
+    if keep:
+        before = _handles(names, " ")  # as an apostrophe was read until it was dropped
+        for name, handle in chosen.items():
+            if handle.lower() in keep:
+                continue
+            older = (handle.replace("-", ""), before.get(name, ""), before.get(name, "").replace("-", ""))
+            chosen[name] = next((h for h in older if h and h.lower() in keep), handle)
+    return chosen
+
+
+def _handles(names: list[str], apostrophe: str) -> dict[str, str]:
+    """`handles` with nothing kept, an apostrophe read as `apostrophe` (dropped, or a break between words)."""
+    clean = lambda n: [w for w in re.sub(r"[^A-Za-z ]", " ", re.sub(r"['’]", apostrophe, n)).split() if w]  # noqa: E731
     whole = lambda n: "-".join(clean(n)).capitalize()  # noqa: E731
     seen: dict[str, str] = {}
     chosen: dict[str, str] = {}
@@ -249,10 +264,6 @@ def handles(names: list[str], keep: "set[str] | None" = None) -> dict[str, str]:
             short = whole(name)
         seen.setdefault(short, name)
         chosen[name] = short
-    for name, handle in chosen.items():
-        squashed = handle.replace("-", "")
-        if keep and squashed != handle and handle.lower() not in keep and squashed.lower() in keep:
-            chosen[name] = squashed
     return chosen
 
 
@@ -482,8 +493,12 @@ _TRANSITION_KINDS = (
 
 
 def transition_kind(text: str) -> "str | None":
-    """How a transition line asks the picture to change: `dissolve`, `fade` or `cut`, or None for one the video has no word for (WIPE TO:)."""
-    return next((kind for pattern, kind in _TRANSITION_KINDS if pattern.search(text)), None)
+    """How a transition line asks the picture to change: `dissolve` or `fade` when its words say so, else `cut`. Any line in capitals ending in TO:
+    is a transition (the Fountain format says so), and one that names no dissolve or fade (BACK TO:, FLASHBACK TO:, WIPE TO:) is a cut, its words
+    kept as written. None only when there is no line."""
+    if not str(text or "").strip():
+        return None
+    return next((kind for pattern, kind in _TRANSITION_KINDS if pattern.search(text)), "cut")
 
 
 def transition_seconds(beat: dict) -> "float | None":
@@ -934,7 +949,10 @@ def align(plan: Plan, existing: dict[str, str]) -> "dict | None":
             previous = number
     return found
 
-_KEEP_ALONE = re.compile(r"^(?:THE END\.?|END\.?|(?:SUPER|TITLE|CARD|INSERT|CHYRON|TITLE CARD)\b.*|.*\bFADE\b.*|.*\bCUT\b.*|.*\bDISSOLVE\b.*)$")
+_KEEP_ALONE = re.compile(r"^(?:THE END\.?|END\.?|(?:SUPER|TITLE|CARD|INSERT|CHYRON|TITLE CARD|INTERCUT)\b.*|.*\bFADE\b.*|.*\bCUT\b.*|.*\bDISSOLVE\b.*)$")
+"""Capitals standing alone that say what they are: a card, a title over the picture, an editing word. `INTERCUT WITH:` and `INTERCUT HALLWAY /
+BEDROOM` end in no TO:, so the Fountain format reads them as action (they say how two scenes alternate, not how one picture changes into the
+next): their words stay in the picture, with nothing to check."""
 _HEADING_LIKE = re.compile(r"^[A-Z0-9][A-Z0-9 .'’,()/&\-]*\s-\s[A-Z][A-Z0-9 .'’,()/\-]*?(?:\s+#[\w.-]+#)?$")
 MAX_LINT = 12
 
@@ -1038,10 +1056,6 @@ def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: f
                 b["card"] = {"title": "", "text": ""}  # a blank hold: a plain card with no words, said in a note
         front = _piece(all_lines, 0, flat[0]["at"]) if flat else ""
     plan = Plan(chapters, {r: h for r, h in names.items()}, warnings, source, single, front)
-    for ch in chapters:
-        for i, b in enumerate(ch.beats, 1):
-            if b.get("transition_text") and not b.get("transition"):
-                warnings.append(f"`{b['transition_text']}` before beat {plan.number(ch, i)} is not a cut, a fade or a dissolve, so it plays as a cut (the words are kept)")
     if carry["held"]:  # a transition with no beat after it is how the film ends
         plan.end_transition_text = carry["held"][-1]
         plan.end_transition = "fade" if transition_kind(plan.end_transition_text) == "fade" else ""

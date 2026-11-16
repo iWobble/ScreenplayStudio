@@ -593,7 +593,7 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
         who = {"female": "Woman", "male": "Man"}.get(c["sex"], "")
         role = ", ".join(x for x in (who, c["age"]) if x)
         role = f"{role}. {c['description']}" if role and c["description"] else (c["description"] or role)
-        cast_id = re.sub(r"[^a-z0-9]+", "-", c["name"].lower()).strip("-") or speaker
+        cast_id = re.sub(r"[^a-z0-9]+", "-", re.sub(r"['’]", "", c["name"].lower())).strip("-") or speaker  # an apostrophe is dropped, as in a handle: a-girls-voice
         said = {"age": c["age"], "sex": c["sex"], "age_state": fountain.age_state(c["age"])}  # what the screenplay says of them, as fields (the empty ones left out)
         data = {"cast_id": cast_id, "role": role, "speaker": speaker, "story": story, "presence": "voice only" if re.search(r"narrat|announcer|^voice$", c["cue"], re.I) else "on screen", "status": "draft"}
         out.append(("cast-member", (f"{story}-{speaker}", c["name"], {**data, **{k: v for k, v in said.items() if v}})))

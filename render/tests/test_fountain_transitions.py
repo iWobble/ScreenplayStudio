@@ -3,7 +3,7 @@ set by hand on a beat is written to the complete export, and an edited transitio
 
 import json
 
-from storyrender import fountain, numbering, script
+from storyrender import fountain, marvin_pull, numbering, script, validate
 from tests.test_fountain import casting, run  # noqa: F401  (the fake workspace and the import runner)
 
 TIDE = """Title: Tide
@@ -76,12 +76,43 @@ def test_fade_in_is_the_first_beats_fade_and_a_fade_out_after_the_last_beat_is_h
     assert fountain.cut(fountain.parse(TIDE.replace("FADE OUT.", "CUT TO BLACK."))).end_transition == ""  # a cut to black is a cut: the film just ends
 
 
-def test_a_transition_the_video_has_no_word_for_plays_as_a_cut_and_the_split_report_names_it():
-    plan = fountain.cut(fountain.parse(TIDE.replace("CUT TO:", "> BURN TO PINK.")))
+ANY_TO = ("COME TO:", "TRANSITION TO:", "FLASHCUTS TO:", "BACK TO:", "RETURNING BACK TO:", "FLASHBACK TO:", "WIPE TO:", "> BURN TO PINK.")
+
+
+def test_any_transition_line_the_video_has_no_word_for_is_a_cut_its_words_kept_and_nothing_to_check():
+    for line in ANY_TO:
+        text = TIDE.replace("CUT TO:", line)
+        plan = fountain.cut(fountain.parse(text, lines=True), text=text)
+        last = [b for _c, _n, b in plan.rows()][-1]
+        assert (last["transition"], last["transition_text"]) == ("cut", line.lstrip("> ")), line
+        assert not any(line.lstrip("> ") in w for w in plan.warnings), plan.warnings
+        assert not [f for f in validate.check(text) if line.lstrip("> ") in f.problem], line  # a transition, so no finding of any kind
+
+
+def test_a_transition_line_that_names_a_dissolve_or_a_fade_is_that_and_one_that_names_none_overrides_the_storys_dissolve():
+    assert fountain.transition_kind("SLOW DISSOLVE TO:") == "dissolve" and fountain.transition_kind("FADE THROUGH WHITE TO:") == "fade"
+    assert fountain.transition_kind("") is None  # no line at all is no transition
+    story = {"transition": "dissolve", "transition_seconds": 0.8}
+    plan = fountain.cut(fountain.parse(TIDE.replace("CUT TO:", "BACK TO:")))
     last = [b for _c, _n, b in plan.rows()][-1]
-    assert last["transition_text"] == "BURN TO PINK." and "transition" not in last
-    assert any("BURN TO PINK." in w and "plays as a cut" in w for w in plan.warnings)
-    assert not any("plays as a cut" in w for w in fountain.cut(fountain.parse(TIDE)).warnings)
+    assert marvin_pull.transition_of(last, story) == {}  # BACK TO: is a cut, whatever the story does between its other beats
+
+
+def test_a_transition_line_with_no_word_for_it_comes_in_again_from_the_complete_script_as_written(casting):
+    fake, ctx = casting(TIDE.replace("CUT TO:", "BACK TO:"))
+    run(ctx)
+    _settle(fake)
+    text = script.fountain_complete(_records(fake))
+    assert "\nBACK TO:\n" in text and "CUT TO:" not in text
+    again, ctx2 = casting(text)
+    run(ctx2)
+    assert [(b.get("transition"), b.get("transition_text")) for b in _beats(again).values()][-1] == ("cut", "BACK TO:")
+
+
+def test_a_beat_made_when_its_line_had_no_kind_now_follows_the_script_as_a_cut():
+    held = {"transition": None, "transition_text": "BACK TO:"}
+    assert fountain.follow_transition(held, {"transition": "cut", "transition_text": "BACK TO:"}) == ({"transition": "cut"}, "")
+    assert fountain.follow_transition({"transition": "cut", "transition_text": "BACK TO:"}, {"transition": "cut", "transition_text": "BACK TO:"}) == ({}, "")
 
 
 def test_the_import_gives_each_beat_its_transition_and_length_and_the_story_its_ending(casting):
