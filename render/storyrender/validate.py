@@ -41,10 +41,13 @@ def _row(text: str, index: int) -> int:
 
 
 def _invisible(lines: list[str]) -> list[Finding]:
-    """Characters that cannot be seen and still change how a line reads (a non-breaking space in a cue, a zero-width mark pasted in with a name)."""
+    """Characters that cannot be seen and still change how a line reads (a direction mark, a soft hyphen or a joiner inside a name, a control
+    character). A no-break or thin space reads as the space it looks like and a zero-width space as nothing (see `fountain._readable`): those
+    change nothing, so they are not said."""
     out = []
+    harmless = set(F.AS_SPACE + F.NO_WIDTH + " \t")
     for n, ln in enumerate(lines, 1):
-        bad = [c for c in ln if c != "\t" and (unicodedata.category(c) in ("Cc", "Cf") or (unicodedata.category(c) == "Zs" and c != " "))]
+        bad = [c for c in ln if c not in harmless and unicodedata.category(c) in ("Cc", "Cf", "Zs")]
         if bad:
             names = ", ".join(sorted({f"U+{ord(c):04X} {unicodedata.name(c, 'unnamed')}" for c in bad}))
             out.append(Finding(n, "look", "invisible", f"has a character you cannot see ({names})", "delete the line's invisible characters (retype the line, or paste it as plain text)"))
@@ -100,7 +103,7 @@ def _title(text: str) -> list[Finding]:
 
 # --- the paragraphs --------------------------------------------------------------------------------------------------------------------
 
-_EMPTY_HEADING = re.compile(r"^(?:INT|EXT|EST|INT\.?/EXT\.?|EXT\.?/INT\.?|I/E)\.?\s*(?:#[^#]+#)?\s*$", re.I)
+_EMPTY_HEADING = re.compile(rf"^{F.HEADING_START}\.?\s*(?:#[^#]+#)?\s*$", re.I)
 _NO_COLON = re.compile(r"^[A-Z][A-Z0-9 .'\-]* TO$")
 _NUMBER = re.compile(r"#([^#]+)#\s*$")
 _ONE_WORD = re.compile(r"^[A-Za-z][A-Za-z'’-]{2,24}$")
@@ -221,6 +224,7 @@ def check(text: str) -> list[Finding]:
     lines = plain.split("\n")
     out: list[Finding] = []
     out += _invisible(lines)
+    plain = F._readable(plain)  # the rest reads the text as it looks, as the import does
     out += _notes(plain)
     out += _title(plain)
     stripped = F._NOTE.sub(F._blank_out, F._BONEYARD.sub(F._blank_out, plain))
@@ -231,8 +235,10 @@ def check(text: str) -> list[Finding]:
         if not m:
             continue
         code = "heading-without-kind" if "does not start with INT. or EXT." in message else "capitals-alone" if "stands alone in capitals" in message else "capitals-above-text"
-        problem, _, fix = m.group(2).partition(": if ")
-        out.append(Finding(int(m.group(1)), "error", code, problem.strip(), ("if " + fix) if fix else "see the line"))
+        said = m.group(2)
+        at = said.find(": if ") if ": if " in said else said.find(": write ")  # the problem, then what to do about it
+        problem, fix = (said[:at], said[at + 2 :]) if at >= 0 else (said, "see the line")
+        out.append(Finding(int(m.group(1)), "error", code, problem.strip(), fix.strip()))
     try:
         plan = F.cut(F.parse(text, lines=True), text=text)
         for w in plan.warnings:
@@ -244,15 +250,33 @@ def check(text: str) -> list[Finding]:
     return out
 
 
+def _plan(text: str) -> "F.Plan | None":
+    try:
+        return F.cut(F.parse(text, lines=True), text=text)
+    except Exception:
+        return None
+
+
 def summary(text: str) -> str:
     """What the import would make of the text, in one line (no records are made)."""
-    try:
-        plan = F.cut(F.parse(text, lines=True), text=text)
-    except Exception:
+    plan = _plan(text)
+    if plan is None:
         return "It could not be read."
     beats = sum(len(c.beats) for c in plan.chapters)
     lines = sum(len(b["lines"]) for c in plan.chapters for b in c.beats)
     return f"It reads as {len(plan.chapters)} chapter{'s' if len(plan.chapters) != 1 else ''}, {beats} beats, {lines} spoken lines, {len(plan.characters)} characters and {len(plan.places)} places."
+
+
+def records_to_write(text: str) -> int:
+    """How many records bringing the text into an empty story writes (see `fountain.records_to_make`); 0 when it makes nothing."""
+    plan = _plan(text)
+    return F.records_to_make(plan) if plan is not None and plan.chapters else 0
+
+
+def time_line(text: str) -> str:
+    """How long bringing the text in takes, in one line, with the same estimate the import says before it writes; empty when it makes nothing."""
+    records = records_to_write(text)
+    return f"Bringing it in will take {F.time_to_write(records)} ({records} records at about {F.RECORDS_PER_SECOND} a second)." if records else ""
 
 
 def verdict(findings: list[Finding]) -> str:
@@ -288,7 +312,7 @@ def report(findings: list[Finding], text: str = "") -> tuple[str, int, int]:
     stops = blocking(findings)
     head = [verdict(findings), "Checked the Fountain" + (f" ({len(F._normal(text).splitlines())} lines)." if text else ".")]
     if text:
-        head.append(summary(text))
+        head += [x for x in (summary(text), time_line(text)) if x]
     if not findings:
         return "\n".join(head + ["Nothing to fix: it reads the way it is written."]), 0, 0
     out = list(head)

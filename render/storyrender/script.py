@@ -81,7 +81,7 @@ def _without_lead_heading(picture: str, name: str) -> str:
     place = r"\s+".join(re.escape(w) for w in plain(name).split())
     if not place:
         return picture
-    kind = r"(?:(?:INT\.?/EXT\.?|EXT\.?/INT\.?|I/E\.?|INT\.?|EXT\.?|EST\.?)\s+|(?:Interior and exterior|Interior|Exterior):\s+)"
+    kind = rf"(?:{fountain_mod.HEADING_START}\.?\s+|(?:Interior and exterior|Interior|Exterior):\s+)"
     when = rf"(?:\s*[-\u2013\u2014,]\s*(?:{fountain_mod._TIME_WORDS.pattern})[A-Za-z' ]*?)?"  # a time of day or story time, not just any words
     m = re.match(rf"{kind}(?:THE\s+)?{place}{when}\s*\.\s*", plain(picture), re.I)
     return plain(picture)[m.end() :] if m else picture

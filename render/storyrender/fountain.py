@@ -31,7 +31,10 @@ PICTURE_CHARS = 420
 
 _BONEYARD = re.compile(r"/\*.*?\*/", re.S)
 _NOTE = re.compile(r"\[\[(?:(?!\]\]|\n[ \t]*\n).)*(?:\]\]|(?=\n[ \t]*\n)|\Z)", re.S)  # a note ends at its `]]`, or at a blank line: one never closed cannot swallow what follows
-_SCENE = re.compile(r"^(?:INT|EXT|EST|INT\.?/EXT|INT/EXT|I/E)(?:\.|\s)", re.I)
+HEADING_START = r"(?:INT\.?\s*/\s*EXT|EXT\.?\s*/\s*INT|I/E|E/I|INT|EXT|EST)"
+"""How a scene heading starts, without its full stop: INT, EXT, EST and the ways of saying inside and outside at once the format lists (INT./EXT,
+INT/EXT, I/E), and the same the other way round (EXT/INT., E/I.), which writers use as much; a space either side of the / between words is the same."""
+_SCENE = re.compile(rf"^{HEADING_START}(?:\.|\s)", re.I)
 _SCENE_NUMBER = re.compile(r"\s+#[\w.-]+#\s*$")
 _TRANSITION = re.compile(r"^(?:[A-Z0-9 .'\-]+ TO:|FADE (?:IN|OUT)[.:]?|FADE TO BLACK[.:]?|CUT TO BLACK[.:]?|SMASH CUT TO BLACK[.:]?)$")
 _SECTION = re.compile(r"^(#{1,6})\s*(.*?)\s*$")
@@ -68,8 +71,20 @@ def _normal(text: str) -> str:
     return "\n".join(lines)
 
 
+AS_SPACE = "\u00a0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000"  # no-break, figure, thin, em... spaces
+NO_WIDTH = "\u200b\u2060\ufeff"  # a zero-width space, a word joiner, a byte order mark pasted inside the text
+_READABLE = str.maketrans({**dict.fromkeys(AS_SPACE, " "), **dict.fromkeys(NO_WIDTH, None)})
+
+
+def _readable(text: str) -> str:
+    """The text as it looks: a no-break space (or a thin or figure one) is a space and a zero-width space is nothing, so `BIG EDWARD` typed with a
+    no-break space is the speaker typed with a plain one. Only reading uses it: the writer's text (each beat's piece of it) keeps what was typed.
+    Lines keep their numbers."""
+    return text.translate(_READABLE)
+
+
 def _clean(text: str) -> str:
-    return _NOTE.sub("", _BONEYARD.sub("", _normal(text)))  # a boneyard and a note are the writer's, not the story's
+    return _NOTE.sub("", _BONEYARD.sub("", _readable(_normal(text))))  # a boneyard and a note are the writer's, not the story's
 
 
 def _blocks_at(text: str) -> list[tuple[int, list[str]]]:
@@ -197,7 +212,7 @@ def _block_content(block: list[str]) -> list[dict]:
 def parse(text: str, *, lines: bool = False) -> list[dict]:
     """The screenplay's elements in order: {t: scene|action|dialogue|transition|section|centred, ...}. A title page and synopses are left out; a page break (`===`) is {t: break}.
     With `lines`, each element also says the line (counting from 0) of the text it starts on."""
-    blocks = _blocks_at(_blank_comments(_normal(text)) if lines else _clean(text))  # to say where each element is, a note or boneyard keeps its line breaks
+    blocks = _blocks_at(_blank_comments(_readable(_normal(text))) if lines else _clean(text))  # to say where each element is, a note or boneyard keeps its line breaks
     if blocks and all(_ANY_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
         blocks = blocks[1:]  # a title page: it starts with a key Fountain knows, and every line is a key or the rest of one
     known = {_cue_name(block[0]) for _start, block in blocks if len(block) >= 2 and _is_character(block[0])}
@@ -738,7 +753,7 @@ def cast_of(beat: dict, characters: list[dict]) -> list[str]:
 
 
 _TIME_WORDS = re.compile(r"\b(?:day|night|dawn|dusk|evening|morning|afternoon|sunset|sunrise|twilight|noon|midnight|continuous|later|same|moments?|minutes|hours|days)\b", re.I)
-_HEADING_KIND = re.compile(r"^(INT\.?/EXT\.?|EXT\.?/INT\.?|I/E\.?|INT\.?|EXT\.?|EST\.?)\s+", re.I)
+_HEADING_KIND = re.compile(rf"^({HEADING_START}\.?)\s+", re.I)
 _SCENE_NO = re.compile(r"\s*#[^#]+#\s*$")
 
 
@@ -897,7 +912,7 @@ _NOTE_TEXT = re.compile(r"\[\[.*?\]\]", re.S)
 def _sameness(text: str) -> str:
     """A beat's piece of the Fountain as it is compared in a revision: its words, without notes, scene numbers, page breaks or spacing."""
     text = _NOTE_TEXT.sub(" ", text or "")
-    text = re.sub(r"(?m)^\s*(?:===+|#{1,6}\s.*|=.*|\.[^.].*|(?:INT|EXT|EST|I/E|INT\.?/EXT)\b.*)$", " ", text, flags=re.I)  # a page break, a section, a synopsis, a scene heading: structure, not what the beat says
+    text = re.sub(r"(?m)^\s*(?:===+|#{1,6}\s.*|=.*|\.[^.].*|" + HEADING_START + r"\b.*)$", " ", text, flags=re.I)  # a page break, a section, a synopsis, a scene heading: structure, not what the beat says
     text = re.sub(r"#[^#\s]+#", " ", text)
     return re.sub(r"\s+", " ", text).strip().lower()
 
@@ -954,7 +969,24 @@ _KEEP_ALONE = re.compile(r"^(?:THE END\.?|END\.?|(?:SUPER|TITLE|CARD|INSERT|CHYR
 BEDROOM` end in no TO:, so the Fountain format reads them as action (they say how two scenes alternate, not how one picture changes into the
 next): their words stay in the picture, with nothing to check."""
 _HEADING_LIKE = re.compile(r"^[A-Z0-9][A-Z0-9 .'’,()/&\-]*\s-\s[A-Z][A-Z0-9 .'’,()/\-]*?(?:\s+#[\w.-]+#)?$")
+_KIND_WORD = r"(?:INT(?:ERIOR)?|EXT(?:ERIOR)?|EST(?:ABLISHING)?)"
+_MISWRITTEN_START = re.compile(rf"^((?:{_KIND_WORD}|[IE])\.?\s*(?:[/&+\-–]|AND)\s*(?:{_KIND_WORD}|[IE])\.?|{_KIND_WORD}\.?)[\s.:,\-–]+(?=\S)(?!(?:{_KIND_WORD}|[IE])(?![A-Z]))", re.I)
+"""A heading started in a way the format does not know (`EXTERIOR`, `INT-EXT`, `EXT / INT.`): the start to put in its place is said from it."""
 MAX_LINT = 12
+
+
+def _heading_advice(first: str) -> str:
+    """What a capitals line that names a place and a time should start with to be a scene: its own start written the way the format knows it
+    (`EXTERIOR SWAMP SHACK - DAY` -> `EXT. SWAMP SHACK - DAY`, `INT-EXT …` -> `INT./EXT. …`), or EXT. put in front when it has no start at all.
+    Never a second start in front of one that is there (`EXT. EXT/INT. …`)."""
+    m = _MISWRITTEN_START.match(first)
+    if not m:
+        return f"write `EXT. {first}` (or `INT. …`)"
+    start, rest = m.group(1).upper(), first[m.end() :]
+    inside = bool(re.search(r"INT|(?<![A-Z])I(?![A-Z])", start))
+    outside = bool(re.search(r"EXT|EST|(?<![A-Z])E(?![A-Z])", start))
+    kind = "INT./EXT." if inside and outside else "INT." if inside else "EST." if start.startswith("EST") else "EXT."
+    return f"write `{kind} {rest}`"
 
 
 def _blank_out(match: "re.Match[str]") -> str:
@@ -966,7 +998,7 @@ def lint(text: str, limit: "int | None" = MAX_LINT) -> list[str]:
     a capitals line standing alone or ending in a full stop, which is read as a speaker (`CRUNCH.`), and a line that is a place and a time in capitals
     but does not start with INT. or EXT., which is not a scene. It reads the text only: nothing is changed. The split report lists the first
     `limit` and says how many more; the Fountain check (`limit=None`) lists them all."""
-    plain = _NOTE.sub(_blank_out, _BONEYARD.sub(_blank_out, _normal(text)))
+    plain = _NOTE.sub(_blank_out, _BONEYARD.sub(_blank_out, _readable(_normal(text))))
     found: list[str] = []
     for index, (start, block) in enumerate(_blocks_at(plain)):
         first = block[0].strip()
@@ -979,8 +1011,8 @@ def lint(text: str, limit: "int | None" = MAX_LINT) -> list[str]:
             continue
         name = _cue_name(first)
         row = start + 1
-        if _HEADING_LIKE.match(first) and _TIME_WORDS.search(first):
-            found.append(f"line {row}: `{first}` looks like a scene heading but does not start with INT. or EXT., so it is not a scene: write `EXT. {first}` (or `INT. …`), or start it with a dot (`.{first}`) to keep it as written")
+        if (_HEADING_LIKE.match(first) and _TIME_WORDS.search(first)) or (len(block) == 1 and _MISWRITTEN_START.match(first)):
+            found.append(f"line {row}: `{first}` looks like a scene heading but does not start with INT. or EXT., so it is not a scene: {_heading_advice(first)}, or start it with a dot (`.{first}`) to keep it as written")
         elif _KEEP_ALONE.match(first):
             continue
         elif len(block) == 1:
@@ -1215,3 +1247,33 @@ def attach_source(imp: dict, plan: Plan, story: str) -> None:
             data["fountain"] = ln["fountain"]
         if ln and ln.get("dual"):
             data["simultaneous"] = True
+
+
+# --- how long bringing it in takes ---------------------------------------------------------------------------------------------------------
+
+RECORDS_PER_SECOND = 2.4  # how fast an import writes, one call to Marvin a record (a feature's 1,880 records took 13.5 minutes)
+
+
+def time_to_write(records: int) -> str:
+    """How long writing so many records takes at the import's speed, in words: "under a minute", "about 13 minutes"."""
+    minutes = records / RECORDS_PER_SECOND / 60
+    return "under a minute" if minutes < 1 else f"about {round(minutes)} minute{'s' if round(minutes) != 1 else ''}"
+
+
+def records_to_make(plan: Plan) -> int:
+    """The records a first import of the plan writes into a story that has none, counted from the text alone: its chapters (none for a story of
+    one), beats and spoken lines, a Character for each speaker, a Scene for each place a beat is in (and the ambience bed its beats ask for), a
+    Sound for each sound a beat calls for, and the score's placeholder. The import counts what it writes as it goes (it fits a story that has
+    records to them); into an empty story the two counts are the same."""
+    rows = plan.rows()
+    scenes = {p["slug"] for _c, _n, b in rows if (p := place_of(b.get("place", ""))) and p["slug"] in plan.places}
+    return (
+        (0 if plan.single else len(plan.chapters))
+        + len(rows)
+        + sum(len(b["lines"]) for _c, _n, b in rows)
+        + len(plan.characters)
+        + len(scenes)
+        + sum(1 for s in scenes if plan.ambience.get(s))
+        + sum(len(b.get("sounds") or []) for _c, _n, b in rows)
+        + 1  # the score
+    )
