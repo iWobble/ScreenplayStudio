@@ -641,3 +641,174 @@ def test_a_paid_button_names_the_service_its_workflow_calls_and_only_the_fields_
     assert write["entry"] == "role" and set(write["needs"]) <= set(write["sends"]) <= fields("cast-member")
     assert all(sent(casting["master_prompt_write"]["workflow"], key) for key in write["sends"])
     assert "paid" not in casting["voice_lines"]  # it only copies the voice onto the lines: nothing leaves the workspace
+
+
+# The person's sheet as v181 sent it: an animal branch must not change a word of it.
+PERSON_SHEET_PROMPT = (
+    "A character sheet of one actor on a portrait canvas, the four views arranged in a 2 by 2 grid that fills the whole picture, each view large and "
+    "full length with soft ground shadows on a plain warm cream background: front and three-quarter on the top row, side and back on the bottom row, "
+    "standing relaxed, the same person in all four. Built on the attached base sheet's proportions and style: keep its construction and scale of head "
+    "to body. The second attached picture is an existing actor sheet of this world: draw the faces, hands, hair, skin and cloth exactly in its way, as "
+    "flat soft matte shapes: two small dark dot eyes, a small plain nose, a tiny smile, simple brow lines, no skin pores, no arm hair, no shaded nose, "
+    "no fine fabric weave; any stubble or beard is one simple flat speckled shape. Never realistic, never glossy. The actor: ${entry.title}, an adult "
+    "${entry.data.base}, age ${entry.data.age}. Build: ${entry.data.build} Hair: ${entry.data.hair} Skin tone: ${entry.data.skin_tone} Look: "
+    "${entry.data.look} Distinguishing features, the same in every view: ${entry.data.distinguishing_features} Wearing, in every view: "
+    "${entry.data.baseline_wardrobe}. Both legs whole, empty hands, no props. ${steps.world.output.rows.0.data.rules}"
+)
+BASE_SHEET = "${entry.data.world}-base-${entry.data.base}"
+ANIMAL = {"field": "entry.data.base", "op": "in", "value": "${input.animal_bases}"}
+
+
+def _sheet_steps() -> tuple[dict, dict]:
+    flow = _flow("screenplay-make-actor-sheet")
+    return flow, {a.get("id") or f"{a['kind']}{i}": a for i, a in enumerate(flow["actions"])}
+
+
+def test_a_persons_sheet_is_sent_as_before_with_arthur_for_the_style_and_never_for_an_animal():
+    flow, steps = _sheet_steps()
+    person = steps["sheet"]
+    assert person["args"]["prompt"] == PERSON_SHEET_PROMPT and person["references"] == BASE_SHEET + ",${input.style_actor}"
+    assert PERSON_SHEET_PROMPT in steps["spend"]["message"]  # what is approved is what is sent
+    assert next(i for i in flow["trigger"]["inputs"] if i["name"] == "style_actor")["default"] == "arthur"
+    for sid in ("spend", "sheet"):
+        assert {"not": ANIMAL} in steps[sid]["when"], sid
+    for sid in ("spend_animal", "sheet_animal"):
+        assert ANIMAL in steps[sid]["when"], sid
+    assert next(a for a in flow["actions"] if a.get("kind") == "integration")["id"] == "sheet"
+
+
+def test_an_animals_sheet_is_three_views_of_a_quadruped_from_its_own_fields_on_the_worlds_base_sheet():
+    flow, steps = _sheet_steps()
+    inputs = {i["name"]: i for i in flow["trigger"]["inputs"]}
+    assert inputs["animal_bases"]["default"] == "dog,cat,horse,bird" and "default" not in inputs["style_animal"]  # arthur is a person
+    animal = steps["sheet_animal"]
+    sent = animal["args"]["prompt"]
+    assert animal["references"] == BASE_SHEET + ",${input.style_animal}"  # an empty style animal is dropped: the base sheet alone
+    assert sent in steps["spend_animal"]["message"] and BASE_SHEET in steps["spend_animal"]["message"]
+    assert "three full-body views" in sent and "front, right-side profile, back" in sent and "quadruped" in sent
+    assert "cream studio background" in sent and "No collar, no clothes, no props, no scenery, no labels, no text" in sent
+    assert "no hands or fingers" in sent and "four views" not in sent and "2 by 2" not in sent
+    for key in ("base", "age", "build", "look", "distinguishing_features"):
+        assert "${entry.data." + key + "}" in sent, key
+    for key in ("hair", "skin_tone", "baseline_wardrobe"):
+        assert "${entry.data." + key + "}" not in sent, key
+    for brand in ("playmobil", "lego", "fisher", "sylvanian", "calico", "schleich", "duplo"):
+        assert brand not in sent.lower(), brand
+    assert animal["args"]["size"] == '${input.size|default:"1536x1024"}' and "Picture size: ${input.size" in steps["spend_animal"]["message"]
+
+
+def test_an_actors_sheet_spends_nothing_without_a_build_or_the_base_sheet_and_every_step_runs_under_the_step_limit():
+    flow, steps = _sheet_steps()
+    assert len(flow["actions"]) <= 10  # Marvin's default steps per workflow: a step past it never runs, so Keep would stop approving
+    assert flow["actions"][0] == {"kind": "collect", "id": "base_sheet", "entity": "asset", "query": {"ids": BASE_SHEET, "versions": "all"}}
+    lacking = steps["missing"]["when"]["any"]
+    assert {"field": "steps.base_sheet.output.count", "op": "lt", "value": 1} in lacking
+    assert {"field": "entry.data.build", "op": "shorter_than", "value": 5} in lacking
+    assert BASE_SHEET in steps["missing"]["message"] and "no credit was spent" in steps["missing"]["message"]
+    ready = {"field": "steps.base_sheet.output.count", "op": "gte", "value": 1}
+    for sid in ("spend", "sheet", "spend_animal", "sheet_animal"):
+        assert ready in steps[sid]["when"], sid
+    made = steps["entry7"]
+    assert made["data"]["general_view"] == "${steps.sheet.output.asset.id}${steps.sheet_animal.output.asset.id}"  # whichever was drawn
+    assert made["when"] == steps["keep"]["when"] == {
+        "any": [{"field": f"steps.{s}.output.asset.id", "op": "exists"} for s in ("sheet", "sheet_animal")]
+    }  # nothing drawn: the sheet's picture is never emptied
+
+
+def test_open_call_offers_to_make_the_sheet_with_ai_right_after_the_sheet_form():
+    blueprints, setups = _setups()
+    steps = setups["open-call"]
+    order = list(steps)
+    make = steps["make_sheet"]
+    assert order.index("make_sheet") == order.index("sheet") + 1 and make["kind"] == "run"
+    assert make["workflow"] == "screenplay-make-actor-sheet" and make["inputs"] == {"actor": "${actor}"}
+    assert make["requires"] == {"entry": "actor", "field": "build"} and "build" in steps["sheet"]["fields"]  # the page links back to the form
+    paid = make["paid"]
+    fields = {f["key"] for f in blueprints["actor"]["payload"]["schema_json"]["fields"]}
+    assert paid["service"] == "OpenAI Images" and paid["entry"] == "actor" and set(paid["needs"]) <= set(paid["sends"]) <= fields
+    sheet_flow = workflow("screenplay-make-actor-sheet")
+    animal = next(a for a in _flow("screenplay-make-actor-sheet")["actions"] if a.get("id") == "sheet_animal")["args"]["prompt"]
+    for key in paid["sends"]:  # what the notice shows goes to the model for a person and for an animal alike
+        assert "${entry.data." + key in sheet_flow and "${entry.data." + key in animal, key
+    assert "next step" in steps["sheet"]["help"] and "Approvals shows the exact prompt" in make["help"]
+
+
+def _holds(cond, entry: dict) -> bool:
+    """Marvin's condition matcher (services/automation/matcher.py), for the operators the package's triggers use, on a plain entry."""
+    if isinstance(cond, list):
+        return all(_holds(c, entry) for c in cond)
+    if "all" in cond or "any" in cond:
+        return (all if "all" in cond else any)(_holds(c, entry) for c in cond.get("all") or cond.get("any"))
+    if "not" in cond:
+        return not _holds(cond["not"], entry)
+    actual = entry["entry_type"] if cond["field"] == "entry.entry_type" else entry["data"].get(cond["field"].removeprefix("entry.data."))
+    op, value = cond.get("op", "eq"), cond.get("value")
+    if op.startswith("changed"):  # an update's diff: `changed` holds the fields the button set, as {key: (before, after)}
+        before, after = entry.get("changed", {}).get(cond["field"].removeprefix("entry.data.").removeprefix("entry."), (None, None))
+        return {"changed": after is not None, "changed_to": after is not None and after == value, "changed_from": before == value}[op]
+    length = len(str(actual)) if actual is not None else 0
+    checks = {
+        "eq": lambda: actual == value,
+        "neq": lambda: actual != value,
+        "in": lambda: actual in ([v.strip() for v in value.split(",")] if isinstance(value, str) else value),
+        "exists": lambda: (actual is not None) == (value is not False),
+        "longer_than": lambda: length > value,
+        "shorter_than": lambda: length < value,
+    }
+    return checks[op]()
+
+
+def _made_by(event: str, entry: dict) -> list[str]:
+    flows = [b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"] if b["kind"] == "workflow"]
+    return [
+        b["slug"] for b in flows
+        if b["payload"]["definition"].get("trigger") == {"type": "event", "event": event} and _holds(b["payload"]["definition"].get("conditions") or [], entry)
+    ]  # fmt: skip
+
+
+def _queued_by_buttons() -> list[tuple[str, str, dict, str]]:
+    """(button, event, entry, status word) for every gallery button that leaves an entry queued: an add button makes it (entry_created),
+    a card action changes it (entry_updated). Each select field the add form asks for is tried with each of its options."""
+    blueprints, setups = _setups()
+    out = []
+    for steps in setups.values():
+        for step in steps.values():
+            if step["kind"] != "gallery":
+                continue
+            fields = {f["key"]: f for f in blueprints[step["entry_type"]]["payload"]["schema_json"]["fields"]}
+            add = step.get("add") or {}
+            asked = [k for k in add.get("fields", []) if fields[k].get("type") == "select"]
+            filled = {k: "words" for k in add.get("fields", []) if fields[k].get("type") in ("text", "textarea")}
+            for button in add.get("buttons", []):
+                if (button.get("data") or {}).get("status") != "queued":
+                    continue
+                own = {add["file"]["field"]: "an-asset"} if button.get("file") == "required" else {}
+                for choice in ([{}] if not asked else [{k: o} for k in asked for o in fields[k]["options"]]):
+                    data = {**filled, **add.get("data", {}), **choice, **own, **button["data"]}
+                    out.append((f"{step['id']}: {button['label']} {choice}", "entry_created", {"entry_type": step["entry_type"], "data": data}))
+            for card in step.get("card_actions", []):
+                if card["set"].get("status") == "queued":
+                    for choice in ([{}] if not asked else [{k: o} for k in asked for o in fields[k]["options"]]):
+                        data = {**filled, "source": "generated", **choice, **card["set"]}
+                        changed = {k: ("draft", v) for k, v in card["set"].items()}
+                        out.append((f"{step['id']}: {card['label']} {choice}", "entry_updated", {"entry_type": step["entry_type"], "data": data, "changed": changed}))
+    return out
+
+
+_QUEUED = [{"field": "entry.data.status", "op": op, "value": "queued"} for op in ("eq", "changed_to")]  # a workflow that works off the queue
+
+
+def test_every_button_that_leaves_an_entry_queued_has_a_workflow_that_hears_how_it_was_queued():
+    queued = _queued_by_buttons()
+    assert {label.split(" {")[0] for label, *_ in queued} >= {"found: Make it now with ElevenLabs", "takes: Make it with ElevenLabs", "found: Make this one"}
+    for label, event, entry in queued:
+        takers = [s for s in _made_by(event, entry) if any(q in _flow(s)["conditions"] for q in _QUEUED)]  # measuring may run beside
+        assert len(takers) == 1, (label, event, takers)  # one workflow takes it: none leaves it sitting at queued, two would pay twice
+
+
+def test_a_sound_made_now_is_made_by_the_created_twin_and_an_edit_to_queued_by_the_original_never_both():
+    for kind, slug in (("effect", "screenplay-take-sound"), ("ambience", "screenplay-take-sound"), ("music", "screenplay-take-music")):
+        sound = {"entry_type": "sound", "data": {"kind": kind, "prompt": "waves", "source": "generated", "status": "queued"}}
+        assert _made_by("entry_created", sound) == [slug + "-created"], kind
+        assert _made_by("entry_updated", sound) == [slug], kind
+        assert _flow(slug + "-created")["actions"] == _flow(slug)["actions"] and _flow(slug + "-created")["conditions"] == _flow(slug)["conditions"]
