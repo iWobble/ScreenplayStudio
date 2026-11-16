@@ -267,6 +267,18 @@ def verdict(findings: list[Finding]) -> str:
     return "The import will go ahead: nothing to fix."
 
 
+def verdict_line(findings: list[Finding]) -> str:
+    """The check in one line, for a page to show as the job's result: "Check: the import can go on; 42 lines are worth a look." """
+    stops = blocking(findings)
+    rest = len(findings) - len(stops)
+    if stops:
+        also = f"; {rest} more {'are' if rest != 1 else 'is'} worth a look" if rest else ""
+        return f"Check: the import will stop: {len(stops)} mistake{'s' if len(stops) != 1 else ''} to fix first{also}."
+    if rest:
+        return f"Check: the import can go on; {rest} line{'s are' if rest != 1 else ' is'} worth a look."
+    return "Check: nothing to fix; the import can go on."
+
+
 def report(findings: list[Finding], text: str = "") -> tuple[str, int, int]:
     """The findings in words, and how many are errors and how many are worth a look. It opens with whether the import will stop; what the
     import stops for is under "Fix before importing", and everything else (the capitals it has always only warned about too) under "Worth a

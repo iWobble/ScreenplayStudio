@@ -10,8 +10,8 @@ import re
 
 _ROW = re.compile(r"^\|\s*(\d+[a-z]*)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*(.*?)\s*\|\s*$")
 _TIME = re.compile(r"(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)\s*s")
-_LABEL = re.compile(r"(?:^|(?<=[.?!]\s))([A-Z][a-z]+):\s+")
-_LABEL_FENCED = re.compile(r"(?:^|(?<=¶\s))([A-Z][a-z]+):\s+")
+_LABEL = re.compile(r"(?:^|(?<=[.?!]\s))([A-Z][a-z]+(?:-[a-z]+)*|[A-Z](?:-[a-z]+)+):\s+")  # a name of several words is joined by hyphens: Dr-hale, A-deep-voice
+_LABEL_FENCED = re.compile(r"(?:^|(?<=¶\s))([A-Z][a-z]+(?:-[a-z]+)*|[A-Z](?:-[a-z]+)+):\s+")
 """A cell whose speakers are divided by `¶` (what the Fountain import writes): a name counts only at the start or after one, so a colon inside
 someone's words ("Wait: stop") is never taken for a speaker, and a speech that ends in a comma or a dash does not swallow the next."""
 SOUND = "Sound"

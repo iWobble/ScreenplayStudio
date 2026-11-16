@@ -51,7 +51,7 @@ def _speech(ld: dict) -> tuple[str, bool]:
 
 
 def _cue(speaker: str, extension: str = "") -> str:
-    name = _clean(speaker).upper() or "VOICE"
+    name = _clean(speaker).replace("-", " ").upper() or "VOICE"  # a handle of several words (a-deep-voice) is the name they make (A DEEP VOICE)
     if extension:
         return f"{name} ({extension})"
     return f"{name} (V.O.)" if _clean(speaker).lower() == NARRATOR else name

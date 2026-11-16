@@ -228,10 +228,13 @@ def _split_cues(start: int, block: list[str], known: set[str]) -> list[tuple[int
 # --- speakers -----------------------------------------------------------------------------------------------------------------------
 
 
-def handles(names: list[str]) -> dict[str, str]:
-    """Character cue -> the one-word handle the importer reads (a capital then lower case: Granny, Cook). A name of several words takes its last
-    (`OLD COOK` -> Cook); two different names that would share one keep all their words (`MRS HALE` -> Mrshale, `DR HALE` -> Drhale)."""
+def handles(names: list[str], keep: "set[str] | None" = None) -> dict[str, str]:
+    """Character cue -> the handle the importer reads (a capital, then lower case: Granny, Cook). A name of several words takes its last
+    (`OLD COOK` -> Cook); two different names that would share one keep all their words, joined by hyphens (`MRS HALE` -> Mrs-hale, `DR HALE` ->
+    Dr-hale). `keep` is the handles a story already has (lower case, as its records hold them): a speaker brought in when the words were run
+    together (Mrshale) keeps that handle, so a new import finds their Character and lines and makes no second one."""
     clean = lambda n: [w for w in re.sub(r"[^A-Za-z ]", " ", n).split() if w]  # noqa: E731
+    whole = lambda n: "-".join(clean(n)).capitalize()  # noqa: E731
     seen: dict[str, str] = {}
     chosen: dict[str, str] = {}
     for name in names:
@@ -242,10 +245,14 @@ def handles(names: list[str]) -> dict[str, str]:
         if short in seen and seen[short] != name:
             for other, handle in list(chosen.items()):
                 if handle == short and other != name:
-                    chosen[other] = "".join(clean(other)).capitalize()
-            short = "".join(words).capitalize()
+                    chosen[other] = whole(other)
+            short = whole(name)
         seen.setdefault(short, name)
         chosen[name] = short
+    for name, handle in chosen.items():
+        squashed = handle.replace("-", "")
+        if keep and squashed != handle and handle.lower() not in keep and squashed.lower() in keep:
+            chosen[name] = squashed
     return chosen
 
 
@@ -629,18 +636,25 @@ _PRONOUN_FIRST = re.compile(r"^(?:she|he|her|his|their|they)\b", re.I)
 _ARTICLES = {"A", "AN", "THE", "AND", "OR", "IN", "ON", "AT", "WITH"}
 
 
-def _introduction(text: str, cue: str, others_cues: "list[str] | None" = None) -> "dict | None":
+def _name_words(name: str) -> set[str]:
+    return {w for w in re.sub(r"[^A-Z0-9 ]", " ", name.upper()).split() if w}
+
+
+def _introduction(text: str, cue: str, others_cues: "list[str] | None" = None, exact: bool = False) -> "dict | None":
     """How an action paragraph introduces the character who speaks as `cue`: `NAME (age), what they are and wear.` Their name as written, the age, the
-    sentence that introduces them and the sentences after it that go on about them (those that begin with she, he, her, his or their)."""
+    sentence that introduces them and the sentences after it that go on about them (those that begin with she, he, her, his or their).
+    A name that holds the cue's words and more (`CAPTAIN VALERIE VANE` for VALERIE) is theirs only when no other speaker's cue fits it better: `YOUNG
+    EDWARD (10)` is Young Edward's, not Edward's. With `exact`, only a name of the cue's words and no others will do."""
     others_cues = others_cues or []
-    want = {w for w in re.sub(r"[^A-Z0-9 ]", " ", cue.upper()).split() if w}
+    want = _name_words(cue)
     want_lower = {w.lower() for w in want}
+    closer = [words for c in others_cues if c != cue and want < (words := _name_words(c))]  # speakers whose names hold this one's and more
     for m in _INTRO.finditer(text):
         words = m.group(1).split()
         while words and words[0] in _ARTICLES:
             words = words[1:]
-        plain = {w for w in re.sub(r"[^A-Z0-9 ]", " ", " ".join(words).upper()).split() if w}
-        if not want or not want <= plain:
+        plain = _name_words(" ".join(words))
+        if not want or not want <= plain or (exact and want != plain) or any(other <= plain for other in closer):
             continue
         sentences = _SENTENCES.split(text)
         at = next((i for i, snt in enumerate(sentences) if m.group(0) in snt), 0)
@@ -673,7 +687,7 @@ def characters(elements: list[dict], names: dict[str, str]) -> list[dict]:
     actions = [e["text"] for e in elements if e["t"] == "action"]
     out = []
     for cue, handle in sorted(names.items(), key=lambda kv: kv[1]):
-        found = next((i for i in (_introduction(a, cue, list(names)) for a in actions) if i), None)
+        found = next((i for exact in (True, False) for i in (_introduction(a, cue, list(names), exact) for a in actions) if i), None)  # their own name first
         out.append({"cue": cue, "handle": handle, **(found or {"name": _nice(cue), "age": "", "sex": "", "description": ""})})
     for c in out:
         c["name"] = _nice(c["name"])
@@ -791,7 +805,6 @@ def places_of(scenes: list[Scene]) -> dict[str, dict]:
 _SOUND_NOTE = re.compile(r"^Sound:\s*(.+)$", re.S | re.I)  # `[[Sound: a pot lid clanks at 1.5s.]]`
 _SOUND_OF = re.compile(r"\bsounds? of ([^.,;!?]+)", re.I)  # `The sound of wood splintering echoes from deep below.`
 _A_SOUND = re.compile(r"\b(?:an?|the) ((?:[A-Za-z-]+ ){0,2}[A-Za-z-]+) sound\b")  # `a splashing sound nearby`
-_LOUD = re.compile(r"\b[A-Z]{4,}\b")  # `a deafening CRUNCH`
 _SINGING = re.compile(r"\b(?:melody|song|tune|hum|humming|sing|sings|singing|chant|lullaby)\b", re.I)
 _WEATHER = re.compile(r"\b(?:rain|rains|thunder\w*|storm\w*|waves?|wind|surf|lapping|crickets|cicadas|rustl\w+)(?![-\w])", re.I)  # not `rain-soaked`
 
@@ -804,10 +817,11 @@ def _short(text: str, words: int = 4) -> str:
     return " ".join(re.sub(r"[^A-Za-z' -]", "", text).split()[:words]).strip().capitalize()
 
 
-def sound_cues(beat: dict, avoid: "set[str]") -> list[dict]:
-    """The sounds a beat's own words call for, as placeholders for a Sound each: sung words (`~` lyrics) as music; `the sound of X`, `a X sound` and
-    a loud word in capitals (`CRUNCH`) as effects. Each keeps the sentence it came from as its prompt. Names, places and the scene heading are not sounds;
-    nothing here is made or paid for: a Sound is a draft until someone uploads a recording or asks for one to be generated."""
+def sound_cues(beat: dict) -> list[dict]:
+    """The sounds a beat's own words call for, as placeholders for a Sound each: sung words (`~` lyrics) as music; the writer's `[[Sound: …]]` note,
+    else `the sound of X` and `a X sound`, as effects. Each keeps the sentence it came from as its prompt. A word in capitals is not a sound: a
+    screenplay writes camera words (TILT UP, FREEZE FRAME, CLOSE ON), names (BAKER'S WIFE) and titles that way too, and a feature made hundreds of
+    drafts nobody wanted from them. Nothing here is made or paid for: a Sound is a draft until someone uploads a recording or asks for one to be generated."""
     cues: list[dict] = []
     picture = (beat.get("picture") or "").split(" Delivery:")[0]
     here = beat.get("place", "")
@@ -830,7 +844,7 @@ def sound_cues(beat: dict, avoid: "set[str]") -> list[dict]:
         if said and said.lower() not in seen:
             seen.add(said.lower())
             cues.append({"kind": "effect", "title": _short(said, 3), "prompt": said, "at": float(at.group(1)) if at else 0.0})
-    if seen:  # the writer named this beat's sounds: what the words might suggest (a loud word, THE BARNACLE'S REVENGE) is not added to them
+    if seen:  # the writer named this beat's sounds: what the words might suggest is not added to them
         return cues
     for sentence in sentences:
         found = []
@@ -840,9 +854,6 @@ def sound_cues(beat: dict, avoid: "set[str]") -> list[dict]:
         m = _A_SOUND.search(sentence)
         if m and m.group(1).lower() not in ("the", "a", "an"):
             found.append(_short(m.group(1) + " sound", 3))
-        first_lower = next((i for i, c in enumerate(sentence) if c.islower()), None)
-        if first_lower is not None:  # capitals before the first lower case letter are a heading or a title, not a sound
-            found += [_short(w, 1) for w in _LOUD.findall(sentence[first_lower:]) if w not in avoid]
         for title in found:
             if title and title.lower() not in seen:
                 seen.add(title.lower())
@@ -955,7 +966,7 @@ def lint(text: str, limit: "int | None" = MAX_LINT) -> list[str]:
         elif _KEEP_ALONE.match(first):
             continue
         elif len(block) == 1:
-            found.append(f"line {row}: `{first}` stands alone in capitals, so it is read as a speaker with nothing to say: if it is action or a sound, start it with ! (`!{first}`)")
+            found.append(f"line {row}: `{first}` stands alone in capitals, so it is read as action, not as a speaker (a speaker's name needs their words on the line under it): if it is a sound, write it as a note (`[[Sound: {first.rstrip('.!?').lower()}]]`); if it is action, start it with ! (`!{first}`) to say so")
         elif name.endswith((".", "!", "?")) or len(name.split()) > 4:
             found.append(f"line {row}: `{first}` is in capitals above text, so it is read as a speaker and the text after it as spoken: if it is action, start it with ! (`!{first}`) or write it in ordinary case")
     if limit is not None and len(found) > limit:
@@ -963,10 +974,11 @@ def lint(text: str, limit: "int | None" = MAX_LINT) -> list[str]:
     return found
 
 
-def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: float = MAX_CHAPTER_PAGES, text: "str | None" = None) -> Plan:
+def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: float = MAX_CHAPTER_PAGES, text: "str | None" = None, speakers: "set[str] | None" = None) -> Plan:
     """The chapters, beats and lines of a screenplay. Given the `text` it was read from (and the elements read with `lines=True`), each beat and each
     speech also holds its own piece of the writer's text, as written (`fountain`), and the plan holds what comes before the first beat (`front`):
-    nothing the writer wrote is dropped, it stays with the beat it was written for."""
+    nothing the writer wrote is dropped, it stays with the beat it was written for. `speakers` is the handles the story's records already use
+    (see `handles`)."""
     positioned = text is not None and bool(elements) and "line" in elements[0]
     all_lines = _normal(text).split("\n") if positioned and text is not None else []
     if positioned:
@@ -981,7 +993,7 @@ def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: f
     if text is not None:
         warnings.extend(lint(text))
     raw_names = sorted({e["name"] for e in elements if e["t"] == "dialogue"})
-    names = handles(raw_names)
+    names = handles(raw_names, speakers)
     groups = _chapters(scenes, chapter_pages, max_pages)
     numbered = [(_LEADING_NUMBER.match(t) if t else None) for t, _g in groups]
     explicit = [int(m.group(1)) for m in numbered if m]
@@ -1035,12 +1047,10 @@ def cut(elements: list[dict], chapter_pages: float = CHAPTER_PAGES, max_pages: f
         plan.end_transition = "fade" if transition_kind(plan.end_transition_text) == "fade" else ""
     plan.characters = characters(elements, names)
     plan.places = places_of(scenes)
-    avoid = {w for c in plan.characters for w in re.sub(r"[^A-Z0-9 ]", " ", f"{c['name']} {c['cue']}".upper()).split()}
-    avoid |= {w for p in plan.places.values() for w in re.sub(r"[^A-Z0-9 ]", " ", p["name"].upper()).split()}
     by_place: dict[str, list[dict]] = {}
     for ch in chapters:
         for b in ch.beats:
-            b["sounds"] = sound_cues(b, avoid)
+            b["sounds"] = sound_cues(b)
             if place_of(b.get("place", "")):
                 by_place.setdefault(place_of(b["place"])["slug"], []).append(b)
     for key, beats_here in by_place.items():
