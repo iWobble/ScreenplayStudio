@@ -792,7 +792,8 @@ def _says_why_it_failed(handler):
             first = next((ln.strip() for ln in str(e).splitlines() if ln.strip()), "") if isinstance(e, JobError) else f"{type(e).__name__}: {e}".splitlines()[0]
             if job.get("job"):
                 try:
-                    marvin_api.update_entry(ctx.creds, job["job"], {"result": {"summary": "Failed: " + (first[:-1] + "." if first.endswith(":") else first)}})
+                    said = first[:-1] + "." if first.endswith(":") else first
+                    marvin_api.update_entry(ctx.creds, job["job"], {"result": {"summary": "Failed: " + (said if len(said) <= 240 else said[:239] + "…")}})
                 except Exception:  # noqa: BLE001, S110 — the failure itself is what the record must say; the worker writes it next
                     pass
             raise

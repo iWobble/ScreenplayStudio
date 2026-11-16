@@ -111,7 +111,8 @@ def test_the_errors_the_import_has_always_only_warned_about_do_not_stop_it():
     assert [f.code for f in soft if f.level == "error"] == ["capitals-alone"] and validate.blocking(soft) == []
 
 
-def test_the_check_job_takes_the_text_and_reports_what_it_found_without_marvin(tmp_path):
+def test_the_check_job_takes_the_text_and_reports_what_it_found_without_marvin(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs.marvin_api, "update_entry", lambda *_a, **_k: None)  # a failure's one-line summary would be written to the job's record
     ctx = Context(creds=("http://m", "t"), work=tmp_path, name="check-1")
     out = jobs.check_fountain({"job": "j", "args": {"text": BROKEN}}, ctx)
     assert out["result"]["errors"] == 7 and out["result"]["looks"] == 4 and out["result"]["import_stops"] >= 5

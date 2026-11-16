@@ -239,7 +239,7 @@ def fountain_complete(records: dict) -> str:
     for ch in records.get("characters", []):  # who is in it, and what is said of each (the cast, costume and props belong to the story, not to a scene)
         cd = _data(ch)
         bits = [x for x in (_say("Role", cd.get("role")), _say("Costume", cd.get("costume")), _say("Props", cd.get("props")), _say("Rules", cd.get("rules")), _say("Played by", cd.get("actor"))) if x]
-        out += [f"[[{_clean(cd.get('speaker') or ch.get('title') or '').upper()} is {_clean(ch.get('title'))}. " + " ".join(bits) + "]]", ""]
+        out += [f"[[{_clean(cd.get('speaker') or ch.get('title') or '').replace('-', ' ').upper()} is {_clean(ch.get('title'))}. " + " ".join(bits) + "]]", ""]
 
     scene_now, bed_now, chapter_now, first, time_now = None, None, None, True, ""
     scene_numbers: dict[str, int] = {}
