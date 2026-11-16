@@ -1039,3 +1039,13 @@ def test_the_import_step_keeps_showing_what_the_import_made_when_a_person_comes_
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     steps = {s["id"]: s for s in blueprints["narrate-a-story"]["payload"]["steps"]}
     assert steps["import"]["report"] == {"entry": "story", "field": "sheet_log", "label": "What the import made"}
+
+
+def test_what_the_jobs_write_on_a_story_shows_as_a_report():
+    """The Fountain check, the split plan and the sheet log are written by the jobs and read in Marvin as the guided steps show a job's
+    result (`display: report`, Marvin's read-only report fields), so they stay read-only."""
+    package = json.loads(PACKAGE.read_text(encoding="utf-8"))
+    story = next(b for b in package["blueprints"] if b["kind"] == "entry_type" and b["slug"] == "story")
+    fields = {f["key"]: f for f in story["payload"]["schema_json"]["fields"]}
+    for key in ("fountain_check", "split_plan", "sheet_log"):
+        assert fields[key]["display"] == "report" and fields[key]["readOnly"] is True and fields[key]["type"] == "textarea", key

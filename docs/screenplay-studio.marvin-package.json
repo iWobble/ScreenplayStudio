@@ -3,7 +3,7 @@
   "slug": "screenplay-studio",
   "name": "Screenplay Studio",
   "description": "Narrated, illustrated stories made from a screenplay: the world, its actors and the characters they play, scenes, beats, spoken lines, sounds and the worker queue, with the workflows that make the stills, voice and sound takes and the audio cut.",
-  "version": "187",
+  "version": "189",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -2557,6 +2557,7 @@
               "label": "Fountain check",
               "type": "textarea",
               "readOnly": true,
+              "display": "report",
               "group": "Bringing the Fountain in",
               "helpText": "Written by Check the Fountain (the Narrate a story setup shows it under the button of the step Check the Fountain). Its first line says whether the import will stop or go ahead. The import stops only for what is under \u201cFix before importing\u201d, each with its line and what to write; it goes ahead with everything under \u201cWorth a look\u201d. Nothing needs approving: the check only reads. An uploaded file cannot be edited in Marvin: edit it where it came from (on your computer), go back to Story details, choose or upload the file again under Fountain file, then check again. Fountain text written in the story is fixed in the story's Fountain field.",
               "rows": 16
@@ -2566,6 +2567,7 @@
               "label": "Split plan",
               "type": "textarea",
               "readOnly": true,
+              "display": "report",
               "helpText": "Written by the guided setup: how the Fountain divides into chapters, and what the last run did. Its first line says which run it was: \u201cPreview only: nothing was made\u201d, or the import. Read it before you import. To change the split, add or move the `#` section lines in the Fountain and check the split again.",
               "group": "Bringing the Fountain in",
               "rows": 16
@@ -3075,6 +3077,7 @@
               "key": "sheet_log",
               "label": "Sheet log",
               "type": "textarea",
+              "display": "report",
               "rows": 6,
               "helpText": "One dated line each time the beats were updated from this script: what was added, changed, moved to the Trash, and kept because a picture or recording was made. Written by the import-beats job; do not edit.",
               "readOnly": true,
