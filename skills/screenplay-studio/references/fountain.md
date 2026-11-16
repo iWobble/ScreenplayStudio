@@ -76,7 +76,7 @@ VALERIE
 Drop anchor in a graveyard, boy?
 ```
 
-- A cue is **all capitals, alone on its line**. **Never put a capitals line above action text:** the import makes it a speaker, and that person reads the action aloud. Write a loud word inside a sentence (`a deafening CRUNCH`) and give the sound its own `[[Sound:]]` note: a line that is only capitals is read as a cue or a heading, never as a sound. If a line of capitals must be action, start it with `!` (`!THE PLAGUE OF THE SEA RISES.`).
+- A cue is **all capitals, alone on its line**. **Never put a capitals line above action text:** the import makes it a speaker, and that person reads the action aloud. A sound is made only from a `[[Sound:]]` note (or `the sound of X`): a word or a line in capitals is never a sound, and a capitals line standing alone is read as action. If a line of capitals must be action, start it with `!` (`!THE PLAGUE OF THE SEA RISES.`).
 - A blank line between speakers. No dual dialogue (`^`) unless two voices must overlap.
 - The parenthetical is the delivery note (kept with the line).
 - A beat holds at most 6 lines; the next starts a new one.
@@ -86,7 +86,7 @@ Drop anchor in a graveyard, boy?
 - Each action paragraph is part of a **picture** (one still). Action right after speech starts a new one. A paragraph is cut after about 420 characters.
 - **`===` on its own line always starts a new picture.** Use it when the camera, place or subject changes inside one scene. One picture is one moment, not one per sentence.
 - A silent picture plays 4 seconds. To change it: `[[Hold: 1.5s.]]` on its own line inside that picture. A picture with speech lasts as long as the take. Put no pause after every line.
-- Transitions go on their own line, in capitals, with a colon: `CUT TO:`, `DISSOLVE TO:`, `CROSSFADE TO:`. A transition belongs to the picture that comes after it. `FADE IN:` before the first picture brings the film up from black; `FADE OUT.` after the last one takes it down to black. A transition never changes how long the film is.
+- Transitions go on their own line, in capitals, ending in `TO:`: `CUT TO:`, `DISSOLVE TO:`, `CROSSFADE TO:`. Any such line is a transition: one that names a dissolve or a fade is that, every other (`BACK TO:`, `FLASHBACK TO:`, `WIPE TO:`) is a cut with its words kept. A transition belongs to the picture that comes after it. `FADE IN:` before the first picture brings the film up from black; `FADE OUT.` after the last one takes it down to black. A transition never changes how long the film is.
 - A transition's length: `[[Transition: 1.2s.]]` inside the picture it leads into (empty: the story's length, else 0.5 s).
 - **A card in the film** (`THREE YEARS LATER`, a chapter's title, `THE END`): centred text in a paragraph of its own, `> THE END <`. It is a beat that shows the words on the story's card colour, with no picture made for it. A second centred line under the first is a sentence under the title. A speech right after it is read over the card. It plays 4 seconds, or as long as its lines; `[[Hold: 2s.]]` changes that. Centred text inside a paragraph of action is still action.
 - A title over a picture: `SUPER: THE DEVIL'S SHOALS` as an action line.
