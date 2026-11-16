@@ -76,7 +76,7 @@ VALERIE
 Drop anchor in a graveyard, boy?
 ```
 
-- A cue is **all capitals, alone on its line**. **Never put a capitals line above action text:** the import makes it a speaker, and that person reads the action aloud. Write a loud word inside a sentence (`a deafening CRUNCH`) and give the sound its own `[[Sound:]]` note: a line that is only capitals is read as a cue or a heading, never as a sound. If a line of capitals must be action, start it with `!` (`!THE PLAGUE OF THE SEA RISES.`).
+- A cue is **all capitals, alone on its line**. **Never put a capitals line above action text:** the import makes it a speaker, and that person reads the action aloud. A sound is made only from a `[[Sound:]]` note (or `the sound of X`): a word or a line in capitals is never a sound, and a capitals line standing alone is read as action. If a line of capitals must be action, start it with `!` (`!THE PLAGUE OF THE SEA RISES.`).
 - A blank line between speakers. No dual dialogue (`^`) unless two voices must overlap.
 - The parenthetical is the delivery note (kept with the line).
 - A beat holds at most 6 lines; the next starts a new one.
