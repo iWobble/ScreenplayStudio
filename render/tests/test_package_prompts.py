@@ -245,6 +245,58 @@ def test_the_sounds_setup_starts_from_what_the_story_has_and_every_field_workflo
     assert wizard["button"]["step"] in steps and wizard["open"]["view"] in blueprints
 
 
+def test_an_ambience_and_music_are_made_in_the_step_right_before_the_one_that_picks_them():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    order = [s["id"] for s in blueprints["sounds-for-a-story"]["payload"]["steps"]]
+    steps = dict(zip(order, blueprints["sounds-for-a-story"]["payload"]["steps"]))
+    picks = [(f["key"], f) for name in ("scene", "story") for f in blueprints[name]["payload"]["schema_json"]["fields"] if f["key"] in ("ambience", "music")]
+    found = steps["found"]
+    for sid, kind, picker, flows in (("ambiences", "ambience", "beds", "sound"), ("music", "music", "bed", "music")):
+        g = steps[sid]
+        assert order.index(sid) + 1 == order.index(picker), sid  # what is made here is picked in the very next step
+        assert g["where"] == [{"field": "kind", "op": "eq", "value": kind}] and g["parent_field"] == "story" and g["parent"] == "story"
+        assert g["add"]["data"] == {"story": "${story}", "kind": kind, "loop": True} and "kind" not in g["add"]["fields"]
+        assert ("duration_seconds" in g["add"]["fields"]) == (kind == "ambience")  # the music workflow sends no length: ElevenLabs picks it
+        assert g["approve"] == [f"screenplay-take-{flows}", f"screenplay-take-{flows}-created"]  # only the workflows that make this kind
+        # the same three ways to add and the same card buttons as the step of every sound, each paid one saying which credit it uses
+        assert [b["data"] for b in g["add"]["buttons"]] == [b["data"] for b in found["add"]["buttons"]]
+        assert [a["label"] for a in g["card_actions"]] == [a["label"] for a in found["card_actions"]] and g["working"] == found["working"]
+        for item in g["add"]["buttons"] + g["card_actions"]:
+            if "paid" in item:
+                assert item["paid"]["needs"] == ["prompt"] and ("music credit" in item["paid"]["cost"]) == (kind == "music")
+                assert set(item["paid"]["sends"]) <= set(g["add"]["fields"]) and all("${entry.data." + k in workflow(f"screenplay-take-{flows}") for k in item["paid"]["sends"])
+    # the pick lists offer the kind the gallery makes, of any status: a draft or a sound being made is pickable at once
+    assert len(picks) == 3 and all(f["ref"] == "sound" and f["ref_filter"] == {"kind": key} for key, f in picks)
+
+
+def test_everything_made_from_a_script_is_listed_in_the_scripts_order_never_by_title():
+    # Beats and chapters by their number (1001 before 10001, not as text), a beat's lines by their order, and what has no number
+    # (scenes, sounds, characters) in the order the import made them: places as they first appear, sounds beat by beat (characters: by handle today).
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    fields = {s: {f["key"] for f in b["payload"]["schema_json"]["fields"]} for s, b in blueprints.items() if b["kind"] == "entry_type"}
+    by = {"chapter": "number", "beat": "number", "scene": "created_at", "sound": "created_at", "cast-member": "created_at"}
+    lines = {"by": "beat", "then": "order"}  # beat by beat (the slug ends in its number, read as a number), then in the order spoken
+    seen = []
+    for b in blueprints.values():
+        if b["kind"] != "wizard":
+            continue
+        for s in b["payload"]["steps"]:
+            if s["kind"] in ("choose", "list", "gallery") and s.get("entry_type") in {*by, "speech-line"}:
+                if s["entry_type"] == "speech-line":  # a beat's own lines by their order; lines of several beats by beat, then order
+                    want = {"by": "order"} if s.get("parent_field") == "beat" else lines
+                else:
+                    want = {"by": by[s["entry_type"]]}
+                assert s.get("sort") == want, (b["slug"], s["id"], s.get("sort"))
+                assert set(want.values()) <= fields[s["entry_type"]] | {"created_at"}
+                seen.append(s["id"])
+    assert len(seen) == 15
+    for slug, sort in (("screenplay-sync-line-voices", {**lines, "direction": "asc"}), ("screenplay-make-sounds", None), ("screenplay-keep-sounds", None)):
+        collects = [a for a in _flow(slug)["actions"] if a.get("kind") == "collect"]
+        assert [c["query"].get("sort") for c in collects] == [sort or {"by": "created_at", "direction": "asc"}], slug
+    spine = blueprints["story-timeline"]["payload"]["spine"]
+    assert spine["order"] == "number" and spine["group"]["order"] == "number"
+
+
 def test_a_sound_shows_its_takes_loudness_as_meters_beside_its_volume_slider_and_a_new_take_is_measured():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     fields = blueprints["sound"]["payload"]["schema_json"]["fields"]
@@ -587,12 +639,13 @@ def test_after_a_clear_the_story_is_set_to_split_again_and_its_score_placeholder
     assert reset["data"]["import_part"] == " " and parse_part(reset["data"]["import_part"]) is None
 
 
-def test_the_narrate_setup_offers_the_clear_right_after_the_import_and_no_other_workflow_deletes_for_good():
+def test_the_narrate_setup_offers_the_clear_last_only_to_start_over_and_no_other_workflow_deletes_for_good():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     steps = blueprints["narrate-a-story"]["payload"]["steps"]
     ids = [s["id"] for s in steps]
-    assert ids[ids.index("import") + 1] == "clear"
+    assert ids[-1] == "clear" and ids.index("ready") == len(ids) - 2  # after "Check what you have": nobody walks into it on the way
     clear = steps[ids.index("clear")]
+    assert clear["help"].startswith("Only if you want to start over:")
     assert clear["kind"] == "run" and clear["workflow"] == "screenplay-clear-story" and clear["inputs"] == {"story": "${story}"}
     assert blueprints[clear["workflow"]]["kind"] == "workflow"
     assert "Check the split" in clear["help"] and "Bring in the chapters" in clear["help"] and "30 days" in clear["help"]
@@ -804,10 +857,11 @@ def _queued_by_buttons() -> list[tuple[str, str, dict, str]]:
                 for choice in ([{}] if not asked else [{k: o} for k in asked for o in fields[k]["options"]]):
                     data = {**filled, **add.get("data", {}), **choice, **own, **button["data"]}
                     out.append((f"{step['id']}: {button['label']} {choice}", "entry_created", {"entry_type": step["entry_type"], "data": data}))
+            shown = {c["field"]: c["value"] for c in step.get("where", []) if c.get("op", "eq") == "eq"}  # every card meets the gallery's where
             for card in step.get("card_actions", []):
                 if card["set"].get("status") == "queued":
                     for choice in ([{}] if not asked else [{k: o} for k in asked for o in fields[k]["options"]]):
-                        data = {**filled, "source": "generated", **choice, **card["set"]}
+                        data = {**filled, "source": "generated", **shown, **choice, **card["set"]}
                         changed = {k: ("draft", v) for k, v in card["set"].items()}
                         out.append((f"{step['id']}: {card['label']} {choice}", "entry_updated", {"entry_type": step["entry_type"], "data": data, "changed": changed}))
     return out
