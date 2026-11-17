@@ -155,6 +155,15 @@ Three ships left the old sun behind.
 
 `[[ anything ]]` is removed before pictures, narration and subtitles, so it is safe for comments. Only `Hold:`, `Sound:`, `Pic:`, `Info card:` and `Changes:` notes are acted on (a Pic note starts a picture; the last two fill the beat's info card and changes: see section 6). A note must have no blank line inside. Do not put story in a note.
 
+### What the *complete* script carries back (v204)
+
+The *complete* script (Make the script, version complete) is made from the records and drops nothing the import was given:
+
+- Your own notes come back where you wrote them: those under the title page (`[[Production: …]]`, `[[Visual style: …]]`, `[[Continuity: …]]`, `[[Timing: …]]`) after the title page, and each note in a picture (`[[Sentence: …]]`, `[[Silent on purpose: …]]`, `[[One picture: …]]`, a comment) in the same picture, above its Pic note, right under it, or after its lines, in the same order. A note inside a speech is the line's and is not carried. The notes the export writes itself (Pic, Beat, Scene, Ambience, Info card, Changes, Hold, Sound) are written from the records, never twice.
+- A picture with a `[[Pic:]]` note has no `===` above it: the note starts the picture. A picture without one keeps its `===`.
+- It reads back what it wrote: a scene's Place, Light, Set dressing and Continuity from `[[Scene <name>. Place: …. Light: …. Set dressing: …. Continuity: ….]]` (the scene the note names only), and a beat's Focus and Expression from `[[Beat NN. … Focus: …. Expression: ….]]`, both as the export writes them (each part once, in that order; otherwise the check says the note is not read). A new scene or beat takes them; one that exists only into an empty field, never over one a person set.
+- Not read back yet: a beat's Camera, Cast and Note, and a scene's ambience level, from those notes; a field that had no final full stop comes back with one.
+
 ## 9. A skeleton
 
 ```

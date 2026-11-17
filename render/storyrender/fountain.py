@@ -139,13 +139,69 @@ def beat_notes(text: str) -> dict:
     return out
 
 
+_NOTE_LINE = re.compile(r"[ \t]*\[\[(?P<text>(?:(?!\]\]).)*?)\]\][ \t]*")
+"""Any note standing alone on its line."""
+SCENE_LABELS = (("Place", "place"), ("Light", "look"), ("Set dressing", "set_dressing"), ("Continuity", "continuity"))
+"""The parts of the `[[Scene <name>. Place: …. Light: …. Set dressing: …. Continuity: ….]]` note the complete script writes, in its order."""
+BEAT_LABELS = ("Shows", "Hold", "Focus", "Expression", "Camera", "Cast", "Transition", "Ambience", "Note")
+"""The parts of its `[[Beat NN. Hold: …. Focus: …. Expression: …. …]]` note, in its order; Focus and Expression are read back."""
+_SCENE_NOTE = re.compile(r"Scene (?P<name>.+?)\. (?=(?:Place|Light|Set dressing|Continuity): )(?P<rest>.*)", re.S)
+_BEAT_NOTE = re.compile(r"Beat (?P<number>[\w.-]+?)\.(?: (?P<rest>.*))?", re.S)
+
+
+def labelled(text: str, labels: "tuple[str, ...]") -> "dict[str, str] | None":
+    """`Label: value. Label: value.` read by `labels`, which must come in that order, each at most once, with nothing before the first: each value
+    as written, its full stop kept. None when the text is not that (a label twice, out of order, or words before the first), so nothing is guessed."""
+    found = [(m.start(), m.group(1)) for m in re.finditer(r"(?:^|(?<=\. ))(" + "|".join(re.escape(x) for x in labels) + r"): ", text)]
+    names = [name for _at, name in found]
+    if not found or found[0][0] != 0 or len(set(names)) != len(names) or names != sorted(names, key=labels.index):
+        return None
+    ends = [at for at, _name in found[1:]] + [len(text)]
+    return {name: text[at + len(name) + 2 : end].strip() for (at, name), end in zip(found, ends, strict=True)}
+
+
+def _own_notes(text: str) -> "list[str]":
+    """The words of each note standing alone on a line of `text`, outside a speech, in order."""
+    return [m["text"].strip() for note in _NOTE.finditer(text or "") if (m := _alone(note, _NOTE_LINE))]
+
+
+def scene_note(text: str) -> "tuple[str, dict] | None":
+    """The first `[[Scene <name>. Place: …]]` note of a beat's text that reads exactly: the scene's name and its fields (place, look, set_dressing,
+    continuity) as the note says them. None when there is none."""
+    for words in _own_notes(text):
+        if (m := _SCENE_NOTE.fullmatch(words)) and (parts := labelled(m["rest"], tuple(label for label, _key in SCENE_LABELS))):
+            return m["name"].strip(), {key: parts[label] for label, key in SCENE_LABELS if parts.get(label)}
+    return None
+
+
+def beat_note_fields(text: str) -> dict:
+    """Focus and Expression from a beat's own `[[Beat NN. …]]` note, when it reads exactly; {} otherwise."""
+    for words in _own_notes(text):
+        if (m := _BEAT_NOTE.fullmatch(words)) and m["rest"] and (parts := labelled(m["rest"], BEAT_LABELS)):
+            return {key: parts[label] for label, key in (("Focus", "focus"), ("Expression", "expression")) if parts.get(label)}
+    return {}
+
+
+def scenes_said(plan: "Plan") -> dict[str, dict]:
+    """Each place's scene fields as a `[[Scene …]]` note in the text says them, read from the first beat of that place whose note names it."""
+    out: dict[str, dict] = {}
+    for _chapter, _number, beat in plan.rows():
+        place = place_of(beat.get("place", ""))
+        said = scene_note(beat.get("fountain") or "") if place and place["slug"] not in out else None
+        if said and re.sub(r"[^a-z0-9]+", "-", said[0].lower().replace("'", "").replace("’", "")).strip("-") == place["slug"]:
+            out[place["slug"]] = said[1]
+    return out
+
+
 def notes_to_fill(data: dict, text: str) -> dict:
     """What a beat's Info card and Changes notes give that the beat does not hold yet: the info card only when the beat has none of its three fields
-    (a card is one thing, never half a person's and half the note's), the changes only when empty. A value a person set is never written over."""
+    (a card is one thing, never half a person's and half the note's), the changes, and the focus and expression of the complete script's
+    `[[Beat NN. …]]` note, only when empty. A value a person set is never written over."""
     noted = beat_notes(text)
     has = lambda key: bool(str(data.get(key) or "").strip())  # noqa: E731
     card = {k: v for k, v in noted.items() if k in INFO_CARD_FIELDS} if not any(has(k) for k in INFO_CARD_FIELDS) else {}
-    return {**card, **({"changes": noted["changes"]} if noted.get("changes") and not has("changes") else {})}
+    shot = {k: v for k, v in beat_note_fields(text).items() if not has(k)}  # what the complete script's Beat note says of the shot (v204)
+    return {**card, **({"changes": noted["changes"]} if noted.get("changes") and not has("changes") else {}), **shot}
 
 
 def _notes_out(text: str, gone) -> str:

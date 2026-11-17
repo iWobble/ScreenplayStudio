@@ -60,6 +60,12 @@ _PIC = re.compile(r"\[\[\s*pic\b", re.I)
 _HOLD = re.compile(r"hold\s*:\s*\d+(?:\.\d+)?\s*s?\s*\.?$", re.I)
 _AT = re.compile(r"\bat\s+(\S+)", re.I)
 _AT_OK = re.compile(r"\d+(?:\.\d+)?s?[.,;]?$", re.I)
+_EXPORT_NOTES = (  # the complete script's own notes the import reads back (v204): (code, how one looks, how it is read, its parts, its name)
+    ("scene-note-unread", re.compile(r"\[\[\s*scene\s.+?\.\s+(?:place|light|set dressing|continuity)\s*:", re.I | re.S), F._SCENE_NOTE,
+     tuple(label for label, _key in F.SCENE_LABELS), "Scene"),
+    ("beat-note-unread", re.compile(r"\[\[\s*beat\s+[\w.-]+\.\s+(?:focus|expression)\b[^]]*:|\[\[\s*beat\s+[\w.-]+\.\s.*\b(?:focus|expression)\s*:", re.I | re.S),
+     F._BEAT_NOTE, F.BEAT_LABELS, "Beat"),
+)  # fmt: skip
 _BEAT_NOTES = (  # the notes a picture's text gives its beat's fields from: (code, how one starts, how it is read, whether it says anything, its name, the fix)
     ("info-card-unread", re.compile(r"\[\[\s*info\s+card\s*:", re.I), F._INFO_CARD_NOTE, lambda words: bool(F.info_card(words)), "Info card",
      "write it alone on its line inside the picture it belongs to, outside a speech: `[[Info card: label | title | sentence]]` (one slot alone is the title)"),
@@ -84,6 +90,12 @@ def _notes(text: str) -> list[Finding]:
                 read = F._alone(m, pattern) if body.endswith("]]") else None
                 if not (read and has_words(read["text"])):
                     out.append(Finding(row, "look", code, f"a [[{name}: note with no words, not on a line of its own, inside a speech or not closed on its line is only a note: nothing is read from it", fix))
+        for code, looks, pattern, labels, name in _EXPORT_NOTES:
+            if looks.match(body):
+                read = F._alone(m, F._NOTE_LINE) if body.endswith("]]") else None
+                said = pattern.fullmatch(read["text"].strip()) if read else None
+                if not (said and said["rest"] and F.labelled(said["rest"], labels)):
+                    out.append(Finding(row, "look", code, f"this [[{name} note is not as the complete script writes it (alone on its line, outside a speech, its parts once each and in their order), so nothing is read from it", f"leave it as the export wrote it, or write the {name.lower()}'s fields in Marvin"))
         if not body.endswith("]]"):
             out.append(Finding(row, "error", "note-open", "a note is opened with [[ and never closed, so it is ignored (a note ends at its ]] or at a blank line)", "close it with ]] on the same paragraph"))
             continue
