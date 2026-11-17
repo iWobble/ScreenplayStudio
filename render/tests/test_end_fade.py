@@ -146,7 +146,7 @@ def test_a_beats_bed_and_the_stories_bed_carry_the_cascaded_fades(tmp_path, monk
     story = {"ambience": "hum", "ambience_fade_out": 5}
     bed = marvin_pull.story_ambience(("u", "t"), tmp_path, story, sounds, DATA, {}, [])
     assert (bed["fade_in"], bed["fade_out"], bed.get("fade_in_set"), bed.get("fade_out_set")) == (1.0, 5.0, None, True)  # fade-in from the sound, fade-out from the story
-    local = marvin_pull._ambience(("u", "t"), tmp_path, {"ambience": "rain", "ambience_fade_in": 0.4}, {}, sounds, DATA, {}, [], story)
+    _, local = marvin_pull._ambience(("u", "t"), tmp_path, {"ambience": "rain", "ambience_fade_in": 0.4}, {}, sounds, DATA, {}, [], story)
     assert (local["fade_in"], local["fade_out"], local.get("fade_in_set"), local.get("fade_out_set")) == (0.4, 5.0, True, True)  # the beat's fade-in, the story's fade-out
 
 

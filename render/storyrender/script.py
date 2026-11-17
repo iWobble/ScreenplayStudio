@@ -5,6 +5,7 @@ The records are the source of truth, so the script is made from them, not writte
     scene            →  a scene heading            .THE MESS #5#     (the number is its first beat's)
     scene place/look →  the first action line      The mess: twin long tables… Lantern-lit evening.
     scene ambience   →  a sound line               SFX: harbour ambience, under the scene
+    beat ambience    →  a sound line               SFX: crowd cheer, over the scene's ambience
     beat picture     →  an action line             05 — Medium close-up of the captain, seated.
     beat sounds      →  a sound line               SFX 1.6s: spoon on bowl
     speech line      →  a character cue + text     CAPTAIN / (tired, a little amused) / Make do.
@@ -164,6 +165,10 @@ def fountain(records: dict) -> str:
         for placed in d.get("sounds") if isinstance(d.get("sounds"), list) else []:
             if isinstance(placed, dict) and placed.get("sound"):
                 out += [_sound_line(placed, sounds), ""]
+        own = _beat_bed(d, scenes, sounds)
+        if own:
+            where = "over the scene's ambience" if own[1] else "under the beat"
+            out += [f"SFX: {own[0].lower()}, {where}", ""]
         for line in lines_by_beat.get(beat.get("slug", ""), []):
             ld = _data(line)
             spoken = _clean(ld.get("text"))
@@ -174,6 +179,16 @@ def fountain(records: dict) -> str:
                 out.append(f"({_clean(ld['direction']).rstrip('.').lower()})")
             out += [_speech(ld)[0], ""]
     return "\n".join(out).rstrip("\n") + "\n"
+
+
+def _beat_bed(d: dict, scenes: dict, sounds: dict) -> tuple[str, bool] | None:
+    """A beat's own ambience, when it names one other than its scene's: its title, and whether its scene has a bed for it to be laid over (the
+    scene's runs on under it). None for a beat that only hears its scene's."""
+    own = str(d.get("ambience") or "")
+    scene_bed = str(_data(scenes.get(str(d.get("scene")), {})).get("ambience") or "")
+    if not own or own == scene_bed:
+        return None
+    return _clean(sounds.get(own, {}).get("title") or _slug_words(own)), bool(scene_bed)
 
 
 def _say(label: str, value: object) -> str:
@@ -295,7 +310,11 @@ def fountain_complete(records: dict) -> str:
         else:
             out += [picture or f"Beat {number}.", ""]
         blank = _say("Shows", cards.PLAIN_CARD) if cards.is_plain(d) and not words else ""  # a card with no words has nothing to centre: the note says it
-        facts = [x for x in (blank, _say("Hold", f"{_seconds(d.get('hold_seconds'))}" if _seconds(d.get("hold_seconds")) else ""), _say("Focus", d.get("focus")), _say("Expression", d.get("expression")), _say("Camera", d.get("move")), _say("Cast", d.get("cast")), _say("Transition", _seconds(d.get("transition_seconds"))), _say("Note", d.get("notes")), "" if words else _say("Info card", " — ".join(x for x in (_clean(d.get("info_label")), _clean(d.get("info_title")), _clean(d.get("info_text"))) if x))) if x]
+        own = _beat_bed(d, scenes, sounds)
+        level = f", level {d['ambience_volume']}" if own and d.get("ambience_volume") not in (None, "") else ""
+        heard = f", {_clean(d.get('ambience_heard')).lower()}" if own and _clean(d.get("ambience_heard")) else ""
+        bed = _say("Ambience", f"{own[0]}{level}{heard}, " + ("over the scene's" if own[1] else "under the beat")) if own else ""
+        facts = [x for x in (blank, _say("Hold", f"{_seconds(d.get('hold_seconds'))}" if _seconds(d.get("hold_seconds")) else ""), _say("Focus", d.get("focus")), _say("Expression", d.get("expression")), _say("Camera", d.get("move")), _say("Cast", d.get("cast")), _say("Transition", _seconds(d.get("transition_seconds"))), bed, _say("Note", d.get("notes")), "" if words else _say("Info card", " — ".join(x for x in (_clean(d.get("info_label")), _clean(d.get("info_title")), _clean(d.get("info_text"))) if x))) if x]
         out += [f"[[Beat {number}. " + " ".join(facts) + "]]" if facts else f"[[Beat {number}.]]", ""]
         for placed in d.get("sounds") if isinstance(d.get("sounds"), list) else []:
             if isinstance(placed, dict) and placed.get("sound"):

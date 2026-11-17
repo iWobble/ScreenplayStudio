@@ -173,17 +173,22 @@ def _sounds(**levels):
     return {name: {"dataJson": {"audio": f"asset-{name}", **({"volume": level} if level is not None else {})}} for name, level in levels.items()}
 
 
-def test_a_beats_ambience_comes_from_itself_else_its_scene_and_never_from_the_story(tmp_path, monkeypatch):
+def test_a_beats_ambience_is_laid_over_its_scenes_and_never_comes_from_the_story(tmp_path, monkeypatch):
     monkeypatch.setattr(marvin_pull, "_fetch_asset", lambda creds, asset, dest, ext: tmp_path / "audio" / "sounds" / f"{asset}.mp3")
     sounds = _sounds(wind=0.4, rain=None)
     scenes = {"storm": {"dataJson": {"ambience": "rain", "ambience_volume": 0.7, "ambience_muffled": True}}}
     pull = lambda beat: marvin_pull._ambience(("u", "t"), tmp_path, beat, scenes, sounds, DATA, {}, [])  # noqa: E731
-    own = pull({"scene": "storm", "ambience": "wind"})
-    assert (own["id"], own["volume"], own["muffled"]) == ("wind", 0.4, False)  # the beat's own: the sound's level, never muffled
-    assert pull({"scene": "storm", "ambience": "wind", "ambience_volume": 0.1})["volume"] == 0.1  # the beat's level wins
-    scene = pull({"scene": "storm"})
-    assert (scene["id"], scene["volume"], scene["muffled"]) == ("rain", 0.7, True)
-    assert pull({"scene": "none"}) is None  # no beat or scene bed: the story's own bed is separate, it layers instead
+    under, over = pull({"scene": "storm", "ambience": "wind"})
+    assert (under["id"], under["volume"], under["muffled"]) == ("rain", 0.7, True)  # the scene's bed runs on under the beat, as it is
+    assert (over["id"], over["volume"], over["muffled"]) == ("wind", 0.4, True)  # the beat's own over it: the sound's level, heard as the scene's is
+    under, over = pull({"scene": "storm", "ambience": "wind", "ambience_volume": 0.1})
+    assert (under["volume"], over["volume"]) == (0.7, 0.1)  # the beat's level is its own bed's, the scene's bed keeps the scene's
+    under, over = pull({"scene": "storm"})
+    assert (under["id"], over) == ("rain", None)
+    assert pull({"scene": "storm", "ambience_volume": 0.04})[0]["volume"] == 0.04  # no sound of its own: the beat sets its scene's bed for itself
+    assert pull({"scene": "none"}) == (None, None)  # no beat or scene bed: the story's own bed is separate, it layers instead
+    under, over = pull({"ambience": "wind"})
+    assert (under, over["id"], over["muffled"]) == (None, "wind", False)  # no scene: the beat's bed alone, clear
 
 
 def test_ambience_without_a_take_gives_no_bed_and_is_named_once_as_not_recorded(tmp_path, monkeypatch):
@@ -191,10 +196,10 @@ def test_ambience_without_a_take_gives_no_bed_and_is_named_once_as_not_recorded(
     sounds = {"hum": {"dataJson": {"audio": None}}}
     missing: list = []
     for _ in range(2):
-        assert marvin_pull._ambience(("u", "t"), tmp_path, {"ambience": "hum"}, {}, sounds, DATA, {}, missing) is None
-    assert marvin_pull._ambience(("u", "t"), tmp_path, {"ambience": "gone"}, {}, sounds, DATA, {}, missing) is None
+        assert marvin_pull._ambience(("u", "t"), tmp_path, {"ambience": "hum"}, {}, sounds, DATA, {}, missing) == (None, None)
+    assert marvin_pull._ambience(("u", "t"), tmp_path, {"ambience": "gone"}, {}, sounds, DATA, {}, missing) == (None, None)
     assert missing == ["hum", "gone"]
-    assert marvin_pull._ambience(("u", "t"), tmp_path, {}, {}, sounds, DATA, {}, missing) is None  # nothing named
+    assert marvin_pull._ambience(("u", "t"), tmp_path, {}, {}, sounds, DATA, {}, missing) == (None, None)  # nothing named
 
 
 def test_the_stories_own_ambience_is_one_bed_under_the_whole_film_at_its_level_else_the_sounds_else_half(tmp_path, monkeypatch):
