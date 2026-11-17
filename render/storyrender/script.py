@@ -229,9 +229,9 @@ def _setting_lines(sd: dict) -> list[str]:
 def fountain_complete(records: dict) -> str:
     """Everything the records hold, as a Fountain a writer can read, edit and bring in again: the title page (credits, premise, setting, format,
     length, music), each character as a note with their role, costume, props and rules, each scene as a heading with its place, light, set dressing,
-    continuity and ambience, each beat as the picture with a note of its hold, focus, expression, camera move, cast and sounds, each spoken line as
-    dialogue with its direction and voice. A page break (`===`) keeps each beat its own picture when the Fountain is read again; notes (`[[ ]]`)
-    keep what has no element of its own, so nothing a person put into the records is lost in the file."""
+    continuity and ambience, each beat as the picture (its Shot direction a `[[Pic: …]]` note above it) with a note of its hold, focus, expression,
+    camera move, cast and sounds, each spoken line as dialogue with its direction and voice. A page break (`===`) keeps each beat its own picture when
+    the Fountain is read again; notes (`[[ ]]`) keep what has no element of its own, so nothing a person put into the records is lost in the file."""
     story = records["story"]
     sd = _data(story)
     scenes, sounds, chapters = records.get("scenes", {}), records.get("sounds", {}), records.get("chapters", {})
@@ -305,6 +305,9 @@ def fountain_complete(records: dict) -> str:
         if picture and (fountain_mod._is_scene(picture) or fountain_mod._is_transition(picture) or picture.isupper() or picture[0] in "@#=~>!."):
             picture = "!" + picture  # forced action: a picture that begins like a heading, a cue or a transition is still only a picture
         words = _card_words(d)
+        shot = _clean(d.get("direction")).replace("]]", "]")
+        if shot and not words:
+            out += [f"[[Pic: {shot}]]", ""]  # the Shot direction, as the note that gives it when the Fountain is read again (it starts no second picture)
         if words:  # a plain card: its words centred, which is how a screenplay writes one (and how it is read back), in place of a picture
             out += ["\n".join(f"> {w} <" for w in words), ""]
         else:

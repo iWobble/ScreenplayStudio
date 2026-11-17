@@ -56,6 +56,7 @@ def _invisible(lines: list[str]) -> list[Finding]:
 
 # --- notes and boneyards ---------------------------------------------------------------------------------------------------------------
 
+_PIC = re.compile(r"\[\[\s*pic\b", re.I)
 _HOLD = re.compile(r"hold\s*:\s*\d+(?:\.\d+)?\s*s?\s*\.?$", re.I)
 _AT = re.compile(r"\bat\s+(\S+)", re.I)
 _AT_OK = re.compile(r"\d+(?:\.\d+)?s?[.,;]?$", re.I)
@@ -66,6 +67,12 @@ def _notes(text: str) -> list[Finding]:
     for m in F._NOTE.finditer(text):
         row = _row(text, m.start())
         body = m.group(0)
+        if _PIC.match(body):
+            pic = F._pic_of(m) if body.endswith("]]") else None
+            if not pic:
+                out.append(Finding(row, "look", "pic-unread", "a [[Pic note that is not on a line of its own, is inside a speech or is not closed on its line is only a note: it starts no picture", "write it as `[[Pic: what the picture shows]]` alone on its line, before the speaker or the action of the picture it starts"))
+            elif len(pic["text"] or "") > F.PIC_CHARS:
+                out.append(Finding(row, "look", "pic-long", f"the Pic note's direction is {len(pic['text'])} characters: the still reads it as the shot, and more than {F.PIC_CHARS} is more than a shot", "keep it to where the camera looks and what the frame holds; the action says the rest"))
         if not body.endswith("]]"):
             out.append(Finding(row, "error", "note-open", "a note is opened with [[ and never closed, so it is ignored (a note ends at its ]] or at a blank line)", "close it with ]] on the same paragraph"))
             continue
@@ -82,6 +89,23 @@ def _notes(text: str) -> list[Finding]:
     plain = F._BONEYARD.sub(F._blank_out, text)
     if "/*" in plain:
         out.append(Finding(_row(plain, plain.index("/*")), "error", "boneyard-open", "a /* comment is opened and never closed with */", "close it with */"))
+    return out + _pics_together(text)
+
+
+_NO_PICTURE = {"break", "section", "synopsis", "scene", "transition"}  # what a Pic note is not a picture of: the next picture is still to come
+
+
+def _pics_together(text: str) -> list[Finding]:
+    """A Pic note with no picture between it and the one before: both ask for the same picture, and the first one's words are its direction."""
+    out, waiting = [], False
+    for start, block in F._blocks_at(F._blank_comments(text)):
+        said = F._block_elements(block)
+        if any(el["t"] == "break" and "direction" in el for el in said):
+            if waiting:
+                out.append(Finding(start + 1, "look", "pic-twice", "this Pic note follows another with no picture between them, so it is ignored: the picture takes the first one's direction", "write the picture this note is for between the two, or put its words into the first note and delete this one"))
+            waiting = True
+        elif not all(el["t"] in _NO_PICTURE for el in said):
+            waiting = False
     return out
 
 

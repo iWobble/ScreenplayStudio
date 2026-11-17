@@ -84,12 +84,40 @@ Drop anchor in a graveyard, boy?
 ## 6. Pictures, timing and transitions
 
 - Each action paragraph is part of a **picture** (one still). Action right after speech starts a new one. A paragraph is cut after about 420 characters.
-- **`===` on its own line always starts a new picture.** Use it when the camera, place or subject changes inside one scene. One picture is one moment, not one per sentence.
+- **`===` on its own line always starts a new picture.** Use it when the camera, place or subject changes inside one scene. By default one picture is one moment, not one per sentence; to ask for more pictures, and say what each shows, use `[[Pic:]]` (below).
 - A silent picture plays 4 seconds. To change it: `[[Hold: 1.5s.]]` on its own line inside that picture. A picture with speech lasts as long as the take. Put no pause after every line.
 - Transitions go on their own line, in capitals, ending in `TO:`: `CUT TO:`, `DISSOLVE TO:`, `CROSSFADE TO:`. Any such line is a transition: one that names a dissolve or a fade is that, every other (`BACK TO:`, `FLASHBACK TO:`, `WIPE TO:`) is a cut with its words kept. A transition belongs to the picture that comes after it. `FADE IN:` before the first picture brings the film up from black; `FADE OUT.` after the last one takes it down to black. A transition never changes how long the film is.
 - A transition's length: `[[Transition: 1.2s.]]` inside the picture it leads into (empty: the story's length, else 0.5 s).
 - **A card in the film** (`THREE YEARS LATER`, a chapter's title, `THE END`): centred text in a paragraph of its own, `> THE END <`. It is a beat that shows the words on the story's card colour, with no picture made for it. A second centred line under the first is a sentence under the title. A speech right after it is read over the card. It plays 4 seconds, or as long as its lines; `[[Hold: 2s.]]` changes that. Centred text inside a paragraph of action is still action.
 - A title over a picture: `SUPER: THE DEVIL'S SHOALS` as an action line.
+
+### One picture per sentence, or a picture you direct: `[[Pic: ...]]`
+
+`[[Pic: Close on the coin in her fist.]]` on a line of its own starts a new picture, as `===` does, and its words become that beat's **Shot direction**: the field the still's prompt reads as where the camera looks, which a person (or an AI) can read and edit later. `[[Pic]]` or `[[Pic.]]` starts a picture with no direction. Every other Fountain app reads it as a note and ignores it, so the file is still an ordinary screenplay anywhere else.
+
+- Use it in place of `===`, or beside one: a Pic note and a `===` written together are one break. It may sit right above the speaker or the action of its picture, with no blank line; but leave a blank line after a speech, since a Pic note right under a speech's last line is inside the speech, and only a note.
+- Right under a scene heading (or above it) it directs the scene's first picture; it never makes a picture of the heading alone. With nothing after it (before `FADE OUT.`, or at the end) it makes no picture.
+- Two Pic notes with nothing between them are one picture with the first one's words; the check says the second is ignored. A Pic note inside a speech, or in the middle of a line, is only a note (the check says so too).
+- Keep it to the shot: where the camera is and what the frame holds, in a sentence. The check flags one over 400 characters.
+- The note stays in the beat's own Fountain text. Rewording only a Pic note is not a revision of the beat; adding or removing one moves where pictures break, as adding or removing `===` does. An import fills Shot direction on a new beat, or on one whose field is empty; one a person wrote is never written over.
+
+A picture for each spoken sentence:
+
+```
+[[Pic: Wide on black rocks in a storm, a wave vanishing between them.]]
+Black rocks break the surface like teeth.
+
+NARRATOR (V.O.)
+There was a channel through the Devil's Shoals.
+
+[[Pic: Medium wide: a lane of dark water between two rock walls.]]
+Between two black walls of rock, a lane of dark water opens.
+
+NARRATOR (V.O.)
+Wide enough for a ship.
+```
+
+Every picture is a still to make (and pay for): count the Pic notes before you bring the story in. The import's preview says how many beats it would make.
 
 ## 7. Sound
 
@@ -101,7 +129,7 @@ Drop anchor in a graveyard, boy?
 
 ## 8. Notes
 
-`[[ anything ]]` is removed before pictures, narration and subtitles, so it is safe for comments. Only `Hold:` and `Sound:` notes are acted on. A note must have no blank line inside. Do not put story in a note.
+`[[ anything ]]` is removed before pictures, narration and subtitles, so it is safe for comments. Only `Hold:`, `Sound:` and `Pic:` notes are acted on (a Pic note starts a picture: see section 6). A note must have no blank line inside. Do not put story in a note.
 
 ## 9. A skeleton
 
