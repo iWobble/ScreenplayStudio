@@ -119,6 +119,30 @@ Wide enough for a ship.
 
 Every picture is a still to make (and pay for): count the Pic notes before you bring the story in. The import's preview says how many beats it would make.
 
+### An info card and what stays changed: `[[Info card: …]]`, `[[Changes: …]]`
+
+Two more notes belong to the picture they sit in, wherever in its text (under its Pic note, under its action, after its speech), each on a line of its own and outside a speech. They start and end no picture, and every other Fountain app ignores them as notes.
+
+- `[[Info card: label | title | sentence]]` is the card shown over the picture: the beat's **Info card** label, title and sentence. Any slot may be empty (`[[Info card: | Day one | The fleet is alone.]]`), but one must have words. One slot alone is the **title**: `[[Info card: 2302]]`. Two slots are the label and the title.
+- `[[Changes: the lead ship's hull is scorched black.]]` is the beat's **Changes from here on**: what stays changed in every later picture.
+- An import fills them on a new beat, or on one whose field is empty; a value a person set is never written over (an info card is one thing: a beat with any of its three set keeps its own). A plain card's centred words are its card, so a note does not change them.
+- One with no words, in the middle of a line or inside a speech is only a note: the check says so (worth a look).
+- The *complete* script writes both notes back, so it reads back as the same beats.
+
+The card over the first picture of a chapter:
+
+```
+# Chapter 4
+
+EXT. INTERSTELLAR SPACE - 2302
+
+[[Info card: CHAPTER 4 | 2302]]
+[[Pic: Wide on three generation ships against the stars.]]
+
+NARRATOR (V.O.)
+Three ships left the old sun behind.
+```
+
 ## 7. Sound
 
 - Name each sound yourself: `[[Sound: timber grinding against rock at 0.4s.]]` (seconds into the picture; leave `at` off for the start). Describe the **sound**, not the story: "a single sharp splash", not "Chet falls in". When a picture has `[[Sound:]]` notes, only those are made.
@@ -129,7 +153,7 @@ Every picture is a still to make (and pay for): count the Pic notes before you b
 
 ## 8. Notes
 
-`[[ anything ]]` is removed before pictures, narration and subtitles, so it is safe for comments. Only `Hold:`, `Sound:` and `Pic:` notes are acted on (a Pic note starts a picture: see section 6). A note must have no blank line inside. Do not put story in a note.
+`[[ anything ]]` is removed before pictures, narration and subtitles, so it is safe for comments. Only `Hold:`, `Sound:`, `Pic:`, `Info card:` and `Changes:` notes are acted on (a Pic note starts a picture; the last two fill the beat's info card and changes: see section 6). A note must have no blank line inside. Do not put story in a note.
 
 ## 9. A skeleton
 

@@ -88,6 +88,44 @@ def _without_lead_heading(picture: str, name: str) -> str:
     return plain(picture)[m.end() :] if m else picture
 
 
+_KIND_IN_WORDS = re.compile(r"^(?:Interior and exterior|Interior|Exterior):\s+", re.I)
+_TIME_AFTER = re.compile(rf",\s*(?:{fountain_mod._TIME_WORDS.pattern})[A-Za-z' ]*$", re.I)
+
+
+def _place_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower().replace("’", "'").replace("'", "")).strip("-")
+
+
+def _heading_only(picture: str, scene: dict, scene_slug: str) -> bool:
+    """Whether a beat's picture says nothing but its scene's heading: as written (`EXT. INTERSTELLAR SPACE - 2302`, a forced `.HEADING`) or in words
+    (`Exterior: Interstellar Space - 2302`, `Interior: Hold, night`), any case, a scene number or a full stop after it. The import gives a beat with no
+    action of its own (a Pic note and its lines) that picture; written back as action it would come in again as words of the picture."""
+    text = fountain_mod._SCENE_NO.sub("", " ".join(picture.split())).strip().rstrip(".").strip()
+    if fountain_mod._is_scene(text):
+        place = fountain_mod.place_of(text)
+        name = place["name"] if place else ""
+    elif kind := _KIND_IN_WORDS.match(text):
+        name = _TIME_AFTER.sub("", text[kind.end() :])
+    else:
+        return False
+    key = _place_key(name)
+    return bool(key) and (key == _place_key(_clean(scene.get("title"))) or str(scene_slug or "").endswith(f"-{key}") or str(scene_slug or "") == key)
+
+
+def _info_card_note(d: dict) -> str:
+    """A beat's info card as the note the import reads back (`fountain.info_card`): `[[Info card: 2302]]` for a title alone, else `label | title`
+    and `| sentence` as far as the last one with words. Nothing for a beat with no card words, or a plain card (its words are written centred)."""
+    label, title, text = (_clean(d.get(k)).replace("]]", "]") for k in fountain_mod.INFO_CARD_FIELDS)
+    if cards.is_plain(d) or not (label or title or text):
+        return ""
+    if not label and not text:
+        return f"[[Info card: {title}]]"
+    slots = [label.replace("|", "/"), title.replace("|", "/"), text]
+    while len(slots) > 2 and not slots[-1]:
+        slots.pop()
+    return f"[[Info card: {re.sub(' {2,}', ' ', ' | '.join(slots)).strip()}]]"
+
+
 def _heading_line(heading: str, tag: str, scene: dict, when: str = "") -> str:
     """A scene's heading line: `INT. CAPTAIN'S CABIN #2#` when the scene says whether it is inside or outside (its Inside or outside field: the
     other way from what the import reads), else a forced heading (`.CAPTAIN'S CABIN #2#`) as before."""
@@ -230,7 +268,7 @@ def fountain_complete(records: dict) -> str:
     """Everything the records hold, as a Fountain a writer can read, edit and bring in again: the title page (credits, premise, setting, format,
     length, music), each character as a note with their role, costume, props and rules, each scene as a heading with its place, light, set dressing,
     continuity and ambience, each beat as the picture (its Shot direction a `[[Pic: …]]` note above it) with a note of its hold, focus, expression,
-    camera move, cast and sounds, each spoken line as dialogue with its direction and voice. A page break (`===`) keeps each beat its own picture when
+    camera move, cast and sounds (its info card and changes as the `[[Info card: …]]` and `[[Changes: …]]` notes the import reads), each spoken line as dialogue with its direction and voice. A page break (`===`) keeps each beat its own picture when
     the Fountain is read again; notes (`[[ ]]`) keep what has no element of its own, so nothing a person put into the records is lost in the file."""
     story = records["story"]
     sd = _data(story)
@@ -302,6 +340,9 @@ def fountain_complete(records: dict) -> str:
         picture = _clean(d.get("picture")).split(" Delivery:")[0].strip()  # and not left in the action
         if new_scene:
             picture = _without_lead_heading(picture, _clean(scene.get("title") or _slug_words(str(scene_slug)))).strip()
+        heading_only = bool(picture) and _heading_only(picture, scenes.get(str(scene_slug), {}), str(scene_slug or ""))
+        if heading_only:  # its heading (written above, or the scene's) is what the import made of a beat with no action: not words of the picture
+            picture = ""
         if picture and (fountain_mod._is_scene(picture) or fountain_mod._is_transition(picture) or picture.isupper() or picture[0] in "@#=~>!."):
             picture = "!" + picture  # forced action: a picture that begins like a heading, a cue or a transition is still only a picture
         words = _card_words(d)
@@ -310,15 +351,17 @@ def fountain_complete(records: dict) -> str:
             out += [f"[[Pic: {shot}]]", ""]  # the Shot direction, as the note that gives it when the Fountain is read again (it starts no second picture)
         if words:  # a plain card: its words centred, which is how a screenplay writes one (and how it is read back), in place of a picture
             out += ["\n".join(f"> {w} <" for w in words), ""]
-        else:
-            out += [picture or f"Beat {number}.", ""]
+        elif picture or not (heading_only and (new_scene or shot or any(_clean(_data(ln).get("text")) for ln in lines_by_beat.get(beat.get("slug", ""), [])))):
+            out += [picture or f"Beat {number}.", ""]  # (a heading-only beat is started by its heading, its Pic note or its first line: no words needed)
         blank = _say("Shows", cards.PLAIN_CARD) if cards.is_plain(d) and not words else ""  # a card with no words has nothing to centre: the note says it
         own = _beat_bed(d, scenes, sounds)
         level = f", level {d['ambience_volume']}" if own and d.get("ambience_volume") not in (None, "") else ""
         heard = f", {_clean(d.get('ambience_heard')).lower()}" if own and _clean(d.get("ambience_heard")) else ""
         bed = _say("Ambience", f"{own[0]}{level}{heard}, " + ("over the scene's" if own[1] else "under the beat")) if own else ""
-        facts = [x for x in (blank, _say("Hold", f"{_seconds(d.get('hold_seconds'))}" if _seconds(d.get("hold_seconds")) else ""), _say("Focus", d.get("focus")), _say("Expression", d.get("expression")), _say("Camera", d.get("move")), _say("Cast", d.get("cast")), _say("Transition", _seconds(d.get("transition_seconds"))), bed, _say("Note", d.get("notes")), "" if words else _say("Info card", " — ".join(x for x in (_clean(d.get("info_label")), _clean(d.get("info_title")), _clean(d.get("info_text"))) if x))) if x]
+        facts = [x for x in (blank, _say("Hold", f"{_seconds(d.get('hold_seconds'))}" if _seconds(d.get("hold_seconds")) else ""), _say("Focus", d.get("focus")), _say("Expression", d.get("expression")), _say("Camera", d.get("move")), _say("Cast", d.get("cast")), _say("Transition", _seconds(d.get("transition_seconds"))), bed, _say("Note", d.get("notes"))) if x]
         out += [f"[[Beat {number}. " + " ".join(facts) + "]]" if facts else f"[[Beat {number}.]]", ""]
+        changes = _clean(d.get("changes")).replace("]]", "]")
+        out += [x for note in (_info_card_note(d), f"[[Changes: {changes}]]" if changes else "") if note for x in (note, "")]  # notes the import reads back
         for placed in d.get("sounds") if isinstance(d.get("sounds"), list) else []:
             if isinstance(placed, dict) and placed.get("sound"):
                 snd = sounds.get(str(placed["sound"]), {})

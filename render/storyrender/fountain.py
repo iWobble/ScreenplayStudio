@@ -89,19 +89,63 @@ as a page break does, and its words are that beat's Shot direction. To any other
 PIC_CHARS = 400  # a direction longer than this is more than a shot: the check says so
 
 
-def _pic_of(note: "re.Match[str]") -> "re.Match[str] | None":
-    """The Pic note a note is, when it is one standing on a line of its own outside a speech (see `_PIC`); None for any other note. One written
-    inside a speech stays a note: cutting there would make the rest of the speech action."""
+_INFO_CARD_NOTE = re.compile(r"[ \t]*\[\[[ \t]*info[ \t]+card[ \t]*:(?P<text>(?:(?!\]\]).)*?)\]\][ \t]*", re.I)
+"""The info card shown over a picture, on a line of its own inside that picture's text: `[[Info card: label | title | sentence]]`. Any slot may be
+empty; one slot alone is the title (`[[Info card: 2302]]`)."""
+_CHANGES_NOTE = re.compile(r"[ \t]*\[\[[ \t]*changes[ \t]*:(?P<text>(?:(?!\]\]).)*?)\]\][ \t]*", re.I)
+"""What stays changed in every later picture from this one on, on a line of its own inside the picture's text: `[[Changes: the mast is broken]]`."""
+INFO_CARD_FIELDS = ("info_label", "info_title", "info_text")
+
+
+def _alone(note: "re.Match[str]", pattern: "re.Pattern[str]") -> "re.Match[str] | None":
+    """The note read with `pattern`, when it stands on a line of its own outside a speech; None for any other note. One written inside a speech
+    stays a note: it belongs to the words spoken, not to the picture."""
     s = note.string
     start, end = s.rfind("\n", 0, note.start()) + 1, s.find("\n", note.end())
-    pic = _PIC.fullmatch(s[start : end if end >= 0 else len(s)])
-    if not pic:
+    found = pattern.fullmatch(s[start : end if end >= 0 else len(s)])
+    if not found:
         return None
     above = s[:start].split("\n")[:-1]
     top = len(above)
     while top and above[top - 1].strip():
         top -= 1
-    return None if top < len(above) and _is_character(above[top]) else pic
+    return None if top < len(above) and _is_character(above[top]) else found
+
+
+def _pic_of(note: "re.Match[str]") -> "re.Match[str] | None":
+    """The Pic note a note is, when it is one standing on a line of its own outside a speech (see `_PIC`); None for any other note. One written
+    inside a speech stays a note: cutting there would make the rest of the speech action."""
+    return _alone(note, _PIC)
+
+
+def info_card(words: str) -> dict:
+    """An Info card note's words as the beat's fields: `label | title | sentence` (a `|` after the second stays in the sentence), one slot alone the
+    title. Empty slots are left out; nothing when no slot has words."""
+    slots = [" ".join(s.split()) for s in words.split("|", 2)]
+    if len(slots) == 1:
+        slots = ["", slots[0]]
+    return {key: value for key, value in zip(INFO_CARD_FIELDS, slots) if value}
+
+
+def beat_notes(text: str) -> dict:
+    """The info card and the changes a beat's own text gives in its `[[Info card: …]]` and `[[Changes: …]]` notes, each read only standing on a line
+    of its own outside a speech (the first of each counts): {info_label, info_title, info_text, changes}, those that have words."""
+    out: dict = {}
+    for note in _NOTE.finditer(text or ""):
+        if (card := _alone(note, _INFO_CARD_NOTE)) and not any(k in out for k in INFO_CARD_FIELDS):
+            out.update(info_card(card["text"]))
+        elif (changed := _alone(note, _CHANGES_NOTE)) and "changes" not in out and (words := " ".join(changed["text"].split())):
+            out["changes"] = words
+    return out
+
+
+def notes_to_fill(data: dict, text: str) -> dict:
+    """What a beat's Info card and Changes notes give that the beat does not hold yet: the info card only when the beat has none of its three fields
+    (a card is one thing, never half a person's and half the note's), the changes only when empty. A value a person set is never written over."""
+    noted = beat_notes(text)
+    has = lambda key: bool(str(data.get(key) or "").strip())  # noqa: E731
+    card = {k: v for k, v in noted.items() if k in INFO_CARD_FIELDS} if not any(has(k) for k in INFO_CARD_FIELDS) else {}
+    return {**card, **({"changes": noted["changes"]} if noted.get("changes") and not has("changes") else {})}
 
 
 def _notes_out(text: str, gone) -> str:
@@ -1277,8 +1321,8 @@ def mark_cards(rows: list[dict], plan: Plan) -> None:
 
 def attach_source(imp: dict, plan: Plan, story: str) -> None:
     """Give the records an import plan is about to make (`beat_import.import_plan`) what the screenplay said that the beat sheet cannot carry: each
-    beat's own text as written (`fountain`), the transition written before it and the Shot direction of its Pic note, each line's own text
-    (`fountain`) and whether it is spoken over the line before (`simultaneous`). New records only; one that exists is left as it is."""
+    beat's own text as written (`fountain`), the transition written before it and the Shot direction of its Pic note, its Info card and Changes notes,
+    each line's own text (`fountain`) and whether it is spoken over the line before (`simultaneous`). New records only; one that exists is left as it is."""
     by_number = {n: b for _c, n, b in plan.rows()}
     for _slug, _title, data in imp["beats"]:
         beat = by_number.get(str(data.get("number")))
@@ -1297,6 +1341,8 @@ def attach_source(imp: dict, plan: Plan, story: str) -> None:
             data["transition_seconds"] = seconds
         if beat and beat.get("sounds"):
             data["sounds"] = [{"sound": f"{story}-sound-{data.get('number')}-{i}", "at": c.get("at", 0)} for i, c in enumerate(beat["sounds"], 1)]
+        if beat:
+            data.update(notes_to_fill(data, beat.get("fountain") or ""))  # `[[Info card: …]]` and `[[Changes: …]]` (a card's own words come first)
     for slug, _title, data in imp["lines"]:
         m = re.search(r"-line-(.+)-(\d+)$", slug)
         beat = by_number.get(m.group(1)) if m else None
