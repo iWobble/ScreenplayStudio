@@ -696,16 +696,21 @@ def test_an_empty_step_points_to_a_setup_the_package_brings_and_the_voice_step_t
     blueprints, setups = _setups()
     for slug, steps in setups.items():
         for step in steps.values():
-            href = (step.get("empty_next") or {}).get("href", "")
-            if href.startswith("/workspace/setups/"):
-                assert href.rsplit("/", 1)[1] in setups, (slug, step["id"])
+            go = step.get("empty_next") or {}
+            assert not go.get("href", "").startswith("/workspace/setups/"), (slug, step["id"])  # a setup is linked as {setup}: v194
+            if go.get("setup"):  # the setup and step it opens are the package's own
+                assert go["setup"] in setups and go["step"] in setups[go["setup"]], (slug, step["id"])
     takes, casting = setups["takes-of-a-line"], setups["casting-call"]
-    for sid in ("character", "chapter", "beat"):  # nothing to pick before the Fountain is in: say so, and where it is brought in
-        assert takes[sid]["empty"] and takes[sid]["empty_next"]["href"] == "/workspace/setups/narrate-a-story", sid
-    assert takes["line"]["empty_next"]["href"] == "/workspace/setups/lines-in-a-beat"  # a beat with no words: add a line to it
-    assert setups["lines-in-a-beat"]["lines"]["empty_next"]["href"] == "/workspace/setups/narrate-a-story"
-    for sid in ("troupe", "candidates"):  # a new actor is made in Open call, not here
-        assert casting[sid]["empty_next"]["href"] == "/workspace/setups/open-call", sid
+    fountain = {"setup": "narrate-a-story", "step": "details", "carry": {"story": "story", "world": "story.world", "series": "story.series"}}
+    for sid in ("character", "chapter", "beat"):  # nothing to pick before the Fountain is in: say so, and where it is brought in, with the story
+        assert takes[sid]["empty"] and {k: takes[sid]["empty_next"][k] for k in fountain} == fountain, sid
+    assert takes["line"]["empty_next"]["setup"] == "lines-in-a-beat"  # a beat with no words: add a line to it
+    assert takes["line"]["empty_next"]["carry"] == {"story": "story", "beat": "beat"}
+    assert {k: setups["lines-in-a-beat"]["lines"]["empty_next"][k] for k in fountain} == fountain
+    for sid in ("troupe", "candidates"):  # a new actor is made in Open call, not here: its troupe, of this world
+        assert casting[sid]["empty_next"]["setup"] == "open-call" and casting[sid]["empty_next"]["carry"] == {"world": "world"}, sid
+    for slug, steps in setups.items():  # the lines at the end name a setup the same way, never its path
+        assert not any(n.get("href", "").startswith("/workspace/setups/") for n in blueprints[slug]["payload"].get("next") or []), slug
     # "Voice for the lines" needs the role's voice: an earlier form of the same entry shows it, so the page links there when it is empty.
     order = list(casting)
     needs = casting["voice_lines"]["requires"]
