@@ -140,7 +140,8 @@ def test_the_plan_check_looks_at_elevenlabs_for_free_then_queues_the_readiness_j
 def test_an_actor_sheet_may_ask_for_its_own_picture_size_and_says_so_in_the_approval():
     flow = _flow("screenplay-make-actor-sheet")
     assert any(i["name"] == "size" and i["required"] is False for i in flow["trigger"]["inputs"])
-    assert next(a for a in flow["actions"] if a.get("kind") == "integration")["args"]["size"] == '${input.size|default:""}'  # empty: the connection's, as before
+    assert next(a for a in flow["actions"] if a.get("kind") == "integration")["args"]["size"] == '${input.size|default:"1536x1024"}'  # the house sheets' landscape row (v203)
+    assert next(i for i in flow["trigger"]["inputs"] if i["name"] == "size")["default"] == "1536x1024"
     assert "Picture size:" in next(a for a in flow["actions"] if a.get("id") == "spend")["message"]
 
 
@@ -775,17 +776,30 @@ def test_a_paid_button_names_the_service_its_workflow_calls_and_only_the_fields_
     assert "paid" not in casting["voice_lines"]  # it only copies the voice onto the lines: nothing leaves the workspace
 
 
-# The person's sheet as v181 sent it: an animal branch must not change a word of it.
+# The person's sheet as v203 sends it (four views in one landscape row, no empty slot, the style actor for the finish only): an animal branch
+# must not change a word of it.
 PERSON_SHEET_PROMPT = (
-    "A character sheet of one actor on a portrait canvas, the four views arranged in a 2 by 2 grid that fills the whole picture, each view large and "
-    "full length with soft ground shadows on a plain warm cream background: front and three-quarter on the top row, side and back on the bottom row, "
-    "standing relaxed, the same person in all four. Built on the attached base sheet's proportions and style: keep its construction and scale of head "
-    "to body. The second attached picture is an existing actor sheet of this world: draw the faces, hands, hair, skin and cloth exactly in its way, as "
-    "flat soft matte shapes: two small dark dot eyes, a small plain nose, a tiny smile, simple brow lines, no skin pores, no arm hair, no shaded nose, "
-    "no fine fabric weave; any stubble or beard is one simple flat speckled shape. Never realistic, never glossy. The actor: ${entry.title}, an adult "
-    "${entry.data.base}, age ${entry.data.age}. Build: ${entry.data.build} Hair: ${entry.data.hair} Skin tone: ${entry.data.skin_tone} Look: "
-    "${entry.data.look} Distinguishing features, the same in every view: ${entry.data.distinguishing_features} Wearing, in every view: "
-    "${entry.data.baseline_wardrobe}. Both legs whole, empty hands, no props. ${steps.world.output.rows.0.data.rules}"
+    "A character sheet of one actor on a landscape canvas, four full-length views side by side in one row filling the picture: front, "
+    "three-quarter, right-side profile and back, soft ground shadows on a plain warm cream background. The same person in all four, standing "
+    "relaxed, each view whole in frame. No labels, no text. Built on the attached base sheet's proportions and style: keep its construction and "
+    "scale of head to body. The second attached picture is an existing actor sheet of this world, for the FINISH ONLY: flat soft matte shapes, "
+    "two small dark dot eyes, a small plain nose, a tiny smile, simple brow lines, no skin pores, no arm hair, no shaded nose, no fine fabric "
+    "weave; any stubble or beard is one simple flat speckled shape. Never realistic, never glossy. Do NOT copy that picture's person, face, hair,"
+    " skin tone, clothes or colours: this actor's own description below governs, and where it does not say, choose something plain that is "
+    "clearly different from the second picture. ${steps.person.output.branches.given.output.rows.0.id|truncate:1,\"The third attached picture "
+    "shows this person: take her or his face, hair and build from it, not the finish, and draw the clothes written below, not the clothes in it. "
+    "\"}${steps.person.output.branches.own_sheet.output.rows.0.id|truncate:1,\"The third attached picture shows this person: take her or his face, "
+    "hair and build from it, not the finish, and draw the clothes written below, not the clothes in it. It is this actor's own existing sheet: "
+    "the new sheet keeps THIS person exactly and may only fix the layout and the finish. "
+    "\"}${steps.person.output.branches.aged_view.output.rows.0.id|truncate:1,\"The third attached picture shows this person: take her or his face, "
+    "hair and build from it, not the finish, and draw the clothes written below, not the clothes in it. \"}The actor: ${entry.title}, an adult "
+    "${entry.data.base}. Age: ${entry.data.age|default:\"not specified: an adult age that fits the build and look\"}. Build: ${entry.data.build} "
+    "Hair: ${entry.data.hair|default:\"not specified: choose a simple hair that does not copy the second picture's person.\"} Skin tone: "
+    "${entry.data.skin_tone|default:\"not specified: choose a simple skin tone that does not copy the second picture's person.\"} Look: "
+    "${entry.data.look|default:\"not specified.\"} Distinguishing features, the same in every view: "
+    "${entry.data.distinguishing_features|default:\"none.\"} Wearing, in every view: ${entry.data.baseline_wardrobe|default:\"not specified: a plain"
+    " neutral outfit that differs from the second picture's clothes\"}. Both legs whole, empty hands, no props. "
+    "${steps.world.output.rows.0.data.rules}"
 )
 BASE_SHEET = "${entry.data.world}-base-${entry.data.base}"
 ANIMAL = {"field": "entry.data.base", "op": "in", "value": "${input.animal_bases}"}
@@ -799,7 +813,7 @@ def _sheet_steps() -> tuple[dict, dict]:
 def test_a_persons_sheet_is_sent_as_before_with_arthur_for_the_style_and_never_for_an_animal():
     flow, steps = _sheet_steps()
     person = steps["sheet"]
-    assert sent_text(flow["actions"], "sheet") == PERSON_SHEET_PROMPT and person["references"] == BASE_SHEET + ",${input.style_actor}"
+    assert sent_text(flow["actions"], "sheet") == PERSON_SHEET_PROMPT and person["references"] == BASE_SHEET + ",${input.style_actor}," + "".join("${steps.person.output.branches.%s.output.rows.0.id}" % x for x in ("given", "own_sheet", "aged_view"))
     assert person["args"]["prompt"] == FIELD % "spend"  # what is approved (the box, maybe changed) is what is sent
     assert next(i for i in flow["trigger"]["inputs"] if i["name"] == "style_actor")["default"] == "arthur"
     for sid in ("spend", "sheet"):
@@ -840,11 +854,10 @@ def test_an_actors_sheet_spends_nothing_without_a_build_or_the_base_sheet_and_ev
     ready = {"field": "steps.base_sheet.output.count", "op": "gte", "value": 1}
     for sid in ("spend", "sheet", "spend_animal", "sheet_animal"):
         assert ready in steps[sid]["when"], sid
-    made = steps["entry7"]
+    made = steps["entry9"]
+    drawn = {"any": [{"field": f"steps.{s}.output.asset.id", "op": "exists"} for s in ("sheet", "sheet_animal")]}
     assert made["data"]["general_view"] == "${steps.sheet.output.asset.id}${steps.sheet_animal.output.asset.id}"  # whichever was drawn
-    assert made["when"] == steps["keep"]["when"] == {
-        "any": [{"field": f"steps.{s}.output.asset.id", "op": "exists"} for s in ("sheet", "sheet_animal")]
-    }  # nothing drawn: the sheet's picture is never emptied
+    assert steps["keep"]["when"] == drawn and made["when"] == [{"field": "steps.keep.output.choice", "op": "eq", "value": "Keep"}, drawn]  # attached on Keep only (v203)
 
 
 def test_open_call_offers_to_make_the_sheet_with_ai_right_after_the_sheet_form():
@@ -860,8 +873,10 @@ def test_open_call_offers_to_make_the_sheet_with_ai_right_after_the_sheet_form()
     assert paid["service"] == "OpenAI Images" and paid["entry"] == "actor" and set(paid["needs"]) <= set(paid["sends"]) <= fields
     sheet_flow = workflow("screenplay-make-actor-sheet")
     animal = sent_text(_flow("screenplay-make-actor-sheet")["actions"], "sheet_animal")
-    for key in paid["sends"]:  # what the notice shows goes to the model for a person and for an animal alike
-        assert "${entry.data." + key in sheet_flow and "${entry.data." + key in animal, key
+    person = sent_text(_flow("screenplay-make-actor-sheet")["actions"], "sheet")
+    for key in paid["sends"]:  # what the notice shows goes to the model; an animal is drawn without hair, skin tone or wardrobe (v203)
+        assert "${entry.data." + key in person, key
+        assert ("${entry.data." + key in animal) is (key not in ("hair", "skin_tone", "baseline_wardrobe")), key
     assert "next step" in steps["sheet"]["help"] and "Approvals shows the exact prompt" in make["help"]
 
 

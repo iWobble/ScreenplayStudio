@@ -31,6 +31,10 @@ Do not put story role, family relationships or personality on the actor from how
 
 **Name the picture file for the actor** (`Nell.png`, not `image-3.png`): in Marvin, "Create entry from asset" turns the file name into the actor's name and slug.
 
+## A paid sheet (Screenplay: make an actor's sheet)
+
+A person's sheet is one landscape picture (1536x1024): four full-length views of the actor side by side in one row, front, three-quarter, right-side profile and back, soft ground shadows on plain warm cream, no text; an animal's is three views in a row. It is made from the world's base sheet (proportions), `style_actor`'s sheet (the finish only: flat matte shapes, dot eyes, a tiny smile; never that actor's face, hair, skin, clothes or colours) and a picture of this person for the face, hair and build, never its clothes: the `source_picture` input when given (a face crop), else the actor's own `general_view` (an uploaded picture: the new sheet keeps that person and only fixes the layout and finish), else its first `age_views` picture, else none. Before paying for it fill `age`, `build`, `hair`, `skin_tone`, `look` and `baseline_wardrobe` (and `distinguishing_features` if there are any): an empty field is sent as "not specified: choose something plain that differs from the style actor", so the model chooses for you. Open call's *Check the troupe* lists *Fix before making the sheet* lines for a person actor with no Age, Hair, Skin tone or Baseline wardrobe. The picture is shown in the Keep question and becomes the actor's `general_view` only on Keep; a Redo, a skip or a no leaves the actor as it was, its own picture still attached.
+
 ## The character record
 
 A character is made from an actor, not from scratch. Fields: `story`, `actor` (the actor's slug), `role`, `speaker` (the one-word name its speech lines use as the cue in the Fountain), `presence`, `age_state` (young, mid, old), `costume`, `props`, `rules` and `master` (the approved picture). Stills attach the approved master, so an unapproved master blocks them.

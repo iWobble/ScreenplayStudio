@@ -115,6 +115,8 @@ def test_every_other_workflow_is_as_it_was():
         before = json.loads(subprocess.run(["git", "show", "origin/main:docs/screenplay-studio.marvin-package.json"], cwd=PACKAGE.parents[1], capture_output=True, check=True).stdout)
     except (subprocess.CalledProcessError, FileNotFoundError):
         pytest.skip("no git history to compare with")
+    if any(b["slug"] == SLUG for b in before["blueprints"]):
+        pytest.skip("main already has it: this compares the release that adds it with the one before")
     old = {b["slug"]: b for b in before["blueprints"] if b.get("kind") == "workflow" and b["slug"] != SLUG}
     now = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"] if b.get("kind") == "workflow" and b["slug"] != SLUG}
     assert now == old

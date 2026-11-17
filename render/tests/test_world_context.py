@@ -49,8 +49,17 @@ def _apply(value, name: str, args: list[str]):
         return args[0] if value in (None, "", [], {}) else value
     if name == "replace":
         return text.replace(args[0], args[1] if len(args) > 1 else "")
-    if name == "truncate":
-        return text[: int(args[0])]
+    if name == "split":
+        return value if isinstance(value, list) else [x.strip() for x in text.split(args[0] if args else ",")] if text else []
+    if name == "first":
+        return value[0] if isinstance(value, list | str) and value else None
+    if name == "truncate":  # as Marvin's: at most N characters, ending on a whole word with … (or the second argument)
+        size, end = max(int(args[0]), 1), args[1] if len(args) > 1 else "…"
+        if len(text) <= size:
+            return text
+        cut = text[: max(size - len(end), 0)]
+        words = cut.rsplit(" ", 1)[0] if " " in cut else cut
+        return (words if len(words) >= size // 2 else cut).rstrip(" ,.;:") + end
     raise AssertionError(f"filter {name} is not in the stand-in")
 
 
