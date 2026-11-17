@@ -323,6 +323,7 @@ def test_the_lists_on_an_entrys_page_are_in_the_scripts_order_too_never_by_title
         ("band", "Beats"): numbered,
         ("beat", "Speech lines"): {"by": "order"},
         ("speech-line", "Takes"): made,
+        ("world", "Stories"): made,  # as they were started
     }
     assert {k: c.get("sort") for k, c in lists.items()} == want
     for (_, title), c in lists.items():  # a key the child type does not have would quietly sort nothing
@@ -1123,3 +1124,25 @@ def test_the_script_is_in_the_box_or_the_file_one_or_the_other_and_the_file_read
     assert fields["fountain_file"]["helpText"].startswith("Use one: attach the script as a file here, or write it in Fountain")
     steps = {s["id"]: s for s in next(b for b in package["blueprints"] if b["slug"] == "narrate-a-story")["payload"]["steps"]}
     assert {"fountain", "fountain_file"} <= set(steps["details"]["fields"]) and "not both" not in steps["details"]["help"]
+
+
+def test_a_world_page_lists_the_stories_set_in_it():
+    """A world's page lists its stories (Marvin's `children`: the stories whose `world` holds the world's slug), so a world links to
+    the stories that live in it."""
+    package = json.loads(PACKAGE.read_text(encoding="utf-8"))
+    world = next(b for b in package["blueprints"] if b["kind"] == "entry_type" and b["slug"] == "world")
+    assert [(c["entry_type"], c["field"]) for c in world["payload"]["schema_json"]["children"]] == [("story", "world")]
+
+
+def test_every_entry_links_up_to_its_parent_one_pick_list_that_opens_it():
+    """The field holding a parent's slug is a `ref` pick list (Marvin shows an open link beside it): a story's world and series, a series'
+    world, and the story of a chapter, scene, beat, line, character and sound. (A beat's chapter and scene, a line's beat and a take's line
+    already were.)"""
+    package = json.loads(PACKAGE.read_text(encoding="utf-8"))
+    types = {b["slug"]: {f["key"]: f for f in b["payload"]["schema_json"]["fields"]} for b in package["blueprints"] if b["kind"] == "entry_type"}
+    ups = {("story", "world"): "world", ("story", "series"): "series", ("series", "world"): "world", ("chapter", "story"): "story",
+           ("scene", "story"): "story", ("beat", "story"): "story", ("speech-line", "story"): "story", ("cast-member", "story"): "story",
+           ("sound", "story"): "story", ("beat", "chapter"): "chapter", ("beat", "scene"): "scene", ("speech-line", "beat"): "beat",
+           ("take", "line"): "speech-line"}
+    for (entry_type, key), parent in ups.items():
+        assert types[entry_type][key]["type"] == "text" and types[entry_type][key]["ref"] == parent, (entry_type, key)
