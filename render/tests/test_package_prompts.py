@@ -585,7 +585,7 @@ def test_a_beats_reference_pictures_are_an_asset_picker_and_the_still_workflow_p
     assert beat["references"]["type"] == "asset-list" and beat["references"]["role"] == "reference" and beat["references"]["accept"] == "image/*"
     assert beat["references"]["group"] == "The shot"
     text = json.dumps(blueprints["screenplay-take-still"]["payload"])
-    assert '"references": ["${entry.data.references}", "${steps.scene.output.rows.0.data.anchor}"]' in text  # a picker's list, then the anchor (a comma string would split the list's own text)
+    assert '"references": ["${entry.data.references}", "${steps.scene.output.rows.0.data.anchor}", ' in text  # a picker's list, then the anchor (a comma string would split the list's own text), then the world's style picture (v200)
 
 
 def test_the_story_says_how_the_film_ends_with_plain_text_options_and_no_default():
