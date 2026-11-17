@@ -83,8 +83,34 @@ def _readable(text: str) -> str:
     return text.translate(_READABLE)
 
 
+_PIC = re.compile(r"[ \t]*\[\[[ \t]*pic[ \t]*(?::[ \t]*(?P<text>(?:(?!\]\]).)*?)|\.)?[ \t]*\]\][ \t]*", re.I)
+"""A picture the writer asks for and directs, on a line of its own (`[[Pic: Close on the coin in her fist.]]`, `[[Pic]]`): it starts the next picture
+as a page break does, and its words are that beat's Shot direction. To any other Fountain app it is a note, and ignored."""
+PIC_CHARS = 400  # a direction longer than this is more than a shot: the check says so
+
+
+def _pic_of(note: "re.Match[str]") -> "re.Match[str] | None":
+    """The Pic note a note is, when it is one standing on a line of its own outside a speech (see `_PIC`); None for any other note. One written
+    inside a speech stays a note: cutting there would make the rest of the speech action."""
+    s = note.string
+    start, end = s.rfind("\n", 0, note.start()) + 1, s.find("\n", note.end())
+    pic = _PIC.fullmatch(s[start : end if end >= 0 else len(s)])
+    if not pic:
+        return None
+    above = s[:start].split("\n")[:-1]
+    top = len(above)
+    while top and above[top - 1].strip():
+        top -= 1
+    return None if top < len(above) and _is_character(above[top]) else pic
+
+
+def _notes_out(text: str, gone) -> str:
+    """The text with each note replaced by `gone(note)`, but a Pic note on its own line kept as written: it is the story's, it starts a picture."""
+    return _NOTE.sub(lambda m: m.group() if _pic_of(m) else gone(m), text)
+
+
 def _clean(text: str) -> str:
-    return _NOTE.sub("", _BONEYARD.sub("", _readable(_normal(text))))  # a boneyard and a note are the writer's, not the story's
+    return _notes_out(_BONEYARD.sub("", _readable(_normal(text))), lambda _m: "")  # a boneyard and a note are the writer's, not the story's
 
 
 def _blocks_at(text: str) -> list[tuple[int, list[str]]]:
@@ -99,6 +125,11 @@ def _blocks_at(text: str) -> list[tuple[int, list[str]]]:
             cur = []
         elif raw == "  " and cur and _is_character(cur[0]):
             continue
+        elif _PIC.fullmatch(raw):  # a paragraph of its own, even written right above a speaker or action with no blank line
+            if cur:
+                blocks.append((start, cur))
+            blocks.append((n, [raw.strip()]))
+            cur = []
         else:
             if not cur:
                 start = n
@@ -177,6 +208,8 @@ def _block_content(block: list[str]) -> list[dict]:
     first = block[0].strip()
     if first.startswith("==="):
         return [{"t": "break"}]  # a page break: the next picture starts here (a writer's way to say "new shot" where two actions would be read as one)
+    if pic := _PIC.fullmatch(first):
+        return [{"t": "break", "direction": " ".join((pic["text"] or "").split())}]
     if first.startswith("=") and not first.startswith("=="):
         return []  # a synopsis is a note to the writer
     m = _SECTION.match(first)
@@ -210,7 +243,8 @@ def _block_content(block: list[str]) -> list[dict]:
 
 
 def parse(text: str, *, lines: bool = False) -> list[dict]:
-    """The screenplay's elements in order: {t: scene|action|dialogue|transition|section|centred, ...}. A title page and synopses are left out; a page break (`===`) is {t: break}.
+    """The screenplay's elements in order: {t: scene|action|dialogue|transition|section|centred, ...}. A title page and synopses are left out; a page break (`===`) is {t: break},
+    a Pic note {t: break, direction} (one written with a page break is one break).
     With `lines`, each element also says the line (counting from 0) of the text it starts on."""
     blocks = _blocks_at(_blank_comments(_readable(_normal(text))) if lines else _clean(text))  # to say where each element is, a note or boneyard keeps its line breaks
     if blocks and all(_ANY_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
@@ -223,6 +257,10 @@ def parse(text: str, *, lines: bool = False) -> list[dict]:
             for el in _plain_elements(_block_elements(piece)):
                 if n == 0 and len(pieces) > 1 and el["t"] == "dialogue":
                     el["dual"] = False  # written together with no blank line, only the second can be the one that speaks over the first
+                if el["t"] == "break" and out and out[-1]["t"] == "break":  # a Pic note and a page break written together are one break
+                    if "direction" in el:
+                        out[-1].setdefault("direction", el["direction"])  # of two Pic notes together the first is the picture (the check says so)
+                    continue
                 out.append({**el, "line": at} if lines else el)
     return out
 
@@ -319,7 +357,11 @@ def _scenes(elements: list[dict]) -> list[Scene]:
     pending: list[tuple[int, str]] = []
     pending_at: int | None = None  # the line of the first section written above the next scene
     pending_syn: list[str] = []  # synopses written under a section, before the scene it starts
+    waiting: list[dict] = []  # a Pic note under a section, or above the first scene: it directs the next scene's first picture
     for el in elements:
+        if el["t"] == "break" and "direction" in el and (pending or not scenes):
+            waiting.append(el)
+            continue
         if el["t"] == "synopsis":
             if scenes and not pending:
                 scenes[-1].synopses.append(el["text"])
@@ -341,7 +383,8 @@ def _scenes(elements: list[dict]) -> list[Scene]:
                 scenes[-1].markers += pending
                 pending, pending_at = [], None
         if scenes:
-            scenes[-1].elements.append(el)
+            scenes[-1].elements += [el, *waiting] if el["t"] == "scene" else [*waiting, el]
+            waiting = []
     return scenes
 
 
@@ -561,6 +604,9 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
             beat["at"] = at
         carry["held_at"] = None
         scene_first[0] = False
+        if carry.get("direction"):
+            beat["direction"] = carry["direction"]
+        carry["direction"] = None
         if held:
             beat["transition_text"] = held[-1]
             kind = transition_kind(held[-1])
@@ -618,9 +664,19 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
                     cur["picture"] = ""
                     cur["card"] = {"title": title, "text": more.replace("\n", " ")}
                 fresh_scene = False
+            elif t == "break" and "direction" in el and fresh_scene and cur is not None and not (cur["lines"] or cur["sung"] or cur.get("card")):
+                # a Pic note right under a scene heading directs the heading's own picture: cutting there would leave a picture of the heading alone
+                if el["direction"] and not cur.get("direction"):  # (one already written above the heading came first, and stays)
+                    cur["direction"] = el["direction"]
+                if ln is not None and "at" in cur:
+                    cur["at"] = min(cur["at"], ln)  # (one written above the heading, under its section, is the beat's own text too)
             elif t == "break":
                 cur = None
                 fresh_scene = False
+                if "direction" in el:
+                    carry["direction"] = el["direction"] if carry.get("direction") is None else carry["direction"]
+                    if ln is not None and carry["held_at"] is None:
+                        carry["held_at"] = ln  # the note is the first line of the picture it starts, so it is in that beat's own text
             elif t == "transition":
                 held.append(el["text"])
                 if ln is not None and carry["held_at"] is None:
@@ -1134,7 +1190,7 @@ def check(plan: Plan) -> list[str]:
 def _blank_comments(text: str) -> str:
     """The text with each note and boneyard replaced by as many line breaks as it held, so every line keeps its number."""
     keep = lambda m: "\n" * m.group().count("\n")  # noqa: E731
-    return _NOTE.sub(keep, _BONEYARD.sub(keep, text))
+    return _notes_out(_BONEYARD.sub(keep, text), keep)
 
 
 def chapter_texts(text: str, plan: Plan) -> "dict[int, str] | None":
@@ -1221,12 +1277,12 @@ def mark_cards(rows: list[dict], plan: Plan) -> None:
 
 def attach_source(imp: dict, plan: Plan, story: str) -> None:
     """Give the records an import plan is about to make (`beat_import.import_plan`) what the screenplay said that the beat sheet cannot carry: each
-    beat's own text as written (`fountain`) and the transition written before it, each line's own text (`fountain`) and whether it is spoken over
-    the line before (`simultaneous`). New records only; one that exists is left as it is."""
+    beat's own text as written (`fountain`), the transition written before it and the Shot direction of its Pic note, each line's own text
+    (`fountain`) and whether it is spoken over the line before (`simultaneous`). New records only; one that exists is left as it is."""
     by_number = {n: b for _c, n, b in plan.rows()}
     for _slug, _title, data in imp["beats"]:
         beat = by_number.get(str(data.get("number")))
-        for key in ("fountain", "transition", "transition_text"):
+        for key in ("fountain", "transition", "transition_text", "direction"):
             if beat and beat.get(key):
                 data[key] = beat[key]
         place = place_of(beat.get("place", "")) if beat else None

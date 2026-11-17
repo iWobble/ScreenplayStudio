@@ -1294,6 +1294,8 @@ def _import_beats(job: dict, ctx: Context) -> dict:
                 hand_set.append(f"beat {number} {said}")
             if (seconds := fountain.transition_seconds(beat)) and not data.get("transition_seconds"):
                 add["transition_seconds"] = seconds
+            if beat.get("direction") and not str(data.get("direction") or "").strip():
+                add["direction"] = beat["direction"]  # a Pic note's words reach a beat with no Shot direction; one a person wrote is theirs
             add.update(_cast_for(story, beat, characters, people, data))
         if rec and add:
             link.append((rec, add))

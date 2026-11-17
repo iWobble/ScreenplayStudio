@@ -1003,6 +1003,7 @@ def test_a_beat_has_shot_direction_for_fresh_and_older_workspaces_and_the_still_
     # an update never changes a type the workspace has: the entry_fields blueprint adds it there, the same field a fresh install gets
     assert added["kind"] == "entry_fields" and added["payload"]["entry_type"] == "beat" and added["payload"]["fields"] == [own]
     assert own["type"] == "textarea" and own["group"] == "The shot"
+    assert "[[Pic: " in own["helpText"]  # the Fountain note that fills it on import (v199)
     slugs = list(blueprints)
     assert slugs.index("beat-direction-field") > slugs.index("beat")
     prompt = sent_text(_flow("screenplay-take-still")["actions"], "still")
