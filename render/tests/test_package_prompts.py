@@ -677,7 +677,7 @@ def test_the_narrate_setup_offers_the_clear_last_only_to_start_over_and_no_other
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     steps = blueprints["narrate-a-story"]["payload"]["steps"]
     ids = [s["id"] for s in steps]
-    assert ids[-1] == "clear" and ids.index("ready") == len(ids) - 2  # after "Check what you have": nobody walks into it on the way
+    assert ids[-1] == "clear" and ids.index("ready") < len(ids) - 2  # after "Check what you have": nobody walks into it on the way
     clear = steps[ids.index("clear")]
     assert clear["help"].startswith("Only if you want to start over:")
     assert clear["kind"] == "run" and clear["workflow"] == "screenplay-clear-story" and clear["inputs"] == {"story": "${story}"}
@@ -685,6 +685,27 @@ def test_the_narrate_setup_offers_the_clear_last_only_to_start_over_and_no_other
     assert "Check the split" in clear["help"] and "Bring in the chapters" in clear["help"] and "30 days" in clear["help"]
     forever = [b["slug"] for b in blueprints.values() if b["kind"] == "workflow" and '"mode": "permanent"' in json.dumps(b["payload"]["definition"])]
     assert forever == ["screenplay-clear-story"]
+
+
+def test_the_narrate_setup_makes_the_script_after_the_check_and_before_the_clear_once_the_beats_are_in():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    steps = blueprints["narrate-a-story"]["payload"]["steps"]
+    ids = [s["id"] for s in steps]
+    assert ids.index("script") == ids.index("ready") + 1 == len(ids) - 2  # Clear what the import made stays last
+    script = steps[ids.index("script")]
+    assert script["kind"] == "run" and script["workflow"] == "screenplay-make-script" and script["button"] == "Make the script (PDF)"
+    assert script["inputs"] == {"story": "${story}", "version": "production"}
+    flow = blueprints[script["workflow"]]
+    assert flow["kind"] == "workflow"
+    trigger = flow["payload"]["definition"]["trigger"]
+    assert trigger["type"] == "manual" and {i["name"] for i in trigger["inputs"]} == set(script["inputs"])
+    assert "production" in next(i for i in trigger["inputs"] if i["name"] == "version")["options"]
+    # No beats, no script: the button stays off until the import has written its log, and the page links to the import, whose report it is.
+    import_step = steps[ids.index("import")]
+    assert script["requires"] == {"entry": "story", "field": "sheet_log"} == {"entry": "story", "field": import_step["report"]["field"]}
+    # The job's own line (".pdf is the one to share") is the result: a report would hide it, and a file field reads as its id.
+    assert "report" not in script and "show" not in script
+    assert all(w in script["help"] for w in ("Courier 12", "as they are now", "Nothing makes it by itself", "Script (PDF)"))
 
 
 def _setups() -> tuple[dict, dict]:
