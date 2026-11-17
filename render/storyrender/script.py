@@ -126,6 +126,45 @@ def _info_card_note(d: dict) -> str:
     return f"[[Info card: {re.sub(' {2,}', ' ', ' | '.join(slots)).strip()}]]"
 
 
+_EXPORTED_NOTE = re.compile(
+    r"(?:pic\b|beat\s+[\w.-]+\.(?:\s|$)|scene\s.+?\.\s(?:place|light|set dressing|continuity):|info\s+card\s*:|changes\s*:|hold\s*:|sound\s*:|"
+    r"shows\s*:|ambience\s*:|transition\s*:)",
+    re.I,
+)
+"""The notes the complete script writes itself (a Pic note, the beat's and the scene's notes, the info card, the changes, holds, sounds, the
+ambience): one the text holds of these is written again from the records, never twice."""
+_CHARACTER_NOTE = re.compile(r"[A-Z0-9][A-Z0-9 '\u2019.\-]* is \S")  # `[[NARRATOR is Narrator. Role: …]]`, written for each character
+
+
+def _carried(text: str) -> dict[str, list[str]]:
+    """The writer's own notes a beat's (or the front matter's) text holds that the complete script does not write itself (`[[Sentence: …]]`,
+    `[[Silent on purpose: …]]`, a comment), each alone on its line outside a speech, as written and in order, by where they stand: `before` its
+    Pic note (or its picture), `after_pic` right under its Pic note, and `end` after its picture and lines. A scene heading, transition, section or
+    page break is the export's own and moves nothing."""
+    out: dict[str, list[str]] = {"before": [], "after_pic": [], "end": []}
+    lines = str(text or "").replace("\r\n", "\n").split("\n")
+    has_pic = any(fountain_mod._PIC.fullmatch(ln) for ln in lines)
+    where, in_speech, start = "before", False, True
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            in_speech, start = False, True
+            continue
+        if start and fountain_mod._is_character(s):
+            in_speech = True  # a speech, up to the next blank line: its notes are the line's, written again from the records
+        start = False
+        if fountain_mod._PIC.fullmatch(ln) and not in_speech:
+            where = "after_pic"
+        elif (note := fountain_mod._NOTE_LINE.fullmatch(ln)) and not in_speech:
+            words = note["text"].strip()
+            if not (_EXPORTED_NOTE.match(words) or _CHARACTER_NOTE.match(words)):
+                out[where].append(s)
+        elif not (fountain_mod._is_scene(s) or fountain_mod._is_transition(s) or s.startswith(("#", "=", "==="))):
+            if where == "after_pic" or not has_pic:
+                where = "end"  # the picture's own words or a speech: what follows is after them
+    return out
+
+
 def _heading_line(heading: str, tag: str, scene: dict, when: str = "") -> str:
     """A scene's heading line: `INT. CAPTAIN'S CABIN #2#` when the scene says whether it is inside or outside (its Inside or outside field: the
     other way from what the import reads), else a forced heading (`.CAPTAIN'S CABIN #2#`) as before."""
@@ -269,7 +308,8 @@ def fountain_complete(records: dict) -> str:
     length, music), each character as a note with their role, costume, props and rules, each scene as a heading with its place, light, set dressing,
     continuity and ambience, each beat as the picture (its Shot direction a `[[Pic: …]]` note above it) with a note of its hold, focus, expression,
     camera move, cast and sounds (its info card and changes as the `[[Info card: …]]` and `[[Changes: …]]` notes the import reads), each spoken line as dialogue with its direction and voice. A page break (`===`) keeps each beat its own picture when
-    the Fountain is read again; notes (`[[ ]]`) keep what has no element of its own, so nothing a person put into the records is lost in the file."""
+    the Fountain is read again, except above a picture its Pic note starts; notes (`[[ ]]`) keep what has no element of its own, and the writer's own notes
+    in the story's and each beat's text are written back where they stood (`_carried`), so nothing a person put into the records is lost in the file."""
     story = records["story"]
     sd = _data(story)
     scenes, sounds, chapters = records.get("scenes", {}), records.get("sounds", {}), records.get("chapters", {})
@@ -289,6 +329,9 @@ def fountain_complete(records: dict) -> str:
         out.append(f"Length: about {seconds}")
     out += _setting_lines(sd)
     out.append("")
+    front = _carried(sd.get("fountain_front"))  # the writer's notes under the title page ([[Production: …]], [[Continuity: …]]), as written
+    if any(front.values()):
+        out += [*front["before"], *front["after_pic"], *front["end"], ""]
     for ch in records.get("characters", []):  # who is in it, and what is said of each (the cast, costume and props belong to the story, not to a scene)
         cd = _data(ch)
         bits = [x for x in (_say("Role", cd.get("role")), _say("Costume", cd.get("costume")), _say("Props", cd.get("props")), _say("Rules", cd.get("rules")), _say("Played by", cd.get("actor"))) if x]
@@ -305,9 +348,12 @@ def fountain_complete(records: dict) -> str:
         when = _clean(d.get("time_of_day"))
         new_scene = bool(scene_slug) and (scene_slug != scene_now or bool(when and when != time_now))  # a new place, or the same place at another time of day
         transition = _transition_line(d, first)
+        words = _card_words(d)
+        shot = _clean(d.get("direction")).replace("]]", "]")
+        kept = _carried(d.get("fountain"))  # the writer's own notes in the beat's text, put back where they stood (v204)
         if not first:
-            if not new_chapter:
-                out += ["===", ""]  # each beat is its own picture (a chapter heading starts one itself)
+            if not new_chapter and not (shot and not words):
+                out += ["===", ""]  # each beat is its own picture (a chapter heading starts one itself, and so does a Pic note, as the import reads it)
             if transition:
                 out += [transition, ""]  # the transition into this beat (CUT TO:): above a chapter heading, which a transition below it would not leave one
         if new_chapter:
@@ -345,10 +391,12 @@ def fountain_complete(records: dict) -> str:
             picture = ""
         if picture and (fountain_mod._is_scene(picture) or fountain_mod._is_transition(picture) or picture.isupper() or picture[0] in "@#=~>!."):
             picture = "!" + picture  # forced action: a picture that begins like a heading, a cue or a transition is still only a picture
-        words = _card_words(d)
-        shot = _clean(d.get("direction")).replace("]]", "]")
-        if shot and not words:
-            out += [f"[[Pic: {shot}]]", ""]  # the Shot direction, as the note that gives it when the Fountain is read again (it starts no second picture)
+        if kept["before"]:
+            out += ["\n".join(kept["before"]), ""]
+        if shot and not words:  # the Shot direction, as the note that gives it when the Fountain is read again (it starts no second picture)
+            out += ["\n".join([f"[[Pic: {shot}]]", *kept["after_pic"]]), ""]
+        elif kept["after_pic"]:
+            out += ["\n".join(kept["after_pic"]), ""]
         if words:  # a plain card: its words centred, which is how a screenplay writes one (and how it is read back), in place of a picture
             out += ["\n".join(f"> {w} <" for w in words), ""]
         elif picture or not (heading_only and (new_scene or shot or any(_clean(_data(ln).get("text")) for ln in lines_by_beat.get(beat.get("slug", ""), [])))):
@@ -392,6 +440,8 @@ def fountain_complete(records: dict) -> str:
             out.append(words)
             extra = [x for x in (None if inline else _say("Delivery", ld.get("delivery_text")), _say("Voice", ld.get("voice")), _say("Note", ld.get("take_notes"))) if x]
             out += ([f"[[{' '.join(extra)}]]"] if extra else []) + [""]
+        if kept["end"]:
+            out += ["\n".join(kept["end"]), ""]
         first = False
     if _clean(sd.get("end_transition")).lower() == "fade":
         out += ["FADE OUT.", ""]  # after the last beat: how the film ends

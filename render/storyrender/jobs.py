@@ -575,6 +575,20 @@ def _people_fill(ctx: Context, story: str, fplan) -> list[tuple[dict, dict]]:
     return out
 
 
+def _scenes_fill(ctx: Context, story: str, fplan) -> list[tuple[dict, dict]]:
+    """Scenes the story has whose place, light, set dressing or continuity is empty, given what a `[[Scene …]]` note naming them says (a complete
+    script brought in again). Only an empty field is filled, never one a person set."""
+    said = fountain.scenes_said(fplan)
+    out: list[tuple[dict, dict]] = []
+    for rec in _all(ctx.creds, {"entry_type": "scene", "data": {"story": story}}) if said else []:
+        fields = said.get(str(rec.get("slug") or "").removeprefix(f"{story}-"))
+        data = rec.get("dataJson") or {}
+        missing = {k: v for k, v in (fields or {}).items() if not str(data.get(k) or "").strip()}
+        if missing:
+            out.append((rec, missing))
+    return out
+
+
 def _made_for_a_beat(story: str, slug: str) -> bool:
     """A Sound the import made for one beat's own words (`story-sound-1002-1`), as against a bed, a score or one that was uploaded."""
     return bool(re.fullmatch(rf"{re.escape(story)}-sound-\d+[a-z]*-\d+", slug))
@@ -622,12 +636,16 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
     if not str((story_row.get("dataJson") or {}).get("music") or "").strip() and score not in have_sounds:  # a placeholder for the music under the film: delete it if there is no score
         said = " ".join(c.summary for c in fplan.chapters if c.summary)
         out.append(("sound", (score, f"{story_row.get('title') or story} score", {"story": story, "kind": "music", "prompt": f"Background music for the film “{story_row.get('title') or story}”." + (f" What happens: {said}" if said else ""), "source": "generated", "loop": True, "status": "draft"})))
+    said = fountain.scenes_said(fplan)  # what a complete script's `[[Scene …]]` note says of each place (v204)
     for slug_key, place in fplan.places.items():
         slug = f"{story}-{slug_key}"
         if slug not in want or slug in have_scenes:
             continue
         kind = fountain.kind_of_places(place["kinds"])  # INT. / EXT. kept as a field of its own, not as words in the place
         data = {"story": story, "place": place["name"], "inside_outside": kind, "look": ", ".join(place["times"]), "status": "draft"}
+        for key, value in said.get(slug_key, {}).items():  # the scene as the records had it, in place of what the heading alone would give
+            if value.rstrip(".") != str(data.get(key) or ""):
+                data[key] = value
         if kind == "interior":  # heard from inside: its own bed and the story's run on muffled, until someone unticks them
             data["ambience_muffled"] = True
             data["story_ambience_muffled"] = True
@@ -1319,6 +1337,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
             data.setdefault("character", _character_slug(story, str(data["speaker"]), people))
     extra = _implied(ctx, story, story_row, fplan, plan, link, characters, fresh=fresh)
     people = [] if fresh else _people_fill(ctx, story, fplan)  # a replace starts afresh: its Characters are made new
+    people += [] if fresh else _scenes_fill(ctx, story, fplan)  # and its Scenes; one there with an empty field gets what the Scene note says
     writes = len(extra) + len(plan["chapters"]) + len(plan["beats"]) + len(plan["lines"]) + len(plan["updates"]) + len(link) + len(fill) + len(people) + len(plan["trash"])
     if writes:  # said once, before the first write: a feature takes minutes, and the page shows only that the job is running
         there = plan["have"]["beats"] + plan["have"]["lines"] + plan["have"]["chapters"]
@@ -1484,7 +1503,7 @@ def _write(ctx: Context, types: dict, extra: list, plan: dict, link: list, fill:
             patch(rec["id"], {"title": title, "slug": rec["slug"], "dataJson": merged})
         for rec, missing in fill:  # a chapter made before chapters held their own text and summary gets them; a PATCH replaces dataJson, so send it whole
             patch(rec["id"], {"title": rec.get("title"), "slug": rec["slug"], "dataJson": {**(rec.get("dataJson") or {}), **missing}})
-        for rec, missing in people:  # a Character made before Age and Sex were fields gets them from the screenplay (a PATCH replaces dataJson, so send it whole)
+        for rec, missing in people:  # a Character made before Age and Sex were fields gets them from the screenplay, a Scene what its note says (a PATCH replaces dataJson, so send it whole)
             patch(rec["id"], {"title": rec.get("title"), "slug": rec["slug"], "dataJson": {**(rec.get("dataJson") or {}), **missing}})
         for _slug, record_id in plan["trash"]:  # DELETE moves an entry to the Trash, where it can be restored
             marvin_api.request(ctx.creds, f"/api/platform/entries/{record_id}", method="DELETE")

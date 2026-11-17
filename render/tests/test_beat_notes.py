@@ -200,6 +200,8 @@ def test_a_story_with_none_of_the_new_fields_exports_exactly_as_before(casting):
     made = exports(casting)
     for name in ("records", "max", "ending"):  # no info card, no changes, no picture that is only its heading: byte for byte
         assert made[name] == (DATA / f"{name}.fountain").read_text(encoding="utf-8"), name
-    # DIRECTED's third picture is only its heading (a Pic note and a speech): v200 wrote it as forced action, and that line is the one difference
+    # DIRECTED's third picture is only its heading (a Pic note and a speech): v200 wrote it as forced action (v201 writes none), and its pictures
+    # with a Pic note had a page break above them, which the Pic note already is (v204): those are the only differences
     before = (DATA / "directed.fountain").read_text(encoding="utf-8")
-    assert before.count("!EXT. DECK - NIGHT\n\n") == 1 and made["directed"] == before.replace("!EXT. DECK - NIGHT\n\n", "")
+    assert before.count("!EXT. DECK - NIGHT\n\n") == 1 and before.count("===\n\n[[Pic:") == 3
+    assert made["directed"] == before.replace("!EXT. DECK - NIGHT\n\n", "").replace("===\n\n[[Pic:", "[[Pic:")
