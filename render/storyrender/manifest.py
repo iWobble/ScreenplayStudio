@@ -159,6 +159,8 @@ class Shot:
     """How long that fade or dissolve lasts, taken from the two shots around the cut (0 for a cut). On the first shot it is the fade up from black."""
     chapter: str | None = None
     """The id of the chapter this shot belongs to (a story is cut into chapters; see `chapters.py`)."""
+    beat_ambience: Ambience | None = None
+    """A beat's own bed, laid over `ambience` (its scene's), which runs on under it without a seam: a cheer over the tavern. None: only the scene's."""
 
 
 @dataclass
@@ -259,6 +261,16 @@ def _line_volume(value, where: str) -> float:
         raise ManifestError(f"{where}: volume is 0–1 (got {level})")
     return level
 
+
+def _ambience(amb: dict, audio_path: Callable[[str, str], Path], where: str) -> Ambience:
+    """A shot's bed (`ambience`, its scene's; `beat_ambience`, the beat's own over it) from the manifest."""
+    return Ambience(
+        audio_path(amb.get("audio") or "", where), float(amb.get("volume", 0.5)), bool(amb.get("muffled", False)), amb.get("id"),
+        fade_in=float(amb.get("fade_in") or 0), fade_out=float(amb.get("fade_out") or 0),
+        fade_in_set=bool(amb.get("fade_in_set")), fade_out_set=bool(amb.get("fade_out_set")),
+    )
+
+
 def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True) -> Manifest:
     """Read and check a manifest. `probe` measures an audio file's seconds (ffprobe in real use). `need_stills=False` is for
     listening: a shot's still may be missing then, because only the sound is made."""
@@ -310,12 +322,9 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
                 raise ManifestError(f"{where}: transition_seconds is more than 0 and at most {MAX_TRANSITION:g} (got {seconds:g})")
             shot.transition, shot.transition_seconds = kind, seconds
         if s.get("ambience"):
-            amb = s["ambience"]
-            shot.ambience = Ambience(
-                audio_path(amb.get("audio") or "", f"{where} ambience"), float(amb.get("volume", 0.5)), bool(amb.get("muffled", False)), amb.get("id"),
-                fade_in=float(amb.get("fade_in") or 0), fade_out=float(amb.get("fade_out") or 0),
-                fade_in_set=bool(amb.get("fade_in_set")), fade_out_set=bool(amb.get("fade_out_set")),
-            )
+            shot.ambience = _ambience(s["ambience"], audio_path, f"{where} ambience")
+        if s.get("beat_ambience"):
+            shot.beat_ambience = _ambience(s["beat_ambience"], audio_path, f"{where} beat_ambience")
         if s.get("overlay"):
             ov = s["overlay"]
             blend = str(ov.get("blend") or "normal")

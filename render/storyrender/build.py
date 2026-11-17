@@ -11,11 +11,12 @@ import math
 import re
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import captions, ffmpeg
-from .manifest import MAX_SHORT_SECONDS, Ambience, Manifest, Move, Overlay, PlannedShot, Rock, Timeline, plan
+from .manifest import MAX_SHORT_SECONDS, Ambience, Manifest, Move, Overlay, PlannedShot, Rock, Shot, Timeline, plan
 
 SUPERSAMPLE = 2  # zoompan on a larger picture moves smoothly instead of in whole-pixel steps
 SAMPLE_RATE = 48000
@@ -247,14 +248,21 @@ class Bed:
     levels: list[tuple[float, float, float]] = field(default_factory=list)  # (from, to, volume) in timeline seconds
     level_expr: str | None = None  # the whole level over time, when it eases between shots (the story's bed, a scene turns it down): film seconds
     muffle_expr: str | None = None  # 0 (heard as it is) to 1 (heard from inside) over time: the bed crossfades between the two, so there is no seam
+    over: bool = False  # a beat's own bed, laid over its scene's (which runs on under it)
 
 
 def beds(timeline: Timeline) -> list[Bed]:
     """Group consecutive shots that share an ambience (same sound, same muffling) into one bed each. The level can change shot to shot
-    inside a bed (the cabin goes quiet for the letters) without the sound restarting."""
+    inside a bed (the cabin goes quiet for the letters) without the sound restarting. The scenes' beds come first, as they always did, then the
+    beats' own beds laid over them, grouped the same way; a beat's bed that is silent throughout (level 0) is left out."""
+    over = [run for run in _runs(timeline, lambda shot: shot.beat_ambience, over=True) if any(v > 0 for _, _, v in run.levels)]
+    return _runs(timeline, lambda shot: shot.ambience) + over
+
+
+def _runs(timeline: Timeline, bed_of: Callable[[Shot], Ambience | None], *, over: bool = False) -> list[Bed]:
     runs: list[Bed] = []
     for planned in timeline.shots:
-        amb = planned.shot.ambience
+        amb = bed_of(planned.shot)
         if amb is None:
             continue
         key = (amb.audio, amb.muffled)
@@ -263,7 +271,7 @@ def beds(timeline: Timeline) -> list[Bed]:
             last.end = planned.start + planned.duration
             last.levels.append((planned.start, last.end, amb.volume))
         else:
-            runs.append(Bed(amb, planned.start, planned.start + planned.duration, [(planned.start, planned.start + planned.duration, amb.volume)]))
+            runs.append(Bed(amb, planned.start, planned.start + planned.duration, [(planned.start, planned.start + planned.duration, amb.volume)], over=over))
     return runs
 
 
@@ -319,7 +327,7 @@ def _with_ambience(
     timeline: Timeline, narration: Path, end_fade: float | None = None, story_bed: Ambience | None = None, start_fade: float | None = None, ambience_duck: str = ""
 ) -> Path:
     """The narration with its ambience beds under it (the same file when there are none). The story's own bed runs under the whole film and
-    plays together with the beds of the beats and scenes, which layer over it."""
+    plays together with the beds of the scenes, which layer over it, and a beat's own bed layers over its scene's."""
     runs = beds(timeline)
     if story_bed is not None and timeline.duration > 0:
         runs.insert(
@@ -569,8 +577,8 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
         "output": str(out),
         "seconds": round(float(ffmpeg.probe(out)["format"]["duration"]), 3),
         "ambience": [
-            {"id": b.ambience.ref, "start": round(b.start, 3), "end": round(b.end, 3), "muffled": b.ambience.muffled, "levels": [[round(x, 3), round(y, 3), v] for x, y, v in b.levels]}
-            for b in beds(timeline)
+            {"id": b.ambience.ref, "start": round(b.start, 3), "end": round(b.end, 3), "muffled": b.ambience.muffled, "levels": [[round(x, 3), round(y, 3), v] for x, y, v in b.levels], **({"over": "scene"} if b.over else {})}
+            for b in beds(timeline)  # a beat's own bed says it is laid over its scene's
         ],
         "timeline": [
             {
