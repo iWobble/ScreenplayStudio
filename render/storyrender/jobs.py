@@ -1296,6 +1296,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
                 add["transition_seconds"] = seconds
             if beat.get("direction") and not str(data.get("direction") or "").strip():
                 add["direction"] = beat["direction"]  # a Pic note's words reach a beat with no Shot direction; one a person wrote is theirs
+            add.update(fountain.notes_to_fill(data, beat.get("fountain") or ""))  # so do its Info card and Changes notes, the same way
             add.update(_cast_for(story, beat, characters, people, data))
         if rec and add:
             link.append((rec, add))

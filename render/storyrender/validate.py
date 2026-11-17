@@ -60,6 +60,12 @@ _PIC = re.compile(r"\[\[\s*pic\b", re.I)
 _HOLD = re.compile(r"hold\s*:\s*\d+(?:\.\d+)?\s*s?\s*\.?$", re.I)
 _AT = re.compile(r"\bat\s+(\S+)", re.I)
 _AT_OK = re.compile(r"\d+(?:\.\d+)?s?[.,;]?$", re.I)
+_BEAT_NOTES = (  # the notes a picture's text gives its beat's fields from: (code, how one starts, how it is read, whether it says anything, its name, the fix)
+    ("info-card-unread", re.compile(r"\[\[\s*info\s+card\s*:", re.I), F._INFO_CARD_NOTE, lambda words: bool(F.info_card(words)), "Info card",
+     "write it alone on its line inside the picture it belongs to, outside a speech: `[[Info card: label | title | sentence]]` (one slot alone is the title)"),
+    ("changes-unread", re.compile(r"\[\[\s*changes\s*:", re.I), F._CHANGES_NOTE, lambda words: bool(words.strip()), "Changes",
+     "write it alone on its line inside the picture it belongs to, outside a speech: `[[Changes: what stays changed from here on]]`"),
+)  # fmt: skip
 
 
 def _notes(text: str) -> list[Finding]:
@@ -73,6 +79,11 @@ def _notes(text: str) -> list[Finding]:
                 out.append(Finding(row, "look", "pic-unread", "a [[Pic note that is not on a line of its own, is inside a speech or is not closed on its line is only a note: it starts no picture", "write it as `[[Pic: what the picture shows]]` alone on its line, before the speaker or the action of the picture it starts"))
             elif len(pic["text"] or "") > F.PIC_CHARS:
                 out.append(Finding(row, "look", "pic-long", f"the Pic note's direction is {len(pic['text'])} characters: the still reads it as the shot, and more than {F.PIC_CHARS} is more than a shot", "keep it to where the camera looks and what the frame holds; the action says the rest"))
+        for code, start, pattern, has_words, name, fix in _BEAT_NOTES:
+            if start.match(body):
+                read = F._alone(m, pattern) if body.endswith("]]") else None
+                if not (read and has_words(read["text"])):
+                    out.append(Finding(row, "look", code, f"a [[{name}: note with no words, not on a line of its own, inside a speech or not closed on its line is only a note: nothing is read from it", fix))
         if not body.endswith("]]"):
             out.append(Finding(row, "error", "note-open", "a note is opened with [[ and never closed, so it is ignored (a note ends at its ]] or at a blank line)", "close it with ]] on the same paragraph"))
             continue
