@@ -769,7 +769,7 @@ def test_a_paid_button_names_the_service_its_workflow_calls_and_only_the_fields_
     casting = setups["casting-call"]
     master, write = casting["master"]["paid"], casting["master_prompt_write"]["paid"]
     assert master["service"] == "OpenAI Images" and '"integration": "openai_images"' in workflow(casting["master"]["workflow"])
-    assert master["entry"] == "role" and master["sends"] == master["needs"] == ["master_prompt"] and sent(casting["master"]["workflow"], "master_prompt")
+    assert master["entry"] == "role" and master["sends"] == master["needs"] == ["master_prompt", "age_state"] and sent(casting["master"]["workflow"], "master_prompt")
     assert '"kind": "agent"' in workflow(casting["master_prompt_write"]["workflow"])  # an AI call, by whichever model the workspace runs
     assert write["entry"] == "role" and set(write["needs"]) <= set(write["sends"]) <= fields("cast-member")
     assert all(sent(casting["master_prompt_write"]["workflow"], key) for key in write["sends"])
