@@ -44,7 +44,7 @@ Heavy jobs run on a generic worker (`InnerOpen/marvin-worker`): a standing runne
 
 ## Rules that cost us time
 
-- One approval covers every paid call after it in a run; a repeat cannot hold its own approval, and repeats take at most 25 items. Word the approval with line and character counts, and check usage on the free ElevenLabs tier (10,000 characters per period).
+- One approval a person answers covers every paid call after it in that run (one passed by `approved_when` covers none: v206); a repeat cannot hold its own approval, and repeats take at most 25 items. Word the approval with line and character counts, and check usage on the free ElevenLabs tier (10,000 characters per period).
 - A spend approval shows the prompt it guards as an editable box (`fields: [{name: prompt, value: <the prompt>}]`) and the paid step sends `${steps.spend.output.fields.prompt}`: assemble the prompt once, in the box, never in the step and the message both. The Keep / Redo question carries the same box with `redo: "Redo"`, so a changed prompt starts the next try; a page's pre-approval is `approved_when`, not `when`.
 - Say "no alphabet characters, signs or captions" in a picture rule, never "no letters": letters are props.
 - After any upload, check the stored `mimeType`; a call can succeed and store the wrong type.

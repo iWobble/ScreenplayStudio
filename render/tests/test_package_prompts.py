@@ -70,14 +70,15 @@ def _flow(slug: str) -> dict:
     return json.loads(workflow(slug))
 
 
-def test_a_batch_approval_covers_every_still_and_sound_so_the_single_workflow_asks_nothing_more_and_uses_the_flag_up():
-    for single in ("screenplay-take-still", "screenplay-take-sound"):
+def test_a_batch_queues_every_still_and_sound_each_asks_its_own_spend_and_none_asks_keep_and_the_flag_is_used_up():
+    for single in ("screenplay-take-still", "screenplay-take-sound", "screenplay-take-sound-created"):
         acts = _flow(single)["actions"]
         assert acts[0]["data"] == {"spend_approved": "used"} and acts[0]["when"]["value"] == "yes"  # used up first: a later redo asks again
         asked = {a["id"]: a for a in acts if a.get("kind") == "approval"}
         assert set(asked) == {"spend", "keep"}
-        # a page that already had it approved: the spend goes on unasked (its prompt box still feeds the call), Keep is not asked
-        assert asked["spend"]["approved_when"] == {"field": "entry.data.spend_approved", "op": "eq", "value": "yes"} and "when" not in asked["spend"]
+        # v206: Marvin runs a paid call only in a run a person approved (an approved_when is nobody's approval), so the spend is always asked;
+        # a batch's flag only leaves out the Keep question
+        assert "approved_when" not in asked["spend"] and "when" not in asked["spend"]
         assert asked["keep"]["when"] == {"field": "entry.data.spend_approved", "op": "neq", "value": "yes"}
     for batch, noun in (("screenplay-make-stills", "beat"), ("screenplay-make-sounds", "sound")):
         acts = _flow(batch)["actions"]
