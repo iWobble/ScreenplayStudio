@@ -127,6 +127,10 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     if story_row is None:
         raise PullError(f"no story “{story}” in the workspace the CLI is signed in to")
     beats = sorted((e for e in rows if e.get("slug", "").startswith(f"{story}-beat-") and data(e).get("story") == story), key=lambda e: numbering.order_key(data(e).get("number")))
+    # A cue row follows its line (v221): one left on the beat its line was moved away from is given to the beat that holds the line now.
+    cue_rows, unplaced = lines_of.cues_by_beat(beats, lines_of.of_story(rows, story, include_left_out=True))
+    data_of = {b["slug"]: data(b) for b in beats}
+    with_cues = lambda b: {**data(b), "cues": cue_rows.get(b["slug"], [])}  # noqa: E731  # a beat's data with the cue rows of its lines
     if chosen is not None:
         beats = [b for b in beats if chosen(data(b).get("number"))]
         if not beats:
@@ -140,7 +144,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and ("ambience" in data(e) or "ambience_muffled" in data(e) or "overlay" in data(e) or "story_ambience_volume" in data(e) or "story_ambience_muffled" in data(e) or "music_volume" in data(e) or "camera" in data(e))}  # scenes that name an ambience or an overlay, or say how a bed is heard in them (a beat's own follows its scene's muffling)
     # Sounds belong to the library, not to a story: each is found by the slug a beat or scene names, whichever story made it.
     wanted = {str(item.get("sound")) for b in beats for item in (data(b).get("sounds") if isinstance(data(b).get("sounds"), list) else []) if isinstance(item, dict)}
-    wanted |= {str(c["sound"]) for b in beats for c in _cues(data(b)) if c.get("sound")}  # a sound on a word of a line (v211)
+    wanted |= {str(c["sound"]) for b in beats for c in _cues(with_cues(b)) if c.get("sound")}  # a sound on a word of a line (v211)
     wanted |= {str(data(sc).get("ambience")) for sc in scenes.values() if data(sc).get("ambience")}
     wanted |= {str(data(b).get("ambience")) for b in beats if data(b).get("ambience")}  # a beat's own bed, and the story's default
     if data(story_row).get("ambience"):
@@ -176,11 +180,12 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             spoken.append(entry)
             heard[line["slug"]] = {"text": str(d.get("text") or ""), "words": spoken_words({}, record.get("metadataJson"))}
         effects = _sound_effects(creds, out, data(beat).get("sounds"), sounds, data, missing)
-        effects += _cue_sounds(creds, out, data(beat), sounds, data, missing, heard, estimated)
-        moves = _camera_cues(data(beat), heard, estimated)
-        looks = _look_cues(data(beat), heard, estimated)
-        mixes = _mix_cues(data(beat), heard, estimated)
-        stressed = _emphasis_cues(data(beat), heard, estimated)
+        cued = with_cues(beat)  # the cue rows of this beat's lines, wherever they are kept (v221)
+        effects += _cue_sounds(creds, out, cued, sounds, data, missing, heard, estimated)
+        moves = _camera_cues(cued, heard, estimated)
+        looks = _look_cues(cued, heard, estimated)
+        mixes = _mix_cues(cued, heard, estimated)
+        stressed = _emphasis_cues(cued, heard, estimated)
         is_card = cards.is_plain(data(beat))  # it shows a plain card: that is its picture, so it always plays and is never waiting for a still
         has_still = bool(data(beat).get("still")) or is_card
         if not spoken and not effects and not data(beat).get("hold_seconds") and not has_still:
@@ -258,7 +263,9 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     (out / "manifest.json").write_text(
         json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"size": list(size)} if formats.size_of(data(story_row)) else {}), **({"loudness": level} if (level := formats.loudness_of(data(story_row))) else {}), **({"caption": caption} if (caption := caption_of(data(story_row), speaker_colours(rows, story, data))) else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {}), **ending, **({"ambience_duck": duck} if (duck := str(data(story_row).get("ambience_ducking") or "").strip()) in ("light", "strong") else {})}, indent=2, ensure_ascii=False)
     )
-    return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded, "skipped": skipped, "estimated": estimated}
+    pulled = {str(data(b).get("number")) for b in beats}
+    left_out = [f"beat {data_of[slug].get('number')}: a cue on {row.get('line')} word {row.get('word')}, a line no beat holds" for slug, row in unplaced if str(data_of[slug].get("number")) in pulled]
+    return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded, "skipped": skipped, "estimated": estimated, **({"cues_left_out": left_out} if left_out else {})}
 
 
 OVERLAY_DISSOLVE = 0.6  # seconds a picture that comes in at a word dissolves over the one before, when its beat and the story set no transition
