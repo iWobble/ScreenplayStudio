@@ -589,7 +589,8 @@ def plan(manifest: Manifest) -> Timeline:
         moved = any(line.nudge or line.simultaneous for line in shot.lines)
         spoken = (max(cursor - shot.gap, last_end) if moved else cursor - shot.gap) + shot.tail if shot.lines else 0.0
         said.update((p.line.ref, p) for p in lines if p.line.ref)
-        sfx_at = [(max(_on_word(said, fx.line, fx.line_at, fx.line_share) + fx.line_nudge, 0.0) - clock) if fx.line in said else fx.at for fx in shot.sfx]  # on a word: nudged, never before 0
+        # On a word: nudged. Placed in the beat (`at`, v222): a negative one starts before the beat. Either way, never before the film starts.
+        sfx_at = [(max(_on_word(said, fx.line, fx.line_at, fx.line_share) + fx.line_nudge, 0.0) - clock) if fx.line in said else max(fx.at, -clock) for fx in shot.sfx]
         sfx_end = max((at + fx.duration for at, fx in zip(sfx_at, shot.sfx, strict=True)), default=0.0)
         hold, anchor = shot.hold, None
         if shot.starts_during and shot.starts_during["line"] in said:  # it comes in at a word already spoken: its hold counts from there
@@ -598,8 +599,7 @@ def plan(manifest: Manifest) -> Timeline:
         duration = max(hold, spoken, sfx_end) + shot.after
         if index == len(manifest.shots) - 1:
             duration += manifest.end_hold
-        placed = [at if fx.line in said else max(at, 0.0) for at, fx in zip(sfx_at, shot.sfx, strict=True)]  # (one on a word may start before its beat's sound)
-        shots.append(PlannedShot(shot, clock, duration, lines, sfx_at=placed, anchor=anchor))
+        shots.append(PlannedShot(shot, clock, duration, lines, sfx_at=sfx_at, anchor=anchor))  # (a sound may start before its beat's sound: into the beat before)
         for bucket, cues in (("camera", shot.camera_cues), ("looks", shot.look_cues), ("mix", shot.mix_cues), ("emphasis", shot.emphasis_cues)):
             for cue in cues:
                 when = _on_word(said, cue["line"], cue.get("at"), cue.get("share")) if cue.get("line") in said else clock + cue.get("at", 0.0) if not cue.get("line") else None

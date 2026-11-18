@@ -334,7 +334,7 @@ Piece = tuple[Path, float, float, str, str, float]  # file, seconds into the fil
 def _pieces(planned: PlannedShot, silences: list[tuple[float, dict]] | None = None) -> list[Piece]:
     """A shot's sounds with where each starts on the film: its lines, and its sound effects counted from where its sound starts. A sound effect
     goes quiet with the beds through dead air (`silences`, v219), unless it starts with it: the cue's own sound rings out into the silence."""
-    effects = [(fx, planned.audio_start + (planned.sfx_at[i] if i < len(planned.sfx_at) else max(fx.at, 0.0))) for i, fx in enumerate(planned.shot.sfx)]
+    effects = [(fx, planned.audio_start + (planned.sfx_at[i] if i < len(planned.sfx_at) else max(fx.at, -planned.audio_start))) for i, fx in enumerate(planned.shot.sfx)]
     return [(p.line.audio, p.start, p.line.volume, _cut(p.line), f"lowpass=f={MUFFLE_HZ}," if p.line.muffled else "", p.line.duration) for p in planned.lines if p.line.audio] + [
         (fx.audio, at, fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out) + _hushed(silences, at, fx.duration), fx.duration) for fx, at in effects
     ]
