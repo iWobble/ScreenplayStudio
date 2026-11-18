@@ -72,6 +72,7 @@ class Cue:
     end: float
     speaker: str | None = None
     words: list[tuple[str, float, float]] = field(default_factory=list)  # each word with its own start and end, for the word-by-word highlight
+    stressed: dict[int, float] = field(default_factory=dict)  # the words emphasised by a cue (v219): their place in `words`, and how much bigger
 
 
 def _split(text: str, start: float, end: float) -> list[tuple[str, float, float]]:
@@ -105,7 +106,22 @@ def rich_cues(timeline: Timeline) -> list[Cue]:
     for i, cue in enumerate(found[:-1]):
         if 0 < found[i + 1].start - cue.end < CLOSE_GAP:  # a short pause between cues is closed so the text does not flicker
             cue.end = found[i + 1].start
+    for at, stress in timeline.emphasis:
+        _stress(found, at, float(stress.get("scale") or EMPHASIS))
     return found
+
+
+EMPHASIS = 1.3  # how much bigger an emphasised word is (camera.EMPHASIS, kept here so the captions need nothing else)
+STRESS_REACH = 0.6  # seconds from an emphasis cue that the start of the word it means may be (an estimated place, from a take with no word timings)
+
+
+def _stress(found: list[Cue], at: float, scale: float) -> None:
+    """Mark the word an emphasis cue (v219) means: the one that starts nearest it (it falls at the start of the word after the cue's gap; on a take
+    without word timings both are estimates, so the nearest)."""
+    words = [(abs(start - at), n, k) for n, cue in enumerate(found) for k, (_w, start, _e) in enumerate(cue.words) if abs(start - at) <= STRESS_REACH]
+    if words:
+        _gap, n, k = min(words)
+        found[n].stressed[k] = scale
 
 
 def cues(timeline: Timeline) -> list[tuple[str, float, float]]:
@@ -136,17 +152,30 @@ def ass_colour(value: object, fallback: str) -> str:
     return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
 
 
-def _line_text(cue: Cue, kind: str, speakers: dict[str, str]) -> str:
-    """The caption's text with its tags: the speaker's colour, and for the highlight style each word's own sweep."""
+def _line_text(cue: Cue, kind: str, speakers: dict[str, str], lit: str = "", plain: str = "") -> str:
+    """The caption's text with its tags: the speaker's colour, and for the highlight style each word's own sweep. An emphasised word (v219) is
+    bigger, and in the highlight colour (`lit`; the style's own colour is `plain`)."""
     tint = speakers.get(str(cue.speaker or "").strip().lower())
     if kind == "highlight":
         sweeps = []
         for i, (word, start, end) in enumerate(cue.words):
             until = cue.words[i + 1][1] if i + 1 < len(cue.words) else max(end, cue.end)  # each word lasts until the next begins: the sweep never stalls
-            sweeps.append(f"{{\\kf{max(1, round((until - start) * 100))}}}{_escape(word)}")
+            sweeps.append(_stressed(f"{{\\kf{max(1, round((until - start) * 100))}}}", word, cue.stressed.get(i), ""))
         body = " ".join(sweeps)
         return (f"{{\\2c{ass_colour(tint, '#ffffff')}}}" if tint else "") + body
-    return (f"{{\\1c{ass_colour(tint, '#ffffff')}}}" if tint else "") + _escape(cue.text)
+    head = f"{{\\1c{ass_colour(tint, '#ffffff')}}}" if tint else ""
+    if not cue.stressed:
+        return head + _escape(cue.text)
+    back = ass_colour(tint, "#ffffff") if tint else plain
+    return head + " ".join(_stressed("", word, cue.stressed.get(i), f"\\1c{lit}", f"\\1c{back}") for i, (word, _s, _e) in enumerate(cue.words))
+
+
+def _stressed(tags: str, word: str, scale: float | None, colour: str, colour_back: str = "") -> str:
+    """A word of a caption with its own tags, made `scale` times bigger (and recoloured) when it is emphasised, then set back."""
+    if scale is None:
+        return f"{tags}{_escape(word)}"
+    size = round(scale * 100)
+    return f"{tags}{{\\fscx{size}\\fscy{size}{colour}}}{_escape(word)}{{\\fscx100\\fscy100{colour_back}}}"
 
 
 def ass(timeline: Timeline, size: tuple[int, int], style: dict | None = None) -> str:
@@ -184,7 +213,7 @@ def ass(timeline: Timeline, size: tuple[int, int], style: dict | None = None) ->
     )
     speakers = {str(k).strip().lower(): v for k, v in dict(given.get("speakers") or {}).items() if _HEX.match(str(v))}
     shown = [] if kind == "none" else rich_cues(timeline)
-    body = "".join(f"Dialogue: 0,{_time(c.start)},{_time(c.end)},Default,,0,0,0,,{_line_text(c, kind, speakers)}\n" for c in shown)
+    body = "".join(f"Dialogue: 0,{_time(c.start)},{_time(c.end)},Default,,0,0,0,,{_line_text(c, kind, speakers, lit, text_colour)}\n" for c in shown)
     return header + body
 
 

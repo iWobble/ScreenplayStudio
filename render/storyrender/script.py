@@ -63,7 +63,12 @@ def _cue_note(cue: dict, sounds: dict, beats: dict) -> str:
         parts.append(f"Camera: {fountain_mod.camera_words(cue['camera'])}")
     if isinstance(cue.get("look"), dict) and cue["look"].get("kind"):
         parts.append(f"Look: {fountain_mod.look_words(cue['look'])}")  # v218
-    if parts and _nudge(cue.get("nudge")):  # beside its Sound, Camera or Look (v216)
+    if isinstance(cue.get("mix"), dict) and cue["mix"].get("kind"):
+        parts.append(f"Mix: {fountain_mod.mix_words(cue['mix'])}")  # v219
+    if cue.get("emphasis") is True or isinstance(cue.get("emphasis"), dict):
+        scale = cue["emphasis"].get("scale") if isinstance(cue["emphasis"], dict) else None
+        parts.append(f"Emphasis: {float(scale):g}" if scale not in (None, "") else "Emphasis")  # v219
+    if parts and _nudge(cue.get("nudge")):  # beside its Sound, Camera, Look, Mix or Emphasis (v216)
         parts.append(f"Nudge: {_nudge(cue['nudge'])}")
     if cue.get("pic"):
         shown = _data(beats.get(str(cue["pic"]), {}))

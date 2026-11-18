@@ -331,12 +331,36 @@ def fades(length: float, fade_in: float = 0.0, fade_out: float = 0.0) -> str:
 Piece = tuple[Path, float, float, str, str, float]  # file, seconds into the film, volume, its cut, its filters, its length
 
 
-def _pieces(planned: PlannedShot) -> list[Piece]:
-    """A shot's sounds with where each starts on the film: its lines, and its sound effects counted from where its sound starts."""
+def _pieces(planned: PlannedShot, silences: list[tuple[float, dict]] | None = None) -> list[Piece]:
+    """A shot's sounds with where each starts on the film: its lines, and its sound effects counted from where its sound starts. A sound effect
+    already playing when dead air starts (`silences`, v219) goes quiet with the beds; one that starts in it is heard."""
+    effects = [(fx, planned.audio_start + (planned.sfx_at[i] if i < len(planned.sfx_at) else max(fx.at, 0.0))) for i, fx in enumerate(planned.shot.sfx)]
     return [(p.line.audio, p.start, p.line.volume, _cut(p.line), f"lowpass=f={MUFFLE_HZ}," if p.line.muffled else "", p.line.duration) for p in planned.lines if p.line.audio] + [
-        (fx.audio, planned.audio_start + (planned.sfx_at[i] if i < len(planned.sfx_at) else max(fx.at, 0.0)), fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out), fx.duration)
-        for i, fx in enumerate(planned.shot.sfx)
+        (fx.audio, at, fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out) + _hushed(silences, at, fx.duration), fx.duration) for fx, at in effects
     ]
+
+
+def _hushed(silences: list[tuple[float, dict]] | None, at: float, length: float) -> str:
+    """The volume filter (with a trailing comma, or nothing) that silences a sound starting `at` seconds into the film through each dead air that
+    starts while it plays, on the sound's own clock."""
+    caught = [(when, cue) for when, cue in silences or [] if at < when - 1e-3 and when < at + length]
+    gain = mix_gain(caught, ("dead-air",))
+    return f"volume='{_shifted(gain, at)}':eval=frame," if gain else ""
+
+
+def mix_gain(cues: list[tuple[float, dict]], kinds: tuple[str, ...]) -> str | None:
+    """The gain over the film (an ffmpeg expression in t, film seconds) of the mix cues of these kinds (v219): 1, going down to each cue's level
+    (0 for dead air, its amount for a duck) at its word, held for its seconds and back. None when there are none, so nothing changes."""
+    terms = []
+    for at, cue in cues:
+        if cue["kind"] not in kinds:
+            continue
+        level, seconds = camera.MIX_DEFAULTS[cue["kind"]]
+        level = float(cue["amount"]) if cue.get("amount") is not None else level
+        seconds = float(cue["seconds"]) if cue.get("seconds") is not None else seconds
+        down, up = camera.MIX_RAMPS[cue["kind"]]
+        terms.append(f"(1-{1 - level:.4f}*min(clip((t-{at:.4f})/{down:g},0,1),clip(({at + seconds + up:.4f}-t)/{up:g},0,1)))")
+    return "*".join(terms) or None
 
 
 def _mix(pieces: list[tuple[Path, float, float, str, str]], length: float, out: Path) -> None:
@@ -359,9 +383,9 @@ def _mix(pieces: list[tuple[Path, float, float, str, str]], length: float, out: 
     ffmpeg.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), "-t", f"{length:.3f}", str(out)])
 
 
-def _narration(planned: PlannedShot, out: Path) -> None:
+def _narration(planned: PlannedShot, out: Path, silences: list[tuple[float, dict]] | None = None) -> None:
     """One wav, exactly the shot's (picture's) length: its lines and sound effects delayed into place."""
-    _mix([(file, at - planned.start, volume, cut, fade) for file, at, volume, cut, fade, _ in _pieces(planned)], planned.duration, out)
+    _mix([(file, at - planned.start, volume, cut, fade) for file, at, volume, cut, fade, _ in _pieces(planned, silences)], planned.duration, out)
 
 
 def stays_in_its_shot(timeline: Timeline) -> bool:
@@ -385,11 +409,11 @@ def narration(timeline: Timeline, work: Path) -> Path:
         wavs = []
         for i, planned in enumerate(timeline.shots):
             wav = work / f"narration{i:03d}.wav"
-            _narration(planned, wav)
+            _narration(planned, wav, timeline.mix)
             wavs.append(wav)
         _join(wavs, out, work, kind="audio")
         return out
-    pieces = [piece[:5] for planned in timeline.shots for piece in _pieces(planned)]
+    pieces = [piece[:5] for planned in timeline.shots for piece in _pieces(planned, timeline.mix)]
     groups = [pieces[i : i + MIX_INPUTS] for i in range(0, len(pieces), MIX_INPUTS)] or [[]]
     if len(groups) == 1:
         _mix(groups[0], timeline.duration, out)
@@ -454,7 +478,9 @@ def _level(bed: Bed) -> str:
     return expr
 
 
-def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path, end_fade: float | None = None, start_fade: float | None = None, duck: str | None = None) -> None:
+def _mix_beds(
+    narration: Path, runs: list[Bed], total: float, out: Path, end_fade: float | None = None, start_fade: float | None = None, duck: str | None = None, cued: str | None = None
+) -> None:
     """Lay each bed under the narration: looped to length, muffled if heard from inside, at the level each shot asks for, faded in and
     out so a change of place is a crossfade. The narration is the base: nothing here makes the cut longer."""
     inputs, chains, labels = [], [], []
@@ -472,6 +498,7 @@ def _mix_beds(narration: Path, runs: list[Bed], total: float, out: Path, end_fad
         inputs += ["-stream_loop", "-1", "-i", str(bed.ambience.audio)]
         level = _level(shifted)
         speech = f"*({_shifted(duck, begin)})" if duck else ""  # every bed goes down under a spoken line, when the story asks for it
+        speech += f"*({_shifted(cued, begin)})" if cued else ""  # and for dead air, or a duck, on a word (v219)
         tail = f"afade=t=in:st=0:d={fade_in:.3f},afade=t=out:st={length - fade_out:.3f}:d={fade_out:.3f},adelay={round(begin * 1000)}:all=1"
         head = f"[{n}:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo"
         if bed.muffle_expr:
@@ -515,7 +542,7 @@ def _with_ambience(
     depth = DUCK_DEPTH.get(ambience_duck)
     duck = duck_gain(speech_windows(timeline), depth) if depth else None
     mixed = narration.with_name("narration-mixed.wav")
-    _mix_beds(narration, runs, timeline.duration, mixed, end_fade, start_fade, duck)
+    _mix_beds(narration, runs, timeline.duration, mixed, end_fade, start_fade, duck, mix_gain(timeline.mix, ("dead-air", "duck")))
     return mixed
 
 
@@ -702,6 +729,9 @@ def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, 
         level = music_level(timeline, float(manifest.music["volume"]))
         depth = DUCK_DEPTH.get(str(manifest.music.get("duck") or ""))
         duck = duck_gain(speech_windows(timeline), depth) if depth else None
+        cued = mix_gain(timeline.mix, ("dead-air", "duck"))  # dead air, or a duck, on a word (v219)
+        if cued:
+            duck = f"({duck or 1})*{cued}"
         if level or duck:  # the level the beats ask for, times the dip under speech
             volume = f"volume='({level or manifest.music['volume']})*({duck or 1})':eval=frame"
         else:

@@ -183,6 +183,11 @@ class Shot:
     look_cues: list[dict] = field(default_factory=list)
     """Looks on words of the shot's lines (v218): {kind: flash|burn|dip|freeze|tint|blur|vignette|glitch, amount?, seconds?, color?, line, at|share,
     nudge?}, laid over the picture that is up at that word."""
+    mix_cues: list[dict] = field(default_factory=list)
+    """The mix changed at words of the shot's lines (v219): {kind: dead-air|duck, amount?, seconds?, line, at|share, nudge?}: the beds, the music
+    (and for dead-air the sounds already playing) go down for a while; the voice never does."""
+    emphasis_cues: list[dict] = field(default_factory=list)
+    """Words shown bigger and highlighted in the captions (v219): {scale?, line, at|share, nudge?}, at the start of the word after the cue."""
     starts_during: dict | None = None
     """A picture that comes in at a word of a line of an earlier shot (a Pic note among the words, v211): {"line": its id, "at": seconds into it} or
     {"line", "share": 0–1}. It adds no time of its own; `hold` keeps it up at least that long from where it comes in."""
@@ -261,6 +266,10 @@ class PlannedShot:
 @dataclass
 class Timeline:
     shots: list[PlannedShot]
+    mix: list[tuple[float, dict]] = field(default_factory=list)
+    """The mix cues (v219), each where it falls on the film: (seconds, {kind, amount?, seconds?})."""
+    emphasis: list[tuple[float, dict]] = field(default_factory=list)
+    """The emphasised words (v219), each where it falls on the film: (seconds, {scale?})."""
 
     @property
     def duration(self) -> float:
@@ -399,6 +408,8 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             chapter=str(s["chapter"]) if s.get("chapter") else None,
         )
         shot.camera_cues = _word_cues(s.get("camera_cues"), camera.cue_of, f"{where} camera cue", f"kind is {', '.join(camera.CUES)}")
+        shot.mix_cues = _word_cues(s.get("mix_cues"), camera.mix_of, f"{where} mix cue", f"kind is {', '.join(camera.MIXES)}, amount 0–1 and seconds a number")
+        shot.emphasis_cues = _word_cues(s.get("emphasis_cues"), camera.emphasis_of, f"{where} emphasis cue", "scale is a number from 1 to 2")
         shot.look_cues = _word_cues(s.get("look_cues"), camera.look_of, f"{where} look cue", f"kind is {', '.join(camera.LOOKS)}, amount 0–1, seconds a number and color one the kind takes")
         if isinstance(s.get("starts_during"), dict) and s["starts_during"].get("line"):
             shot.starts_during = _on_a_line(s["starts_during"], f"{where} starts_during")
@@ -589,19 +600,23 @@ def plan(manifest: Manifest) -> Timeline:
             duration += manifest.end_hold
         placed = [at if fx.line in said else max(at, 0.0) for at, fx in zip(sfx_at, shot.sfx, strict=True)]  # (one on a word may start before its beat's sound)
         shots.append(PlannedShot(shot, clock, duration, lines, sfx_at=placed, anchor=anchor))
-        for bucket, cues in (("camera", shot.camera_cues), ("looks", shot.look_cues)):
+        for bucket, cues in (("camera", shot.camera_cues), ("looks", shot.look_cues), ("mix", shot.mix_cues), ("emphasis", shot.emphasis_cues)):
             for cue in cues:
                 when = _on_word(said, cue["line"], cue.get("at"), cue.get("share")) if cue.get("line") in said else clock + cue.get("at", 0.0) if not cue.get("line") else None
                 if when is not None:
                     moves.append((when + cue.get("nudge", 0.0), len(shots) - 1, bucket, {k: v for k, v in cue.items() if k not in ("line", "at", "share", "nudge")}))
         clock += duration
     _pictures(shots, clock)
+    timeline = Timeline(shots)
     for when, own, bucket, cue in moves:  # a camera cue or a look changes the picture that is up when it falls (one that came in at an earlier word, perhaps)
+        if bucket in ("mix", "emphasis"):
+            getattr(timeline, bucket).append((max(when, 0.0), cue))  # the sound and the captions run on the film's clock: never before it starts
+            continue
         when = max(when, shots[own].start)  # a nudge never brings it before its own beat's picture is up
         planned = next((p for p in reversed(shots) if p.start <= when + 1e-9), shots[0]) if shots else None
         if planned is not None:
             getattr(planned, bucket).append((when - planned.start, cue))
-    return Timeline(shots)
+    return timeline
 
 
 def _on_word(said: dict[str, PlannedLine], ref: str | None, at: float | None, share: float | None) -> float:
