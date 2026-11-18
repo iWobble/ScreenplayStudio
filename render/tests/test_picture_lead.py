@@ -88,12 +88,20 @@ def test_a_negative_nudge_overlaps_the_line_before_and_the_shot_lasts_until_its_
     assert manifest.overlaps(_plan(_spoken("a", 2.0, 0.5, nudges=(0.0, -0.5)))) == []  # an interruption that runs on past the line before is not reported
 
 
-def test_a_nudge_into_the_beat_before_brings_its_picture_with_its_voice_and_never_before_0():
+def test_a_nudge_moves_the_voice_and_never_the_picture_and_never_before_0():
     t = _plan(_spoken("a", 2.0), _spoken("b", 1.0, nudges=(-1.0,)))
     assert t.shots[1].lines[0].start == pytest.approx(2.65 + 0.3 - 1.0)
-    assert t.shots[1].start == pytest.approx(t.shots[1].lines[0].start)  # no lead set: the picture comes with the first word, never after it
+    assert t.shots[1].start == pytest.approx(t.shots[1].audio_start)  # the voice runs on into the picture before; the picture is where it was
     early = _plan(_spoken("a", 1.0, nudges=(-5.0,)))
     assert early.shots[0].lines[0].start == 0.0
+
+
+def test_a_nudge_does_not_move_a_picture_lead_either():
+    plain = _plan(_spoken("a", 2.0), _spoken("b", 1.0, lead=0.8))
+    nudged = _plan(_spoken("a", 2.0), _spoken("b", 1.0, lead=0.8, nudges=(-0.35,)))
+    assert nudged.shots[1].lines[0].start == pytest.approx(plain.shots[1].lines[0].start - 0.35)
+    assert nudged.shots[1].start == pytest.approx(plain.shots[1].start)
+    assert nudged.shots[0].duration == pytest.approx(plain.shots[0].duration)  # the picture before is not cut short
 
 
 def test_captions_follow_the_nudged_lines():

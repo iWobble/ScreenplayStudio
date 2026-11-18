@@ -598,13 +598,14 @@ def _on_word(said: dict[str, PlannedLine], ref: str | None, at: float | None, sh
 
 def _pictures(shots: list[PlannedShot], total: float) -> None:
     """Where each shot's picture starts and how long it is up. A shot with no picture lead starts its picture where its sound starts (or at its first
-    word, when a nudge brings that earlier): as it always did. One with a lead starts it that long before its first word (a silent one, before its own
+    word, when that comes earlier): as it always did. A line's own nudge never moves its picture (v217). One with a lead starts it that long before its first word (a silent one, before its own
     start). A picture brought forward never comes before 0, never leaves the one before it less than MIN_PICTURE, and never comes later than its sound
     starts unless its lead asks for that (a lead shorter than the lead-in). Nothing changes when no shot asks for a lead or a nudge."""
     starts: list[float] = []
     for k, planned in enumerate(shots):
         here = planned.audio_start
-        first_word = planned.lines[0].start if planned.lines else here
+        # Where the first word would fall with no nudge of its own: a nudge moves the voice, never the picture cut from it.
+        first_word = planned.lines[0].start - planned.lines[0].line.nudge if planned.lines else here
         lead = planned.shot.picture_lead
         wanted = first_word - lead if lead is not None else min(here, first_word)
         if planned.anchor is not None:
