@@ -346,3 +346,15 @@ def test_the_pull_gives_a_clip_beat_with_no_still_a_plain_card_and_no_default_ho
     assert four["still"] == "stills/b04-card.png" and (tmp_path / four["still"]).is_file() and "hold" not in four
     assert "b05" not in shots and "05" in result["skipped"] and any("beat 05" in n for n in result["notes"])
     assert all("clip" not in s for k, s in shots.items() if k != "b04")  # a beat without one gets no clip key at all
+
+
+def test_the_timeline_view_reads_the_clip_from_the_fields_the_pull_reads():
+    # The Marvin Timeline (story-timeline, spine.clip, v227) lays a beat's clip as the render does: the same fields, its sound in the lines lane.
+    package = json.loads((Path(__file__).resolve().parents[2] / "docs" / "screenplay-studio.marvin-package.json").read_text(encoding="utf-8"))
+    blueprints = {b["slug"]: b for b in package["blueprints"]}
+    spec = blueprints["story-timeline"]["payload"]["spine"]["clip"]
+    assert spec["field"] == "clip" and spec["lane"] == "lines"
+    assert {key: spec[key] for key, _ in clip.FIELDS} == dict(clip.FIELDS)
+    beat = {f["key"] for f in blueprints["beat"]["payload"]["schema_json"]["fields"]}
+    described = {spec[k] for k in ("seconds", "has_audio", "poster", "text", "words", "width", "height")}  # what describe-video fills in (v226)
+    assert {"clip", *dict(clip.FIELDS).values(), *described} <= beat
