@@ -29,7 +29,9 @@ def zoompan_filter(planned: PlannedShot, size: tuple[int, int], fps: int) -> str
     frames = max(2, round(planned.duration * fps))
     a, b = planned.shot.move_from, planned.shot.move_to
     rock = planned.shot.rock
-    p = f"(0.5-0.5*cos(PI*on/{frames - 1}))"  # eased 0 → 1 over the shot
+    freezes = [(at, float(cue.get("seconds") or camera.LOOK_DEFAULTS["freeze"][1])) for at, cue in planned.looks if cue["kind"] == "freeze"]
+    on = _held("on", fps, freezes)  # the frame count, held still while a freeze lasts (v218); `on` itself when there is none
+    p = f"(0.5-0.5*cos(PI*{on}/{frames - 1}))"  # eased 0 → 1 over the shot
 
     def mix(x: float, y: float) -> str:
         return f"({x}+({y}-{x})*{p})"
@@ -37,9 +39,10 @@ def zoompan_filter(planned: PlannedShot, size: tuple[int, int], fps: int) -> str
     zoom = mix(a.zoom, b.zoom)
     cx, cy = mix(a.x, b.x), mix(a.y, b.y)
     if planned.camera:
-        zoom, cx, cy = camera_cues(planned.camera, fps, zoom, cx, cy)
+        cues = [(at - sum(min(max(at - f, 0.0), s) for f, s in freezes), cue) for at, cue in planned.camera] if freezes else planned.camera
+        zoom, cx, cy = camera_cues(cues, fps, zoom, cx, cy, on=on)
     if rock and rock.heave:
-        cy = f"({cy}+{rock.heave}*sin(2*PI*({planned.start:.4f}+on/{fps})/{rock.seconds * HEAVE_PERIOD:.4f}))"  # rises and falls a little out of step with the roll
+        cy = f"({cy}+{rock.heave}*sin(2*PI*({planned.start:.4f}+{on}/{fps})/{rock.seconds * HEAVE_PERIOD:.4f}))"  # rises and falls a little out of step with the roll
     x = f"max(0,min(iw-iw/({zoom}),{cx}*iw-iw/(2*{zoom})))"
     y = f"max(0,min(ih-ih/({zoom}),{cy}*ih-ih/(2*{zoom})))"
     big = (width * SUPERSAMPLE, height * SUPERSAMPLE)
@@ -48,8 +51,18 @@ def zoompan_filter(planned: PlannedShot, size: tuple[int, int], fps: int) -> str
         f"zoompan=z='{zoom}':x='{x}':y='{y}':d=1:s={width}x{height}:fps={fps}"
     )
     if rock and rock.degrees:
-        chain += f",{rock_filter(rock, planned.start, size)}"
+        chain += f",{rock_filter(rock, planned.start, size, clock=_held('t', 1, freezes))}"
     return chain + ",format=yuv420p"
+
+
+def _held(clock: str, fps: int, freezes: list[tuple[float, float]]) -> str:
+    """A clock (`on`, frames; or `t`, seconds with fps 1) that stands still for each freeze's seconds from its start, then runs on from where it
+    stopped: the camera's move holds and carries on (v218)."""
+    if not freezes:
+        return clock
+    now = clock if fps == 1 else f"{clock}/{fps}"
+    held = "+".join(f"clip({now}-{at:.4f},0,{seconds:g})" for at, seconds in freezes)
+    return f"({clock}-{fps}*({held}))"
 
 
 def _bump(t: str, attack: float, release: float) -> str:
@@ -62,14 +75,18 @@ def _rise(t: str, seconds: float) -> str:
     return f"if(lt({t},0),0,if(lt({t},{seconds:g}),0.5-0.5*cos(PI*{t}/{seconds:g}),1))"
 
 
-def camera_cues(cues: list[tuple[float, dict]], fps: int, zoom: str, cx: str, cy: str) -> tuple[str, str, str]:
+def camera_cues(cues: list[tuple[float, dict]], fps: int, zoom: str, cx: str, cy: str, *, on: str = "on") -> tuple[str, str, str]:
     """The zoompan zoom and centre with the camera cues on words added (v212), each a term that is 0 outside its own short window, on top of the
     shot's own move: a punch multiplies the zoom by up to its amount and settles back; a shake moves the centre by a share of the frame that dies
     away; a nudge zooms in a little and drifts the centre toward its point, and stays. Only ever closer (zoom >= 1), and the x/y clamp after this
-    keeps the frame inside the picture however near an edge or a clip's end a cue falls."""
+    keeps the frame inside the picture however near an edge or a clip's end a cue falls.
+
+    A shake, a sway and a whip-pan slide the frame across the picture, which at zoom 1 leaves it nowhere to go: the clamp flattened a shake to a
+    pixel, whatever its amount. So each also zooms in, for as long as it lasts, just enough to make room for its own slide (v218): 1 + 2 × its
+    share of the frame, then settles back."""
     grow, shake_x, shake_y, drift_x, drift_y = [], [], [], [], []
     for at, cue in cues:
-        t = f"(on/{fps}-{at:.4f})"
+        t = f"({on}/{fps}-{at:.4f})"
         if cue["kind"] == "punch":
             grow.append(f"{float(cue.get('amount') or camera.PUNCH) - 1:.4f}*{_bump(t, camera.PUNCH_ATTACK, camera.PUNCH_RELEASE)}")
         elif cue["kind"] == "shake":
@@ -77,6 +94,18 @@ def camera_cues(cues: list[tuple[float, dict]], fps: int, zoom: str, cx: str, cy
             fading = f"{amp:.4f}*exp(-{t}/{camera.SHAKE_DECAY:g})"
             shake_x.append(f"if(between({t},0,{camera.SHAKE_SECONDS:g}),{fading}*sin(2*PI*{camera.SHAKE_HZ[0]:g}*{t}),0)")
             shake_y.append(f"if(between({t},0,{camera.SHAKE_SECONDS:g}),{fading}*sin(2*PI*{camera.SHAKE_HZ[1]:g}*{t}+1),0)")
+            grow.append(f"{2 * amp:.4f}*{_bump(t, camera.ROOM_ATTACK, camera.SHAKE_SECONDS)}")  # the room it slides in
+        elif cue["kind"] == "sway":
+            amp = float(cue.get("amount") if cue.get("amount") is not None else camera.SWAY) / 100
+            dying = f"{amp:.4f}*{_bump(t, camera.ROOM_ATTACK, float(cue.get('seconds') or camera.SWAY_SECONDS))}"
+            shake_x.append(f"{dying}*sin(2*PI*{camera.SWAY_HZ[0]:g}*{t})")
+            shake_y.append(f"0.6*{dying}*sin(2*PI*{camera.SWAY_HZ[1]:g}*{t}+1)")
+            grow.append(f"2*{dying}")
+        elif cue["kind"] == "whip-pan":
+            amp = float(cue.get("amount") if cue.get("amount") is not None else camera.WHIP)
+            sweep = f"{amp:.4f}*{_bump(t, camera.WHIP_OUT, camera.WHIP_BACK)}"
+            shake_x.append(f"{-1 if float(cue.get('x') or 1) < 0 else 1}*{sweep}")
+            grow.append(f"2*{sweep}")
         elif cue["kind"] == "nudge":
             ease = _rise(t, camera.NUDGE_SECONDS)
             grow.append(f"{camera.NUDGE_ZOOM - 1:.4f}*{ease}")
@@ -90,17 +119,62 @@ def camera_cues(cues: list[tuple[float, dict]], fps: int, zoom: str, cx: str, cy
     return zoom, cx, cy
 
 
+def _layer(n: int, made: str, at: float, seconds: float) -> str:
+    """The picture with a copy of itself, changed by `made` and fading by its own alpha, laid over it while `at` to `at + seconds` lasts."""
+    return f"split[k{n}a][k{n}b];[k{n}b]{made}[k{n}c];[k{n}a][k{n}c]overlay=enable='between(t,{at:.4f},{at + seconds:.4f})'"
+
+
+def looks_filter(planned: PlannedShot, size: tuple[int, int]) -> str:
+    """The filters (joined by commas, or nothing) for the looks on words that fall while this shot's picture is up (v218), on the shot's own clock:
+    each changes the picture for its window only, and none changes the clip's length. Also the streak of motion blur on a whip-pan's sweep."""
+    width = size[0]
+    parts: list[str] = []
+    for n, (at, cue) in enumerate(planned.looks):
+        kind = cue["kind"]
+        amount_default, seconds_default, colour_default = camera.LOOK_DEFAULTS[kind]
+        amount = float(cue["amount"]) if cue.get("amount") is not None else amount_default
+        seconds = float(cue["seconds"]) if cue.get("seconds") is not None else seconds_default
+        colour = str(cue.get("color") or colour_default or "")
+        if kind in ("flash", "burn", "dip"):
+            rise = min(camera.FLASH_RISE, seconds / 3) if kind != "dip" else seconds / 2
+            paint = f"drawbox=x=0:y=0:w=iw:h=ih:color={camera.FLASHES[colour]}:t=fill,format=rgba,colorchannelmixer=aa={amount:.3f}"
+            fades = f"fade=t=in:st={at:.4f}:d={rise:.4f}:alpha=1,fade=t=out:st={at + rise:.4f}:d={seconds - rise:.4f}:alpha=1"
+            parts.append(_layer(n, f"{paint},{fades}", at, seconds))
+        elif kind == "tint":
+            matrix = camera.TINTS[colour]
+            mixed = [[(1 - amount) * (i == j) + amount * matrix[i][j] for j in range(3)] for i in range(3)]
+            gains = ":".join(f"{'rgb'[i]}{'rgb'[j]}={mixed[i][j]:.4f}" for i in range(3) for j in range(3))
+            until = f"between(t,{at:.4f},{at + seconds:.4f})" if seconds else f"gte(t,{at:.4f})"
+            parts.append(f"colorchannelmixer={gains}:enable='{until}'")
+        elif kind == "blur":
+            sigma = max(0.5, amount * width / 30)
+            parts.append(_layer(n, f"gblur=sigma={sigma:.2f},format=rgba,fade=t=out:st={at:.4f}:d={seconds:.4f}:alpha=1", at, seconds))
+        elif kind == "vignette":
+            rise = min(0.3, seconds / 3)
+            angle = f"{0.25 + amount:.3f}*{_bump(f'(t-{at:.4f})', rise, seconds - rise)}"
+            parts.append(f"vignette=angle='{angle}':eval=frame:enable='between(t,{at:.4f},{at + seconds:.4f})'")
+        elif kind == "glitch":
+            k, third = max(2, round(width * 0.025)), seconds / 3
+            for i, shift in enumerate((f"rh={k}:bh=-{k}", f"rh=-{k}:gh={k // 2}:rv={k // 2}:gv={k // 2}:bv={k // 2}", f"bh={k}:gv=-{k // 2}")):
+                parts.append(f"rgbashift={shift}:enable='between(t,{at + i * third:.4f},{at + (i + 1) * third:.4f})'")
+    for at, cue in planned.camera:
+        if cue["kind"] == "whip-pan":
+            streak = max(3, round(width * 0.05 * float(cue.get("amount") or camera.WHIP) / camera.WHIP))
+            parts.append(f"avgblur=sizeX={streak}:sizeY=1:enable='between(t,{at + 0.02:.4f},{at + camera.WHIP_OUT + 0.08:.4f})'")
+    return ",".join(parts)
+
+
 HEAVE_PERIOD = 0.8  # the heave runs a little faster than the roll, so the two do not move as one
 
 
-def rock_filter(rock: Rock, start: float, size: tuple[int, int]) -> str:
+def rock_filter(rock: Rock, start: float, size: tuple[int, int], *, clock: str = "t") -> str:
     """The roll: the frame is scaled up just enough that, turned as far as it goes, it still covers the frame (no black corners), rolled by a sine on the film's
     clock (`start` seconds in, so a rocking carries on across cuts), and cut back to the frame."""
     width, height = size
     most = math.radians(rock.degrees)
     cover = max((width * math.cos(most) + height * math.sin(most)) / width, (width * math.sin(most) + height * math.cos(most)) / height)
     wide, high = 2 * math.ceil(width * cover / 2), 2 * math.ceil(height * cover / 2)
-    angle = f"{most:.5f}*sin(2*PI*({start:.4f}+t)/{rock.seconds:g})"
+    angle = f"{most:.5f}*sin(2*PI*({start:.4f}+{clock})/{rock.seconds:g})"
     return f"scale={wide}:{high},rotate=a='{angle}':ow=iw:oh=ih:c=black,crop={width}:{height}"
 
 
@@ -218,15 +292,17 @@ def _dips(edge: Edges, frames: int, fps: int) -> str:
 def _clip(planned: PlannedShot, size, fps, out: Path, *, draft: bool, edge: Edges | None = None) -> None:
     frames = str(max(2, round(planned.duration * fps)))
     dips = _dips(edge, int(frames), fps) if edge else ""
+    looks = looks_filter(planned, size)  # over the whole picture, its overlay too, and under the fades of its transitions
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-framerate", str(fps), "-t", f"{planned.duration:.3f}", "-i", str(planned.shot.still)]
     if planned.shot.overlay is not None:
         cmd += _overlay_input(planned.shot.overlay, fps)
         graph = f"[0:v]{zoompan_filter(planned, size, fps)}[base];{overlay_filter(planned.shot.overlay, size, fps, planned.duration)}"
-        if dips:
-            graph += f";[v]{dips}[vd]"
-        cmd += ["-filter_complex", graph, "-map", "[vd]" if dips else "[v]"]
+        after = ",".join(x for x in (looks, dips) if x)
+        if after:
+            graph += f";[v]{after}[vd]"
+        cmd += ["-filter_complex", graph, "-map", "[vd]" if after else "[v]"]
     else:
-        cmd += ["-vf", zoompan_filter(planned, size, fps) + (f",{dips}" if dips else "")]
+        cmd += ["-vf", zoompan_filter(planned, size, fps) + (f",{looks}" if looks else "") + (f",{dips}" if dips else "")]
     cmd += ["-frames:v", frames, "-c:v", "libx264", "-preset", "ultrafast" if draft else "veryfast", "-crf", "20" if draft else "12", "-an", str(out)]
     ffmpeg.run(cmd)
 
