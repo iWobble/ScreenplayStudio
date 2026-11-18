@@ -332,7 +332,7 @@ def _clip_args(job: dict) -> tuple[str, str, "str | None"]:
     args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
     slug, field = str(args.get("entry") or "").strip(), str(args.get("field") or "clip").strip()
     if not slug:
-        raise JobError("this kind of job needs args.entry (the beat's slug)")
+        raise JobError("this kind of job needs args.entry (the beat's slug) or args.asset (a recording's slug or id)")
     return slug, field, (str(args.get("clip") or "").strip() if "clip" in args else None)
 
 
@@ -375,18 +375,25 @@ def _queue_job(ctx: Context, slug: str, title: str, kind: str, args: dict) -> st
 
 @job_kind(
     "describe-video",
-    description="Look at the video in a beat's clip field and write what it is to the beat: its length (clip_seconds), its picture's width and height as a player shows it (a phone's portrait take reads portrait), whether it has sound, and a poster frame from about a second in (a new image asset). The same facts go on the video asset's own metadata (`video`). A clip with sound is then sent to the transcriber (transcribe-clip) for what is said in it. An emptied clip field empties these fields. Nothing is changed in the file",
+    description="Look at the video in a beat's clip field and write what it is to the beat: its length (clip_seconds), its picture's width and height as a player shows it (a phone's portrait take reads portrait), whether it has sound, and a poster frame from about a second in (a new image asset). The same facts go on the video asset's own metadata (`video`). A clip with sound is then sent to the transcriber (transcribe-clip) for what is said in it. An emptied clip field empties these fields. Or, given an asset and no entry, describe that recording on its own: a video's facts go to its metadata as `video`, a sound's (length, codec, sample rate, channels) as `audio`; no entry is written, no poster made and nothing transcribed. Nothing is changed in the file",
     inputs={
-        "entry": {"type": "string", "description": "the beat's slug"},
+        "entry": {"type": "string", "required": False, "description": "the beat's slug (or give an asset instead)"},
         "field": {"type": "string", "required": False, "description": "the field holding the video (clip by default)"},
         "clip": {"type": "string", "required": False, "description": "the clip the beat held when this was asked for: a job for a clip since replaced does nothing"},
+        "asset": {"type": "asset", "required": False, "accepts": ["video/*", "audio/*"], "description": "a recording on its own, not a beat's clip (its slug or id): described on its own metadata only"},
     },
     produces=["image/jpeg"],
     needs=["ffmpeg"],
 )
 def describe_video(job: dict, ctx: Context) -> dict:
     """A beat's clip → its length, size, frame rate, sound and a poster, written to the beat and to the asset's metadata; a clip with sound is
-    queued for transcribing. An empty clip field empties what an earlier clip left."""
+    queued for transcribing. An empty clip field empties what an earlier clip left. With `asset` and no `entry`, that recording alone (`_describe_asset`)."""
+    args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
+    loose = str(args.get("asset") or "").strip()
+    if loose and str(args.get("entry") or "").strip():
+        raise JobError("give describe-video an entry (a beat whose clip to describe) or an asset (a recording on its own), not both")
+    if loose:
+        return _describe_asset(ctx, loose)
     slug, field, asked = _clip_args(job)
     row = next(iter(marvin_api.query(ctx.creds, {"entries": slug}, limit=1)), None)
     if row is None:
@@ -434,6 +441,33 @@ def _forget_clip(ctx: Context, slug: str, field: str) -> dict:
     _trash_poster(ctx, before.get("clip_poster"), slug)
     gone = [k for k in CLIP_FACTS + CLIP_HEARD if k in before]
     return {"result": {"entry": slug, "field": field, "cleared": gone}, "log": f"{slug} has no clip: " + (f"emptied {', '.join(gone)}" if gone else "nothing to empty")}
+
+
+def _describe_asset(ctx: Context, ref: str) -> dict:
+    """A recording on its own (no beat), by slug or id → its facts on its own metadata: `video` for a file with a picture (as a beat's clip is
+    described), `audio` for a sound (audio_measure.describe). A file typed audio/* is a sound even with cover art in it; a video/webm from a
+    browser that holds only sound is a sound too. Writes no entry and makes no poster (an asset has no field to hold one), and transcribes
+    nothing: the transcribe job does that. The other keys of the metadata are kept."""
+    asset = marvin_api.asset(ctx.creds, ref)
+    asset_id, mime = str(asset.get("id") or ref), str(asset.get("mimeType") or "")
+    name = asset.get("name") or asset.get("slug") or ref
+    if not (_is_video(mime, name) or audio_convert.is_audio(mime, name)):
+        raise JobError(f"“{name}” ({mime or 'unknown type'}) is not a recording: describe-video takes a video or a sound")
+    src = ctx.work / f"recording{Path(str(asset.get('originalFilename') or name)).suffix or '.bin'}"
+    marvin_api.download_asset(ctx.creds, asset_id, src)
+    try:
+        streams = [] if mime.startswith("audio/") else ffmpeg.probe_video(src).get("streams") or []
+        key = "video" if any(s.get("codec_type") == "video" for s in streams) else "audio"
+        facts = clip.describe(src) if key == "video" else audio_measure.describe(src)
+    except (ffmpeg.FfmpegError, ValueError) as e:
+        raise JobError(f"could not read “{name}” as a recording: {str(e).splitlines()[0][:200]}") from e
+    merged = {**(asset.get("metadataJson") or {}), key: facts}
+    marvin_api.request(ctx.creds, f"/api/platform/assets/{asset_id}", method="PATCH", data=json.dumps({"metadata": merged}).encode(), content_type="application/json")
+    if key == "video":
+        said = f"{name}: {facts['duration_seconds']:g} s, {facts['width']}x{facts['height']}" + (f", {facts['fps']:g} fps" if facts["fps"] else "") + (", with sound" if facts["has_audio"] else ", no sound")
+    else:
+        said = f"{name}: {facts['duration_seconds']:g} s of sound" + (f", {facts['format']}" if facts["format"] else "")
+    return {"result": {"asset": asset_id, "name": name, "kind": key, **facts}, "log": said + f"; written to the asset's metadata ({key})."}
 
 
 def _keep_video_facts(ctx: Context, asset: dict, held: str, facts: dict) -> None:

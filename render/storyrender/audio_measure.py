@@ -132,6 +132,21 @@ def probe_audio(path: Path) -> dict:
     return json.loads(done.stdout)
 
 
+def describe(path: Path) -> dict:
+    """A sound's facts for its asset's metadata (`audio`): {duration_seconds, codec, sample_rate, channels, format}, the format being
+    describe-audio's one line ("opus · 48 kHz · mono"). The length is measured as `seconds` measures it (a browser's webm has none in its
+    header); a rate or channel count the file does not say is None. A file with no sound in it raises."""
+    probed = probe_audio(path)
+    stream = next((s for s in probed.get("streams", []) if s.get("codec_type") == "audio"), None)
+    if stream is None:
+        raise ffmpeg.FfmpegError(f"{path.name} has no sound")
+    rate, channels = str(stream.get("sample_rate") or ""), stream.get("channels")
+    return {
+        "duration_seconds": round(seconds(path), 3), "codec": str(stream.get("codec_name") or "") or None, "sample_rate": int(rate) if rate.isdigit() else None,
+        "channels": channels if isinstance(channels, int) and channels > 0 else None, "format": format_summary(probed),
+    }  # fmt: skip
+
+
 def source_of(metadata: dict | None) -> str:
     """Where a recording came from, from the facts kept on its asset: "recorded" when the browser's recorder made it (it marks `recording.source`),
     "generated" when it carries a voice service's own word times (the worker's own timing says `words_from`), else "uploaded"."""
