@@ -75,6 +75,23 @@ def test_the_job_downloads_the_recording_transcribes_it_and_keeps_each_form_as_a
     assert done["result"]["segments"] == 3 and "3 segments" in done["log"]
 
 
+@pytest.mark.parametrize("asked", ["recording-nov-18", "a6e76f6c-1362-43f3-8bfa-c11642c974d2"])
+def test_the_result_names_the_recording_by_its_id_whichever_it_was_asked_with(tmp_path, monkeypatch, asked):
+    """A Transcript's Recording is an asset field, which keeps only an id: a slug written there comes out empty. So the job says the id."""
+    record = {"id": "a6e76f6c-1362-43f3-8bfa-c11642c974d2", "slug": "recording-nov-18", "name": "Recording Nov 18", "originalFilename": "r.webm"}
+    seen, fetched = {}, []
+    monkeypatch.setattr(jobs.marvin_api, "asset", lambda creds, a: record if a in (record["id"], record["slug"]) else pytest.fail(a))
+    monkeypatch.setattr(jobs.marvin_api, "download_asset", lambda creds, a, dest: fetched.append(a) or dest.write_bytes(b"x"))
+    monkeypatch.setattr(jobs.marvin_api, "upload_asset", lambda creds, file, **kw: seen.setdefault(kw["slug"], kw) and {"id": kw["slug"] + "-id", "publicUrl": "u"})
+    monkeypatch.setattr(jobs, "load_model", lambda name: FakeModel())
+
+    done = jobs.transcribe({"job": "transcribe-1", "args": {"audio": asked}}, _context(tmp_path))
+
+    assert done["result"]["source_id"] == record["id"] and done["result"]["source_name"] == "Recording Nov 18"
+    assert fetched == [record["id"]] and {kw["metadata"]["source"] for kw in seen.values()} == {record["id"]}
+    assert seen["transcribe-1-paragraphs"]["name"] == "Transcript in paragraphs: Recording Nov 18"
+
+
 def test_hotwords_reach_the_model_and_empty_ones_do_not(tmp_path):
     model = FakeModel()
     jobs.transcribe_file(model, tmp_path / "a.wav", tmp_path / "j1", hotwords="Callum Marguerite")

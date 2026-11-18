@@ -66,7 +66,7 @@ LABEL = {"text": "transcript", "timestamped": "transcript with times", "paragrap
 
 @job_kind(
     "transcribe",
-    description="Turn a recording into text with faster-whisper, on this machine's CPU (free). The words, the words with times, the words in paragraphs, and the same as JSON, kept as files",
+    description="Turn a recording into text with faster-whisper, on this machine's CPU (free). The words, the words with times, the words in paragraphs, and the same as JSON, kept as files. The result names the recording by its asset id (source_id) and name (source_name), whichever of slug or id it was given, so a Transcript can point at it",
     inputs={
         "audio": {"type": "asset", "accepts": ["audio/*", "video/*"], "description": "the recording: an audio or video asset (its slug or id)"},
         "language": {"type": "string", "required": False, "description": "the spoken language as a code, e.g. en; empty to detect it"},
@@ -77,16 +77,19 @@ LABEL = {"text": "transcript", "timestamped": "transcript with times", "paragrap
     needs=["faster-whisper"],
 )
 def transcribe(job: dict, ctx: Context) -> dict:
-    """An asset's speech as text, kept as assets and named on the job's result."""
+    """An asset's speech as text, kept as assets and named on the job's result, with the recording's own id (`source_id`): the job may be
+    asked with a slug, and an asset field (a Transcript's Recording) keeps only an id."""
     args = job.get("args") or {}
-    asset_id, name = str(args.get("audio") or ""), job["job"]
-    if not asset_id:
+    ref, name = str(args.get("audio") or "").strip(), job["job"]
+    if not ref:
         raise JobError("transcribe needs an audio asset")
-    record = marvin_api.asset(ctx.creds, asset_id)
+    record = marvin_api.asset(ctx.creds, ref)
+    asset_id = str(record.get("id") or ref)
+    title = record.get("name") or record.get("slug") or ref
     ext = Path(str(record.get("originalFilename") or "audio.wav")).suffix or ".wav"
     source = ctx.work / f"source{ext}"
     marvin_api.download_asset(ctx.creds, asset_id, source)
-    ctx.note(f"downloaded {record.get('name') or asset_id} ({source.stat().st_size / 1e6:.1f} MB)")
+    ctx.note(f"downloaded {title} ({source.stat().st_size / 1e6:.1f} MB)")
     model = load_model(str(args.get("model") or MODEL))
     made = transcribe_file(model, source, ctx.work / name, language=str(args.get("language") or "") or None, hotwords=str(args.get("hotwords") or "") or None, note=ctx.note)
     uploaded = {}
@@ -95,14 +98,17 @@ def transcribe(job: dict, ctx: Context) -> dict:
             ctx.creds,
             path,
             slug=f"{name}-{kind}",
-            name=f"{LABEL[kind].capitalize()}: {record.get('name') or asset_id}",
+            name=f"{LABEL[kind].capitalize()}: {title}",
             mime=MIME[kind],
-            description=f"Speech in {record.get('name') or asset_id}, as text (faster-whisper).",
+            description=f"Speech in {title}, as text (faster-whisper).",
             metadata={"kind": "transcript", "source": asset_id, "language": made["language"], "seconds": made["seconds"]},
         )
         uploaded[kind] = {"id": asset["id"], "url": asset.get("publicUrl")}
     ctx.note(f"{made['segments']} segments")
-    result = {"language": made["language"], "seconds": made["seconds"], "segments": made["segments"], "files": uploaded, "url": uploaded["paragraphs"]["url"]}
+    result = {
+        "source_id": asset_id, "source_name": title, "language": made["language"], "seconds": made["seconds"], "segments": made["segments"], "files": uploaded,
+        "url": uploaded["paragraphs"]["url"],
+    }  # fmt: skip
     return {"result": result, "log": f"{made['segments']} segments, {made['language']}, {made['seconds']} s of audio."}
 
 
