@@ -379,12 +379,12 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             tail=float(s.get("tail", TAIL)),
             chapter=str(s["chapter"]) if s.get("chapter") else None,
         )
-        for j, raw in enumerate(s.get("camera_cues") or [], 1):
-            cue = camera.cue_of(raw)
+        for j, cue_row in enumerate(s.get("camera_cues") or [], 1):
+            cue = camera.cue_of(cue_row)
             if cue is None:
-                raise ManifestError(f"{where} camera cue {j}: kind is {', '.join(camera.CUES)} (got {raw})")
-            placed = _on_a_line({"line": raw.get("line") or "", "at": raw.get("line_at"), "share": raw.get("line_share")}, f"{where} camera cue {j}") if raw.get("line") else {"at": float(raw.get("at") or 0)}
-            shot.camera_cues.append({**cue, **placed, **({"nudge": _nudge(raw["nudge"], f"{where} camera cue {j}")} if raw.get("nudge") not in (None, "", 0) else {})})
+                raise ManifestError(f"{where} camera cue {j}: kind is {', '.join(camera.CUES)} (got {cue_row})")
+            placed = _on_a_line({"line": cue_row.get("line") or "", "at": cue_row.get("line_at"), "share": cue_row.get("line_share")}, f"{where} camera cue {j}") if cue_row.get("line") else {"at": float(cue_row.get("at") or 0)}
+            shot.camera_cues.append({**cue, **placed, **({"nudge": _nudge(cue_row["nudge"], f"{where} camera cue {j}")} if cue_row.get("nudge") not in (None, "", 0) else {})})
         if isinstance(s.get("starts_during"), dict) and s["starts_during"].get("line"):
             shot.starts_during = _on_a_line(s["starts_during"], f"{where} starts_during")
         if s.get("picture_lead") not in (None, ""):
