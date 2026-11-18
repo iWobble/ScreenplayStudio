@@ -51,6 +51,15 @@ def _speech(ld: dict) -> tuple[str, bool]:
     return spoken, False
 
 
+def _nudge(value: object) -> str:
+    """A line's nudge as the Nudge note writes it (`-0.4`), or nothing when it has none."""
+    try:
+        seconds = float(value) if value not in (None, "") else 0.0
+    except (TypeError, ValueError):
+        return ""
+    return f"{seconds:g}" if seconds else ""
+
+
 def _cue(speaker: str, extension: str = "") -> str:
     name = _clean(speaker).replace("-", " ").upper() or "VOICE"  # a handle of several words (a-deep-voice) is the name they make (A DEEP VOICE)
     if extension:
@@ -128,7 +137,7 @@ def _info_card_note(d: dict) -> str:
 
 _EXPORTED_NOTE = re.compile(
     r"(?:pic\b|beat\s+[\w.-]+\.(?:\s|$)|scene\s.+?\.\s(?:place|light|set dressing|continuity):|info\s+card\s*:|changes\s*:|hold\s*:|sound\s*:|"
-    r"shows\s*:|ambience\s*:|transition\s*:)",
+    r"shows\s*:|ambience\s*:|transition\s*:|nudge\s*:)",
     re.I,
 )
 """The notes the complete script writes itself (a Pic note, the beat's and the scene's notes, the info card, the changes, holds, sounds, the
@@ -433,6 +442,8 @@ def fountain_complete(records: dict) -> str:
             ext, noted = delivery.split_tokens(said)  # a line made before it had these fields: read from the note its beat's picture carries
             ext = _clean(ld.get("extension")) or ext
             direction = _clean(ld.get("direction")) or noted
+            if nudge := _nudge(ld.get("nudge")):
+                out += [f"[[Nudge: {nudge}]]", ""]  # a paragraph of its own right before the speaker, which the import reads back as the line's
             out.append(_cue(ld.get("speaker") or "", ext))
             if direction:
                 out.append(f"({direction.rstrip('.').lower()})" if _clean(ld.get("direction")) else f"({direction})")  # a typed direction is lower-cased; the writer's own is as they had it

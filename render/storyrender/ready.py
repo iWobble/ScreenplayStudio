@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 
 from . import cards, numbering
 from .manifest import DEFAULT_TRANSITION_SECONDS, LEAD, TAIL
-from .marvin_pull import end_transition_of, transition_of
+from .marvin_pull import end_transition_of, timing_of, transition_of
 
 SHOWN = 6  # names listed before "and N more"
 
@@ -160,10 +160,18 @@ def _fades_over_speech(story: dict, beats: list[dict], lines: list[dict]) -> lis
     def quiet(beat: dict, field: str, default: float) -> float:
         if _text(beat, "slug") not in spoken:
             return float("inf")  # nobody speaks in it: all of it is quiet
-        try:
-            return float(beat[field]) if beat.get(field) not in (None, "") else default
-        except (TypeError, ValueError):
-            return default
+        return timing_of(beat, story).get({"lead_seconds": "lead", "tail_seconds": "tail"}[field], default)  # the beat's own, else the story's
+
+    def around(k: int, beat: dict) -> tuple[float, float]:
+        """The quiet before and after the cut into this beat. A picture lead moves the cut to that long before the first word: the quiet after it is
+        the lead, the quiet before it what is left of the tail before and the lead-in (less than nothing: the cut falls inside the line before)."""
+        lead, tail = quiet(beat, "lead_seconds", LEAD), (quiet(ordered[k - 1], "tail_seconds", TAIL) if k else float("inf"))
+        picture = timing_of(beat, story).get("picture_lead")
+        if picture is None:
+            return tail, lead
+        if lead == float("inf"):  # a silent beat's picture comes its lead before the beat starts
+            return tail - picture, lead
+        return tail + lead - picture, picture
 
     found: list[str] = []
     for k, beat in enumerate(ordered):
@@ -173,7 +181,8 @@ def _fades_over_speech(story: dict, beats: list[dict], lines: list[dict]) -> lis
             continue
         seconds = way_in.get("transition_seconds") or DEFAULT_TRANSITION_SECONDS
         share = seconds if opens else seconds / 2
-        if share > quiet(beat, "lead_seconds", LEAD) or (k and share > quiet(ordered[k - 1], "tail_seconds", TAIL)):
+        before, after = around(k, beat)
+        if share > after or (k and share > before):
             found.append(f"into beat {_text(beat, 'number')}")
     ending = end_transition_of(story)
     if ordered and ending and cards.card_of(story, "outro") is None:

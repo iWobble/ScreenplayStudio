@@ -1,7 +1,8 @@
 """Assemble: a still per shot moved by its focal path, the shots' audio mixed on one timeline, captions burned in, one mp4 out.
 
-Per shot a silent clip (zoompan over the still, eased); one narration wav per shot (lines and sound effects delayed into
-place, padded to the shot's length), joined without re-encoding so there are no seams; then a single final encode that burns
+Per shot a silent clip (zoompan over the still, eased) as long as its picture is up; the narration as one wav (per shot and joined
+without re-encoding when each shot's sound stays inside its picture, else every line and sound effect laid on the film's own clock, so a
+voice runs on across a picture change); then a single final encode that burns
 the captions, adds the music bed under everything, normalises loudness and muxes. ffmpeg runs in a temp folder so the
 caption file needs no path escaping.
 """
@@ -211,14 +212,21 @@ def fades(length: float, fade_in: float = 0.0, fade_out: float = 0.0) -> str:
     return ",".join(parts) + "," if parts else ""
 
 
-def _narration(planned: PlannedShot, out: Path) -> None:
-    """One wav, exactly the shot's length: its lines and sound effects delayed into place."""
+Piece = tuple[Path, float, float, str, str, float]  # file, seconds into the film, volume, its cut, its filters, its length
+
+
+def _pieces(planned: PlannedShot) -> list[Piece]:
+    """A shot's sounds with where each starts on the film: its lines, and its sound effects counted from where its sound starts."""
+    return [(p.line.audio, p.start, p.line.volume, _cut(p.line), f"lowpass=f={MUFFLE_HZ}," if p.line.muffled else "", p.line.duration) for p in planned.lines if p.line.audio] + [
+        (fx.audio, planned.audio_start + max(fx.at, 0.0), fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out), fx.duration) for fx in planned.shot.sfx
+    ]
+
+
+def _mix(pieces: list[tuple[Path, float, float, str, str]], length: float, out: Path) -> None:
+    """One wav, exactly `length` seconds: each piece delayed to its place (seconds from the wav's start)."""
     inputs: list[str] = []
     chains: list[str] = []
     labels: list[str] = []
-    pieces = [(p.line.audio, p.start - planned.start, p.line.volume, _cut(p.line), f"lowpass=f={MUFFLE_HZ}," if p.line.muffled else "") for p in planned.lines if p.line.audio] + [
-        (fx.audio, fx.at, fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out)) for fx in planned.shot.sfx
-    ]
     for n, (file, at, volume, cut, fade) in enumerate(pieces):
         inputs += ["-i", str(file)]
         chains.append(
@@ -226,12 +234,56 @@ def _narration(planned: PlannedShot, out: Path) -> None:
         )
         labels.append(f"[a{n}]")
     if not pieces:
-        ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo", "-t", f"{planned.duration:.3f}", str(out)])
+        ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo", "-t", f"{length:.3f}", str(out)])
         return
-    mix = f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest,apad=whole_dur={planned.duration:.3f},atrim=0:{planned.duration:.3f}[out]"
+    mix = f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest,apad=whole_dur={length:.3f},atrim=0:{length:.3f}[out]"
     # The mix is padded to exactly the planned length (`whole_dur`), never endless: a bare `apad` followed by `atrim` did not end the stream on some ffmpeg builds
     # (CI's), so it ran until the disk was full. The output is also bounded by `-t`, and ffmpeg never waits on a keyboard.
-    ffmpeg.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), "-t", f"{planned.duration:.3f}", str(out)])
+    ffmpeg.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", *inputs, "-filter_complex", ";".join([*chains, mix]), "-map", "[out]", "-ar", str(SAMPLE_RATE), "-t", f"{length:.3f}", str(out)])
+
+
+def _narration(planned: PlannedShot, out: Path) -> None:
+    """One wav, exactly the shot's (picture's) length: its lines and sound effects delayed into place."""
+    _mix([(file, at - planned.start, volume, cut, fade) for file, at, volume, cut, fade, _ in _pieces(planned)], planned.duration, out)
+
+
+def stays_in_its_shot(timeline: Timeline) -> bool:
+    """Whether every shot's sound lies inside its own picture: then each shot's sound is made on its own and the shots are joined, as they always were.
+    A picture lead (the next picture comes while a line is still spoken) or a nudge (a line reaching back into the shot before) makes it cross."""
+    return all(
+        planned.start - 1e-6 <= at and at + length <= planned.start + planned.duration + 1e-6
+        for planned in timeline.shots
+        for _, at, _, _, _, length in _pieces(planned)
+    )
+
+
+MIX_INPUTS = 32  # sounds mixed in one ffmpeg run when the film's sound is laid on its own clock; more are mixed in groups, then the groups together
+
+
+def narration(timeline: Timeline, work: Path) -> Path:
+    """The film's spoken lines and sound effects as one wav, exactly the film's length (`work/narration.wav`). When each shot's sound stays inside its
+    picture, per shot and joined (as it always was); else laid on the film's own clock, each sound at its place, so a voice runs on across a cut."""
+    out = work / "narration.wav"
+    if stays_in_its_shot(timeline):
+        wavs = []
+        for i, planned in enumerate(timeline.shots):
+            wav = work / f"narration{i:03d}.wav"
+            _narration(planned, wav)
+            wavs.append(wav)
+        _join(wavs, out, work, kind="audio")
+        return out
+    pieces = [piece[:5] for planned in timeline.shots for piece in _pieces(planned)]
+    groups = [pieces[i : i + MIX_INPUTS] for i in range(0, len(pieces), MIX_INPUTS)] or [[]]
+    if len(groups) == 1:
+        _mix(groups[0], timeline.duration, out)
+        return out
+    parts = []
+    for n, group in enumerate(groups):
+        part = work / f"narration-part{n:03d}.wav"
+        _mix(group, timeline.duration, part)
+        parts.append((part, 0.0, 1.0, "", ""))
+    _mix(parts, timeline.duration, out)
+    return out
 
 
 MUFFLE_HZ = 700  # heard through a wall: the highs go, the low wash of the sea stays
@@ -408,16 +460,14 @@ def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | N
     with tempfile.TemporaryDirectory(prefix="storyrender-") as tmp:
         work = Path(keep) if keep else Path(tmp)
         work.mkdir(parents=True, exist_ok=True)
-        clips, wavs = [], []
+        clips = []
         edges = edges_of(timeline, fps, manifest.end_transition_seconds if manifest.end_transition == "fade" else 0.0)  # how the transitions treat each shot's ends (all cuts: nothing)
         for i, planned in enumerate(timeline.shots):
-            clip, wav = work / f"clip{i:03d}.mp4", work / f"narration{i:03d}.wav"
+            clip = work / f"clip{i:03d}.mp4"
             _clip(planned, size, fps, clip, draft=draft, edge=edges[i])
-            _narration(planned, wav)
             clips.append(clip)
-            wavs.append(wav)
         _join(_video_parts(clips, timeline, edges, work, fps, draft=draft), work / "video.mp4", work, kind="video")
-        _join(wavs, work / "narration.wav", work, kind="audio")
+        narration(timeline, work)
         mixed = _with_ambience(timeline, work / "narration.wav", manifest.end_fade, manifest.ambience, manifest.start_fade, manifest.ambience_duck)
         if mixed != work / "narration.wav":
             mixed.replace(work / "narration.wav")  # the final encode reads narration.wav
@@ -516,6 +566,12 @@ def _shifted(expr: str, begin: float) -> str:
     return re.sub(r"\bt\b", f"(t+{begin:.4f})", expr) if begin > 1e-9 else expr
 
 
+def final_video_args(draft: bool) -> list[str]:
+    """The film's own encode. A draft was ultrafast at CRF 28, which let a textured still shimmer as the camera moved (the texture froze and jumped):
+    veryfast at 23 is still quick and follows the move."""
+    return ["-c:v", "libx264", "-preset", "veryfast" if draft else "medium", "-crf", "23" if draft else "18", "-pix_fmt", "yuv420p"]
+
+
 def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, fps, *, draft: bool) -> None:
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", "video.mp4", "-i", "narration.wav"]
     audio = "[1:a]"
@@ -544,7 +600,7 @@ def _final(manifest: Manifest, timeline: Timeline, work: Path, out: Path, size, 
     cmd += ["-filter_complex", ";".join(chain)] if chain else []
     cmd += [
         "-vf", "subtitles=captions.ass", "-map", "0:v", "-map", audio if chain else "1:a",
-        "-c:v", "libx264", "-preset", "ultrafast" if draft else "medium", "-crf", "28" if draft else "18", "-pix_fmt", "yuv420p", "-r", str(fps),
+        *final_video_args(draft), "-r", str(fps),
         "-c:a", "aac", "-b:a", "192k", "-ar", str(SAMPLE_RATE), "-t", f"{timeline.duration:.3f}", "-movflags", "+faststart",
         "-metadata", f"title={manifest.title}", str(out.resolve()),
     ]  # fmt: skip
@@ -563,12 +619,7 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
     with tempfile.TemporaryDirectory(prefix="storyrender-") as tmp:
         work = Path(keep) if keep else Path(tmp)
         work.mkdir(parents=True, exist_ok=True)
-        wavs = []
-        for i, planned in enumerate(timeline.shots):
-            wav = work / f"narration{i:03d}.wav"
-            _narration(planned, wav)
-            wavs.append(wav)
-        _join(wavs, work / "narration.wav", work, kind="audio")
+        narration(timeline, work)
         heard = _with_ambience(timeline, work / "narration.wav", manifest.end_fade, manifest.ambience, manifest.start_fade, manifest.ambience_duck)
         ffmpeg.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-i", str(heard), "-af", f"loudnorm=I={manifest.loudness:g}:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-q:a", "2", str(out)]
@@ -583,9 +634,9 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
         "timeline": [
             {
                 "shot": planned.shot.id,
-                "start": round(planned.start, 3),
+                "start": round(planned.audio_start, 3),  # where its sound starts (a picture lead may bring its picture earlier)
                 "sounds": [
-                    {"id": fx.ref, "start": round(planned.start + fx.at, 3), "end": round(planned.start + fx.at + fx.duration, 3), "volume": fx.volume}
+                    {"id": fx.ref, "start": round(planned.audio_start + fx.at, 3), "end": round(planned.audio_start + fx.at + fx.duration, 3), "volume": fx.volume}
                     for fx in planned.shot.sfx
                 ],
                 "lines": [

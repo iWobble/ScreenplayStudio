@@ -8,6 +8,11 @@
                 "sfx": [{"audio": "audio/chop.mp3", "at": 0.5, "volume": 0.6}]}]}
 
 A shot lasts max(hold, lead + its lines + gaps + tail): the audio decides, as the edit plan says. Paths are relative to the manifest.
+
+The sound is laid out first, shot after shot (each line at its own place on the film's clock); the pictures are cut from it. With no `picture_lead`
+a shot's picture starts where its sound starts, as it always did. A shot with `picture_lead` shows its picture that many seconds before its first
+word (a silent one, before its own start), so the picture changes while the line before is still being spoken and the voice runs on across the cut.
+A line's `nudge` moves it later (+) or earlier (-) than where it would start, so two voices may overlap.
 """
 
 import json
@@ -23,6 +28,9 @@ LEAD = 0.3  # silence before a shot's first line
 GAP = 0.25  # between lines in a shot
 TAIL = 0.35  # after the last line, before the cut
 MAX_SHORT_SECONDS = 180
+MIN_PICTURE = 0.5  # seconds a picture stays up at the least when the next one is brought forward by a picture lead
+MAX_PICTURE_LEAD = 5.0
+MAX_NUDGE = 10.0
 
 
 class ManifestError(ValueError):
@@ -68,6 +76,7 @@ class Line:
     end: float | None = None  # …and where it ends; None = the file's end. Word times are from `start`.
     volume: float = 1.0  # how loud the line is in the mix, whichever take is used: 1 is as recorded
     muffled: bool = False  # heard through a wall: the highs are cut (the same low-pass as a muffled bed)
+    nudge: float = 0.0  # seconds later (+) or earlier (-) than where the line would start: a negative one overlaps the line before (an interruption)
 
 
 @dataclass
@@ -161,6 +170,9 @@ class Shot:
     """The id of the chapter this shot belongs to (a story is cut into chapters; see `chapters.py`)."""
     beat_ambience: Ambience | None = None
     """A beat's own bed, laid over `ambience` (its scene's), which runs on under it without a seam: a cheer over the tavern. None: only the scene's."""
+    picture_lead: float | None = None
+    """Seconds before its first word that the shot's picture arrives (a silent shot's: before its own start), over the end of the shot before; the
+    sound does not move. None: the picture starts where the shot's sound starts, as it always did. 0: at the first word."""
 
 
 @dataclass
@@ -206,8 +218,20 @@ class PlannedLine:
 class PlannedShot:
     shot: Shot
     start: float
+    """Where the shot's picture starts on the film (the clip, its camera move, its beds and its chapter all go by the picture)."""
     duration: float
+    """How long the picture is up: the shots' pictures follow one another without a gap, from 0 to the end of the film."""
     lines: list[PlannedLine]
+    audio_start: float | None = None
+    """Where the shot's sound starts: its lead-in, then its lines; its sound effects' `at` counts from here. None: the picture's start (the same
+    unless a picture lead or a nudge moved the picture)."""
+    audio_duration: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.audio_start is None:
+            self.audio_start = self.start
+        if self.audio_duration is None:
+            self.audio_duration = self.duration
 
 
 @dataclass
@@ -262,6 +286,19 @@ def _line_volume(value, where: str) -> float:
     return level
 
 
+def _nudge(value, where: str) -> float:
+    """A line's nudge: seconds later (+) or earlier (-) than its place; empty is 0."""
+    if value in (None, ""):
+        return 0.0
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        raise ManifestError(f"{where}: nudge is a number of seconds (got {value!r})") from None
+    if not -MAX_NUDGE <= seconds <= MAX_NUDGE:
+        raise ManifestError(f"{where}: nudge is -{MAX_NUDGE:g} to {MAX_NUDGE:g} seconds (got {seconds:g})")
+    return seconds
+
+
 def _ambience(amb: dict, audio_path: Callable[[str, str], Path], where: str) -> Ambience:
     """A shot's bed (`ambience`, its scene's; `beat_ambience`, the beat's own over it) from the manifest."""
     return Ambience(
@@ -309,6 +346,10 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             tail=float(s.get("tail", TAIL)),
             chapter=str(s["chapter"]) if s.get("chapter") else None,
         )
+        if s.get("picture_lead") not in (None, ""):
+            shot.picture_lead = float(s["picture_lead"])
+            if not 0 <= shot.picture_lead <= MAX_PICTURE_LEAD:
+                raise ManifestError(f"{where}: picture_lead is 0–{MAX_PICTURE_LEAD:g} seconds (got {shot.picture_lead:g})")
         if s.get("after") not in (None, "", 0):
             shot.after = float(s["after"])
             if not 0 < shot.after <= MAX_TRANSITION * 2:
@@ -376,6 +417,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
                     end=end,
                     volume=_line_volume(ln.get("volume"), lw),
                     muffled=bool(ln.get("muffled", False)),
+                    nudge=_nudge(ln.get("nudge"), lw),
                 )
             )
         for j, fx in enumerate(s.get("sfx") or [], 1):
@@ -449,20 +491,65 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
 
 def plan(manifest: Manifest) -> Timeline:
     """Lay the shots end to end: each lasts as long as its lines need (with the silences around them), or its hold when that is longer: a beat that is
-    too quick to take in is given its hold, the picture staying up after the last line."""
+    too quick to take in is given its hold, the picture staying up after the last line. That is the sound's layout; the pictures are cut from it
+    (see `_pictures`), on the same clock, so the film is as long either way."""
     shots: list[PlannedShot] = []
     clock = 0.0
     for index, shot in enumerate(manifest.shots):
         cursor = shot.lead
         lines: list[PlannedLine] = []
+        last_end = 0.0  # where the latest line ends, in the shot's own seconds: with nudges an earlier line may end after the last
         for line in shot.lines:
+            if line.nudge:
+                cursor = max(cursor + line.nudge, -clock)  # never before the film starts; the next line follows this one where it now ends
             lines.append(PlannedLine(line, clock + cursor))
+            last_end = max(last_end, cursor + line.duration)
             cursor += line.duration + shot.gap
-        spoken = cursor - shot.gap + shot.tail if shot.lines else 0.0
+        spoken = (max(cursor - shot.gap, last_end) if any(line.nudge for line in shot.lines) else cursor - shot.gap) + shot.tail if shot.lines else 0.0
         sfx_end = max((fx.at + fx.duration for fx in shot.sfx), default=0.0)
         duration = max(shot.hold, spoken, sfx_end) + shot.after
         if index == len(manifest.shots) - 1:
             duration += manifest.end_hold
         shots.append(PlannedShot(shot, clock, duration, lines))
         clock += duration
+    _pictures(shots, clock)
     return Timeline(shots)
+
+
+def _pictures(shots: list[PlannedShot], total: float) -> None:
+    """Where each shot's picture starts and how long it is up. A shot with no picture lead starts its picture where its sound starts (or at its first
+    word, when a nudge brings that earlier): as it always did. One with a lead starts it that long before its first word (a silent one, before its own
+    start). A picture brought forward never comes before 0, never leaves the one before it less than MIN_PICTURE, and never comes later than its sound
+    starts unless its lead asks for that (a lead shorter than the lead-in). Nothing changes when no shot asks for a lead or a nudge."""
+    starts: list[float] = []
+    for k, planned in enumerate(shots):
+        here = planned.audio_start
+        first_word = planned.lines[0].start if planned.lines else here
+        lead = planned.shot.picture_lead
+        wanted = first_word - lead if lead is not None else min(here, first_word)
+        if k == 0:
+            starts.append(0.0)
+        elif wanted == here:
+            starts.append(here)
+        else:
+            starts.append(max(starts[-1], min(max(wanted, starts[-1] + MIN_PICTURE), max(wanted, here), total)))
+    if all(at == planned.audio_start for at, planned in zip(starts, shots, strict=True)):
+        return  # the pictures are the sound's windows, to the last digit
+    for k, planned in enumerate(shots):
+        planned.start = starts[k]
+        planned.duration = (starts[k + 1] if k + 1 < len(shots) else total) - starts[k]
+
+
+def overlaps(timeline: Timeline) -> list[tuple[str, str, float]]:
+    """Lines a nudge has laid wholly over another line, as (one, the other, seconds they overlap): two voices at once is an interruption, but one
+    line hidden under another is more likely a nudge gone too far."""
+    placed = sorted((p for s in timeline.shots for p in s.lines if p.line.duration > 0), key=lambda p: p.start)
+    found = []
+    for i, a in enumerate(placed):
+        for b in placed[i + 1 :]:
+            if b.start >= a.start + a.line.duration:
+                break
+            both = min(a.start + a.line.duration, b.start + b.line.duration) - b.start
+            if both >= min(a.line.duration, b.line.duration) - 1e-6:
+                found.append((a.line.ref or a.line.text[:30], b.line.ref or b.line.text[:30], round(both, 3)))
+    return found

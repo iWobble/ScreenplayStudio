@@ -165,6 +165,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
                 entry["volume"] = d["volume"]
             if d.get("muffled"):
                 entry["muffled"] = True
+            if nudge := _seconds(d.get("nudge"), -10.0, 10.0):  # later (+) or earlier (-) than where it would start: two voices may overlap
+                entry["nudge"] = nudge
             if words := spoken_words(d, record.get("metadataJson")):
                 entry["words"] = words
             spoken.append(entry)
@@ -175,9 +177,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             skipped.append(number)
             continue  # nothing to hear, no time asked for and no picture: there is nothing to show. A beat with a picture always plays (below), a held one too
         shot: dict = {"id": f"b{number}", "lines": spoken}
-        for key, field in (("lead", "lead_seconds"), ("gap", "gap_seconds"), ("tail", "tail_seconds")):
-            if data(beat).get(field) is not None:  # empty keeps the renderer's default
-                shot[key] = float(data(beat)[field])
+        shot.update(timing_of(data(beat), data(story_row)))
         shot.update(transition_of(data(beat), data(story_row)))
         if effects:
             shot["sfx"] = effects
@@ -429,6 +429,35 @@ def story_ambience(creds, out: Path, story_data: dict, sounds: dict, data, taken
         taken[name] = _fetch_asset(creds, str(data(sound)["audio"]), out / "audio" / "sounds" / name, "mp3")
     level = next((v for v in (story_data.get("ambience_volume"), data(sound).get("volume")) if v not in (None, "")), 0.5)
     return {"id": name, "audio": str(taken[name].relative_to(out)), "volume": float(level), **cascaded_fades(data(sound), story_data)}
+
+
+TIMING = (("lead", "lead_seconds", "line_lead"), ("gap", "gap_seconds", "line_gap"), ("tail", "tail_seconds", "line_tail"))
+
+
+def timing_of(beat: dict, story: dict) -> dict:
+    """A beat's silences around its lines and when its picture comes, as manifest keys: the beat's own `lead_seconds` / `gap_seconds` /
+    `tail_seconds`, else the story's `line_lead` / `line_gap` / `line_tail`, else nothing (the renderer's 0.3 / 0.25 / 0.35); and `picture_lead`,
+    the beat's own, else the story's, else nothing (the picture comes where the beat's sound starts). 0 is a value; empty is not set."""
+    out: dict = {}
+    for key, own, story_key in TIMING:
+        for value in (beat.get(own), story.get(story_key)):
+            if (seconds := _seconds(value, 0.0, 30.0)) is not None:
+                out[key] = seconds
+                break
+    for value in (beat.get("picture_lead"), story.get("picture_lead")):
+        if (seconds := _seconds(value, 0.0, 5.0)) is not None:
+            out["picture_lead"] = seconds
+            break
+    return out
+
+
+def _seconds(value, low: float, high: float) -> float | None:
+    """A number of seconds from a form field, held to low–high: None when it is empty or not a number (0 is a value)."""
+    try:
+        seconds = float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+    return None if seconds is None else min(max(seconds, low), high)
 
 
 def _positive(value) -> float | None:

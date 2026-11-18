@@ -274,7 +274,7 @@ def check(text: str) -> list[Finding]:
     plain = F._readable(plain)  # the rest reads the text as it looks, as the import does
     out += _notes(plain)
     out += _title(plain)
-    stripped = F._NOTE.sub(F._blank_out, F._BONEYARD.sub(F._blank_out, plain))
+    stripped = F._NOTE.sub(F._blank_out, F._BONEYARD.sub(F._blank_out, F._nudge_marked(plain)))
     found, speakers, lower = _blocks(stripped)
     out += found + _speakers(speakers, lower)
     for message in F.lint(text, limit=None):  # the capitals rules the import has always warned about, every one of them, with a place in this list

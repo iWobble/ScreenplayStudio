@@ -88,6 +88,7 @@ Drop anchor in a graveyard, boy?
 - A silent picture plays 4 seconds. To change it: `[[Hold: 1.5s.]]` on its own line inside that picture. A picture with speech lasts as long as the take. Put no pause after every line.
 - Transitions go on their own line, in capitals, ending in `TO:`: `CUT TO:`, `DISSOLVE TO:`, `CROSSFADE TO:`. Any such line is a transition: one that names a dissolve or a fade is that, every other (`BACK TO:`, `FLASHBACK TO:`, `WIPE TO:`) is a cut with its words kept. A transition belongs to the picture that comes after it. `FADE IN:` before the first picture brings the film up from black; `FADE OUT.` after the last one takes it down to black. A transition never changes how long the film is.
 - A transition's length: `[[Transition: 1.2s.]]` inside the picture it leads into (empty: the story's length, else 0.5 s).
+- A line that should start earlier or later than it falls (an interruption): `[[Nudge: -0.4]]` on its own line right before the speaker (or right under the speaker's name). Seconds; a negative nudge overlaps the line before. It fills the line's *Nudge* (v209).
 - **A card in the film** (`THREE YEARS LATER`, a chapter's title, `THE END`): centred text in a paragraph of its own, `> THE END <`. It is a beat that shows the words on the story's card colour, with no picture made for it. A second centred line under the first is a sentence under the title. A speech right after it is read over the card. It plays 4 seconds, or as long as its lines; `[[Hold: 2s.]]` changes that. Centred text inside a paragraph of action is still action.
 - A title over a picture: `SUPER: THE DEVIL'S SHOALS` as an action line.
 
@@ -153,7 +154,7 @@ Three ships left the old sun behind.
 
 ## 8. Notes
 
-`[[ anything ]]` is removed before pictures, narration and subtitles, so it is safe for comments. Only `Hold:`, `Sound:`, `Pic:`, `Info card:` and `Changes:` notes are acted on (a Pic note starts a picture; the last two fill the beat's info card and changes: see section 6). A note must have no blank line inside. Do not put story in a note.
+`[[ anything ]]` is removed before pictures, narration and subtitles, so it is safe for comments. Only `Hold:`, `Sound:`, `Pic:`, `Info card:`, `Changes:` and `Nudge:` notes are acted on (a Pic note starts a picture; the last two fill the beat's info card and changes: see section 6). A note must have no blank line inside. Do not put story in a note.
 
 ### What the *complete* script carries back (v204)
 
