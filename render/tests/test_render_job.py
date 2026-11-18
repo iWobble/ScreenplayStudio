@@ -21,6 +21,7 @@ class Marvin:
         self.story = {"id": "e0", "slug": "s", "dataJson": {"video": old_video}}
         self.uploads, self.updated, self.deleted = [], [], []
         self.refuse = refuse_upload
+        self.assets, self.refuse_trash = [], set()  # the library newest first, and asset ids whose DELETE fails
         project = demo.make(tmp_path / "demo", size=(360, 640))
 
         self.pulled_with = []
@@ -56,6 +57,10 @@ class Marvin:
         return {}
 
     def request(self, creds, path, **kw):
+        if kw.get("method") != "DELETE":  # a listing of the library (the looks at some beats)
+            return json.dumps(self.assets).encode()
+        if path.rsplit("/", 1)[-1] in self.refuse_trash:
+            raise jobs.marvin_api.MarvinError("503 busy")
         self.deleted.append((path, kw.get("method")))
         return b"{}"
 

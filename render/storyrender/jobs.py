@@ -15,6 +15,7 @@ from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
 from . import audio_convert, audio_measure, beat_import, build, captions, cards, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, numbering, ready, script, validate, voices, waveform
+from .looks import trash_old_looks
 
 
 def story_of(job: dict) -> str:
@@ -1658,6 +1659,8 @@ def render_video(job: dict, ctx: Context) -> dict:
             marvin_api.request(ctx.creds, f"/api/platform/assets/{before}", method="DELETE")
         except marvin_api.MarvinError:
             pass  # an old copy that cannot be trashed must not fail a video that was made
+    if only:  # looks at some beats pile up: the story's older ones beyond the newest few go to the Trash
+        trash_old_looks(ctx, story, asset["id"])
     if not only:  # a look at some beats makes no subtitle file of its own
         _keep_subtitles(ctx, story, name, title, captions.srt(manifest.plan(m)))
     story_data = (next(iter(marvin_api.query(ctx.creds, {"entries": story}, limit=1)), None) or {}).get("dataJson") or {}
