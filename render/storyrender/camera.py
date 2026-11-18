@@ -65,3 +65,37 @@ def pick(beat: dict, scene: dict | None, story: dict) -> str | None:
         if name in PRESETS:
             return name
     return None
+
+
+# --- a camera cue on a word (v212) ------------------------------------------------------------------------------------------------------------
+# `[[Camera: punch]]` among a line's words moves the camera at that word (the end of the word before the note), on top of the beat's own move:
+
+CUES = {
+    "punch": "a quick zoom in that settles back: punch (6% in), punch 1.1 (10% in)",
+    "shake": "a short shake that dies away: shake (1.2% of the frame), shake 2 (2%)",
+    "nudge": "a short drift toward a point of the picture, which it then stays near: nudge 0.7,0.4 (x, y from 0 to 1)",
+}
+PUNCH = 1.06  # how close a punch goes: 6% in
+PUNCH_ATTACK, PUNCH_RELEASE = 0.2, 0.3  # seconds in, and back
+SHAKE = 1.2  # percent of the frame a shake moves at first
+SHAKE_SECONDS, SHAKE_DECAY = 0.3, 0.12  # how long it lasts, and how fast it dies away
+SHAKE_HZ = (7.0, 5.5)  # side to side and up and down, out of step: well under half a draft's 24 frames a second, so no frame rate hides it
+NUDGE_SECONDS, NUDGE_ZOOM, NUDGE_SHARE = 0.4, 1.04, 0.35  # the drift's length, the room it makes, and how far toward the point it goes
+
+
+def cue_of(raw: object) -> dict | None:
+    """A cue's camera ({kind, amount?, x?, y?}) checked: None for a kind that is not one of CUES, or numbers out of range."""
+    if not isinstance(raw, dict) or str(raw.get("kind") or "").lower() not in CUES:
+        return None
+    kind = str(raw["kind"]).lower()
+    out: dict = {"kind": kind}
+    try:
+        if kind == "nudge":
+            out["x"], out["y"] = min(max(float(raw.get("x", 0.5)), 0.0), 1.0), min(max(float(raw.get("y", 0.5)), 0.0), 1.0)
+        elif raw.get("amount") is not None:
+            amount = float(raw["amount"])
+            out["amount"] = min(max(amount, 1.0), 1.5) if kind == "punch" else min(max(amount, 0.0), 10.0)
+    except (TypeError, ValueError):
+        return None
+    return out
+

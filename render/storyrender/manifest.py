@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from . import camera
+
 DEFAULT_SIZE = (1080, 1920)
 ASPECTS = ((9, 16), (1, 1), (4, 5), (16, 9))  # the shapes a film may have (formats.SHAPES)
 DEFAULT_FPS = 30
@@ -174,6 +176,8 @@ class Shot:
     """The id of the chapter this shot belongs to (a story is cut into chapters; see `chapters.py`)."""
     beat_ambience: Ambience | None = None
     """A beat's own bed, laid over `ambience` (its scene's), which runs on under it without a seam: a cheer over the tavern. None: only the scene's."""
+    camera_cues: list[dict] = field(default_factory=list)
+    """Camera moves on words of the shot's lines (v212): {kind: punch|shake|nudge, amount?, x?, y?, line, at|share}, on top of the shot's own move."""
     starts_during: dict | None = None
     """A picture that comes in at a word of a line of an earlier shot (a Pic note among the words, v211): {"line": its id, "at": seconds into it} or
     {"line", "share": 0–1}. It adds no time of its own; `hold` keeps it up at least that long from where it comes in."""
@@ -235,6 +239,8 @@ class PlannedShot:
     audio_duration: float | None = None
     sfx_at: list[float] = field(default_factory=list)
     """Where each of the shot's sound effects starts, in seconds from `audio_start` (one placed on a word, there)."""
+    camera: list[tuple[float, dict]] = field(default_factory=list)
+    """The camera cues that fall while this shot's picture is up: (seconds into the picture, the cue)."""
     anchor: float | None = None
     """Where on the film the picture of a shot that `starts_during` a line comes in (None for any other shot)."""
 
@@ -372,6 +378,12 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             tail=float(s.get("tail", TAIL)),
             chapter=str(s["chapter"]) if s.get("chapter") else None,
         )
+        for j, raw in enumerate(s.get("camera_cues") or [], 1):
+            cue = camera.cue_of(raw)
+            if cue is None:
+                raise ManifestError(f"{where} camera cue {j}: kind is {', '.join(camera.CUES)} (got {raw})")
+            placed = _on_a_line({"line": raw.get("line") or "", "at": raw.get("line_at"), "share": raw.get("line_share")}, f"{where} camera cue {j}") if raw.get("line") else {"at": float(raw.get("at") or 0)}
+            shot.camera_cues.append({**cue, **placed})
         if isinstance(s.get("starts_during"), dict) and s["starts_during"].get("line"):
             shot.starts_during = _on_a_line(s["starts_during"], f"{where} starts_during")
         if s.get("picture_lead") not in (None, ""):
@@ -528,6 +540,7 @@ def plan(manifest: Manifest) -> Timeline:
     shots: list[PlannedShot] = []
     clock = 0.0
     said: dict[str, PlannedLine] = {}  # every line laid so far, by its id: a cue on one of its words is placed from it
+    moves: list[tuple[float, dict]] = []  # the camera cues, where on the film each falls
     for index, shot in enumerate(manifest.shots):
         cursor = shot.lead
         lines: list[PlannedLine] = []
@@ -558,8 +571,16 @@ def plan(manifest: Manifest) -> Timeline:
         if index == len(manifest.shots) - 1:
             duration += manifest.end_hold
         shots.append(PlannedShot(shot, clock, duration, lines, sfx_at=[max(at, 0.0) for at in sfx_at], anchor=anchor))
+        for cue in shot.camera_cues:
+            when = _on_word(said, cue["line"], cue.get("at"), cue.get("share")) if cue.get("line") in said else clock + cue.get("at", 0.0) if not cue.get("line") else None
+            if when is not None:
+                moves.append((when, {k: v for k, v in cue.items() if k not in ("line", "at", "share")}))
         clock += duration
     _pictures(shots, clock)
+    for when, cue in moves:  # a camera cue moves the picture that is up when it falls (a picture that came in at an earlier word, perhaps)
+        planned = next((p for p in reversed(shots) if p.start <= when + 1e-9), shots[0]) if shots else None
+        if planned is not None:
+            planned.camera.append((when - planned.start, cue))
     return Timeline(shots)
 
 
