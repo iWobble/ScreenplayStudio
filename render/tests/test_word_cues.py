@@ -196,3 +196,16 @@ def test_the_render_plays_the_sound_after_its_word_and_brings_the_picture_in_at_
     assert _strength(sound, 1.0, 1320) < 0.01 < _strength(sound, 1.35, 1320)  # the clang starts at 0.2 + 1.0 s, not with the beat
     assert _rgb(film, 1.75)[0] > 150 and _rgb(film, 2.25)[2] > 150  # red until the word at 0.2 + 1.8 s, then blue (a 0.2 s dissolve round it)
     assert _strength(sound, 2.5, 440) > 0.03  # the voice runs on under the new picture
+
+
+def test_an_overlay_beat_does_not_stop_a_revised_fountain_being_fitted_by_what_it_says(casting):  # noqa: F811
+    first, ctx = casting(FLASH)
+    run(ctx)
+    made = {m["slug"]: {"id": f"id-{m['slug']}", "slug": m["slug"], "title": m["title"], "dataJson": dict(m["dataJson"])} for m in first.made if m["entryTypeId"] in ("T-beat", "T-line")}
+    assert "fountain" not in made["s-beat-01a"]["dataJson"]  # the overlay has no piece of the text of its own
+    revised = FLASH.replace("The forge roars.", "Sparks fly.\n\n===\n\nThe forge roars.")
+    again, ctx2 = casting(revised)
+    again.records = dict(made)
+    done = run(ctx2, mode="refresh")
+    assert done["result"]["revision"]["new"]  # fitted by what each beat says, not by number
+    assert [m["slug"] for m in again.made if m["entryTypeId"] == "T-beat"] == ["s-beat-01b"]  # the new picture after 01 (01a is the overlay's)

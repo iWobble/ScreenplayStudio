@@ -1242,6 +1242,8 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     made_pieces, made_count = {}, 0  # the beats already made from this Fountain, and the piece of it each holds: a revised Fountain is fitted to them by what it says
     for e in ([] if fresh else _all(ctx.creds, {"entry_type": "beat", "data": {"story": story}})):
         d_ = e.get("dataJson") or {}
+        if isinstance(d_.get("starts_during"), dict):
+            continue  # a picture that comes in at a word (v211) has no piece of its own: it is made again from its line's Pic note
         made_count += 1
         if str(d_.get("number") or "").strip() and str(d_.get("fountain") or "").strip():
             made_pieces[str(d_["number"]).strip()] = str(d_["fountain"])
