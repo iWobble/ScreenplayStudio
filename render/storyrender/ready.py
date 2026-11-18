@@ -17,6 +17,18 @@ def _text(row: dict, key: str) -> str:
     return str((row or {}).get(key) or "").strip()
 
 
+EFFECT_SECONDS = (0.5, 30.0)  # the lengths ElevenLabs makes a sound effect or ambience in (its own check refuses others, before any credit is spent)
+
+
+def _seconds(row: dict) -> float | None:
+    """A row's length in seconds when one is set, else None."""
+    try:
+        value = row.get("duration_seconds")
+        return None if value in (None, "") else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _names(items: list[str]) -> str:
     items = list(dict.fromkeys(items))
     return ", ".join(items[:SHOWN]) + (f" and {len(items) - SHOWN} more" if len(items) > SHOWN else "")
@@ -137,6 +149,13 @@ def check(
     unsized = [_text(s, "title") or _text(s, "slug") for s in sounds if _text(s, "source") in ("", "generated") and not s.get("duration_seconds") and _text(s, "prompt")]
     if unsized:
         look("Sounds", f"{len(unsized)} sound{'s' if len(unsized) != 1 else ''} with no length (the generator then guesses): {_names(unsized)}")
+    # A Sound's length holds any real length (your own 72 s music bed), but ElevenLabs makes an effect or ambience of 0.5 to 30 s and refuses
+    # anything else: one queued with a length outside that would ask for the credit and then fail.
+    too_long = [f"{_text(s, 'title') or _text(s, 'slug')} ({_seconds(s):g} s)" for s in sounds if _text(s, "source") in ("", "generated") and _text(s, "kind") != "music"
+                and _seconds(s) is not None and not EFFECT_SECONDS[0] <= _seconds(s) <= EFFECT_SECONDS[1]]  # fmt: skip
+    if too_long:
+        fix("Sounds", f"ElevenLabs makes a sound {EFFECT_SECONDS[0]:g} to {EFFECT_SECONDS[1]:g} s long, and {len(too_long)} to generate ask{'s' if len(too_long) == 1 else ''} for another length: {_names(too_long)}. "
+            "Change the length, empty it to let ElevenLabs pick, or use your own file")  # fmt: skip
     same: dict[str, list[str]] = defaultdict(list)
     for s in sounds:
         if _text(s, "prompt"):

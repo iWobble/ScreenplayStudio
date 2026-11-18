@@ -159,8 +159,31 @@ def measure_audio(job: dict, ctx: Context) -> dict:
         seconds = round(audio_measure.seconds(src), 3)
     except ffmpeg.FfmpegError as e:
         raise JobError(f"could not read “{name}” as sound: {e}") from e
-    marvin_api.update_entry(ctx.creds, slug, {target: seconds})
+    try:
+        marvin_api.update_entry(ctx.creds, slug, {target: seconds})
+    except marvin_api.MarvinError as e:
+        refused = _refused_as_invalid(e)
+        if refused is None:
+            raise
+        # The measure is right and the field's limits are wrong (a Sound's length was capped at 30 s, an ElevenLabs effect's limit, and a
+        # 72 s music bed was refused). The job is done: the length is in its result, and nothing is written, so the entry is left as it was.
+        said = f"{name}: {seconds:.2f} s, not written: {slug} refused it in {target} ({refused}). Raise that field's limit in the content model and measure again."
+        return {"result": {"entry": slug, "field": field, "seconds_field": target, "seconds": seconds, "written": False, "refused": refused}, "log": said}
     return {"result": {"entry": slug, "field": field, "seconds_field": target, "seconds": seconds}, "log": f"{name}: {seconds:.2f} s, written to {target} on {slug}"}
+
+
+def _refused_as_invalid(error: Exception) -> str | None:
+    """What Marvin said when it refused a write because a value broke a field's rule (a 400 or 422 naming validation), else None:
+    any other failure (a lost connection, a missing entry, no permission) is not this and stays a failure."""
+    text = str(error)
+    said = re.match(r"Marvin answered (400|422) for \S+: (.*)", text, re.S)
+    if not said or "validation" not in said.group(2).lower():
+        return None
+    try:
+        detail = json.loads(said.group(2)).get("detail")
+    except (ValueError, AttributeError):
+        detail = None
+    return str(detail if isinstance(detail, str) and detail else said.group(2)).strip()
 
 
 @job_kind(

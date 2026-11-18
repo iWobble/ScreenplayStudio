@@ -32,6 +32,7 @@ class FakeMarvin(BaseHTTPRequestHandler):
     audio: bytes = b""
     webm: bytes = b""
     taken_slugs: list = []
+    maximums: dict = {}  # field → the most it takes, as an entry type's number field refuses more (Content validation failed)
 
     def _json(self, status, body):
         self.send_response(status)
@@ -71,6 +72,10 @@ class FakeMarvin(BaseHTTPRequestHandler):
     def do_PATCH(self):  # noqa: N802
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         row = next(e for e in FakeMarvin.entries if f"/{e['id']}" in self.path)
+        for key, most in FakeMarvin.maximums.items():
+            value = body["dataJson"].get(key)
+            if isinstance(value, int | float) and value > most:
+                return self._json(400, {"detail": f"Content validation failed: Value {value} exceeds maximum {float(most)}"})
         row["dataJson"] = body["dataJson"]
         self._json(200, row)
 
@@ -93,6 +98,7 @@ def marvin(tmp_path):
         FakeMarvin.webm = rec.read_bytes()
     FakeMarvin.uploads = []
     FakeMarvin.taken_slugs = []
+    FakeMarvin.maximums = {}
     FakeMarvin.entries = [
         {"id": "e0", "slug": STORY, "title": "The Last Onion", "dataJson": {}},
         {"id": "e1", "slug": f"{STORY}-beat-01", "dataJson": {"story": STORY, "number": "01"}},
@@ -324,6 +330,50 @@ def test_measure_audio_can_write_to_another_field_and_read_another(marvin):
     serve.run_job(_measure_job("granny", field="voice_sample", seconds_field="sample_seconds"), marvin)
 
     assert 0.8 < _data("granny")["sample_seconds"] < 1.3 and _data("granny")["voice_sample"] == "voice-1"
+
+
+def _long_sound(tmp_path, seconds=72):
+    """A music bed of your own, longer than the 30 s an ElevenLabs effect can be: the sound bright-spaceship-corridor-loop-01 was 72.046 s."""
+    rec = tmp_path / "long.webm"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"sine=frequency=220:duration={seconds}", "-c:a", "libopus", "-b:a", "16k", str(rec)], check=True)
+    FakeMarvin.webm = rec.read_bytes()
+    FakeMarvin.entries.append({"id": "e8", "slug": "corridor-loop", "title": "Corridor loop", "dataJson": {"kind": "music", "source": "uploaded", "audio": "voice-1", "loop": True, "level_db": -26.6, "peak_db": -14.8}})
+
+
+@needs_ffmpeg
+def test_measure_audio_writes_the_length_of_a_72_second_sound(marvin, tmp_path):
+    _long_sound(tmp_path)
+    serve.run_job(_measure_job("corridor-loop", seconds_field="duration_seconds"), marvin)
+
+    assert _data("measure-job-1")["status"] == "done"
+    assert 71.5 < _data("corridor-loop")["duration_seconds"] < 72.5 and _data("corridor-loop")["level_db"] == -26.6  # the rest is kept
+
+
+@needs_ffmpeg
+def test_a_length_the_field_refuses_leaves_the_sound_as_it_was_and_the_job_done_saying_why(marvin, tmp_path):
+    """A workspace whose Sound length still stops at 30 s (an update never changes a field's limits) refused a 72 s music bed with a 400, and every
+    measure failed. The job now ends done, with the length in its result and Marvin's reason in its log; it writes nothing to the sound, so
+    nothing on the sound changes (a write there would set off the measure workflow again)."""
+    _long_sound(tmp_path)
+    FakeMarvin.maximums = {"duration_seconds": 30}
+    before = dict(_data("corridor-loop"))
+    serve.run_job(_measure_job("corridor-loop", seconds_field="duration_seconds"), marvin)
+
+    job = _data("measure-job-1")
+    assert job["status"] == "done" and job["result"]["written"] is False and 71.5 < job["result"]["seconds"] < 72.5
+    assert "exceeds maximum 30.0" in job["result"]["refused"] and "not written" in job["log"] and "corridor-loop" in job["log"]
+    assert _data("corridor-loop") == before  # level_db and peak_db (their own job's) and everything else as they were
+
+
+def test_only_a_refusal_for_a_rule_is_taken_as_a_value_the_field_will_not_hold():
+    from marvin_worker.marvin_api import MarvinError
+
+    said = jobs._refused_as_invalid(MarvinError('Marvin answered 400 for /api/platform/entries/x: {"detail":"Content validation failed: Value 72.046 exceeds maximum 30.0"}'))
+    assert said == "Content validation failed: Value 72.046 exceeds maximum 30.0"
+    assert jobs._refused_as_invalid(MarvinError('Marvin answered 400 for /api/platform/entries/x: {"detail":"Content validation failed: Value 72.0')) is not None  # cut short at 200 bytes
+    assert jobs._refused_as_invalid(MarvinError('Marvin answered 403 for /api/platform/entries/x: {"detail":"validation"}')) is None
+    assert jobs._refused_as_invalid(MarvinError('Marvin answered 400 for /api/platform/entries/x: {"detail":"Bad request"}')) is None
+    assert jobs._refused_as_invalid(MarvinError("can't reach Marvin (timed out)")) is None
 
 
 def test_measure_audio_of_an_entry_with_no_recording_says_why_on_the_record(marvin):
