@@ -133,3 +133,15 @@ def test_a_rocking_frame_is_level_at_the_start_and_halfway_and_tilted_a_quarter_
         return sum(sum(px) for px in ImageChops.difference(_frame(clip, a, tmp_path), _frame(clip, b, tmp_path)).getdata())
 
     assert apart(0.0, 0.5) > 5 * max(apart(0.0, 1.0), 1)  # level to tilted is a big change; level to level (a whole half sway on) is hardly any
+
+
+def test_a_slow_move_runs_over_a_picture_four_times_the_frame_so_it_does_not_jitter(tmp_path: Path):
+    """zoompan places the picture in whole pixels of what it moves over: on 2x the frame a slow drift showed a faint jitter (about 0.2 px a frame
+    off the smooth path); on 4x it is about a third of that."""
+    still = tmp_path / "still.png"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=s=160x280:d=1", "-frames:v", "1", str(still)], check=True)
+    shot = Shot("a", still, hold=4, move_from=manifest.Move(zoom=1.0, x=0.5, y=0.5), move_to=manifest.Move(zoom=1.08, x=0.52, y=0.51))
+    planned = manifest.plan(Manifest("t", (80, 140), 12, [shot])).shots[0]
+    filtered = build.zoompan_filter(planned, (80, 140), 12)
+    assert build.SUPERSAMPLE >= 4
+    assert f"scale={80 * build.SUPERSAMPLE}:{140 * build.SUPERSAMPLE}:" in filtered
