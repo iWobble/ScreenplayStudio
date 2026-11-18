@@ -3,6 +3,7 @@
 or its sound. And a shake makes room for itself, so its amount shows at zoom 1."""
 
 import json
+import re
 import subprocess
 from array import array
 from pathlib import Path
@@ -266,7 +267,8 @@ def test_look_notes_reach_the_beats_cues_and_the_complete_script_writes_them_bac
 
 
 def test_the_check_takes_look_notes_as_cues():
-    assert [f for f in validate.check(TEXT) if "note" in f.code or "pic" in f.code] == []
+    bare = re.sub(r" ?\[\[[^\]]*\]\]", "", TEXT)
+    assert [(f.code, f.problem) for f in validate.check(TEXT)] == [(f.code, f.problem) for f in validate.check(bare)]
     assert fountain.cue_parts("Look: flash | Nudge: -0.2") == {"look": "flash", "nudge": "-0.2"}
     assert fountain.cue_parts("Look") is None  # a Look says which
 
