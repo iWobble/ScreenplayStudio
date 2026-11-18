@@ -13,6 +13,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 
 from . import camera, captions, cards, ffmpeg, formats, numbering
+from . import clip as clips
 from . import lines as lines_of
 
 CREDENTIALS = Path.home() / ".marvin" / "credentials.json"
@@ -154,6 +155,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     videos: dict[str, Path] = {}  # …and so is an overlay video
     size = formats.size_of(data(story_row)) or PLACEHOLDER_SIZE  # the picture shape the story asked for: the cards and placeholder cards are made to fit it
     shots, missing, carded, skipped, estimated = [], [], [], [], []
+    notes: list[str] = []  # what was left out and why (a clip that could not be fetched)
     heard: dict[str, dict] = {}  # each line in the film by its slug, with its words and their timings: a cue on one of its words is placed from it
     opening: dict = {}  # the beat the first shot is made from
     scenes_of: list[str] = []  # the scene of each shot made, for the pause where a scene ends
@@ -188,7 +190,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         stressed = _emphasis_cues(cued, heard, estimated)
         is_card = cards.is_plain(data(beat))  # it shows a plain card: that is its picture, so it always plays and is never waiting for a still
         has_still = bool(data(beat).get("still")) or is_card
-        if not spoken and not effects and not data(beat).get("hold_seconds") and not has_still:
+        clip = clips.from_beat(data(beat), lambda asset: _fetch_asset(creds, asset, out / "video" / "clips" / f"b{number}", "webm"), out, f"beat {number}", notes)  # noqa: B023
+        if not spoken and not effects and not data(beat).get("hold_seconds") and not has_still and not clip:
             skipped.append(number)
             continue  # nothing to hear, no time asked for and no picture: there is nothing to show. A beat with a picture always plays (below), a held one too
         shot: dict = {"id": f"b{number}", "lines": spoken}
@@ -211,7 +214,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             shot["beat_ambience"] = over  # laid over the scene's bed, which runs on under it
         shot.update(story_bed_in(data(beat), scenes.get(str(data(beat).get("scene")))))
         cover = _info_overlay(creds, out, data(beat), number, size, data(story_row))
-        if not cover and not is_card:  # only its own words lie over a plain card: rain or grain from its scene or the story has no picture to fall on
+        if not cover and not is_card and not (clip and not data(beat).get("still")):  # only its own words lie over a plain card (a clip's too): rain or grain from its scene or the story has no picture to fall on
             cover = _overlay(creds, out, data(beat), scenes, data(story_row), data, videos)
         if cover:
             shot["overlay"] = cover
@@ -226,7 +229,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
                 shot["hold"] = own_hold
         elif own_hold is not None:
             shot["hold"] = own_hold  # the least this beat lasts: a silent one holds that long, a spoken one at least that long (the picture stays up after the last line)
-        elif not spoken and has_still:
+        elif not spoken and has_still and not clip:  # (a clip gives the beat its length)
             shot["hold"] = DEFAULT_HOLD  # a silent beat with a picture and no time set lasts the default the Timeline also draws it at
         if data(beat).get("chapter"):
             shot["chapter"] = str(data(beat)["chapter"])  # the chapter's slug, as the chapter list below names it
@@ -237,9 +240,13 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         elif data(beat).get("still"):
             still = _fetch_asset(creds, str(data(beat)["still"]), out / "stills" / f"b{number}", "png")
             shot["still"] = str(still.relative_to(out))
+        elif clip:  # the clip on a plain card in the story's card colour: it needs no still
+            shot["still"] = str(cards.make_plain(data(story_row).get("card_color"), out / "stills" / f"b{number}-card.png", size).relative_to(out))
         elif placeholders:
             shot["still"] = str(_placeholder(out / "stills" / f"b{number}-placeholder.png", number, size).relative_to(out))
             carded.append(number)
+        if clip:
+            shot["clip"] = clip
         if not shots:
             opening = data(beat)
         shots.append(shot)
@@ -265,7 +272,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     )
     pulled = {str(data(b).get("number")) for b in beats}
     left_out = [f"beat {data_of[slug].get('number')}: a cue on {row.get('line')} word {row.get('word')}, a line no beat holds" for slug, row in unplaced if str(data_of[slug].get("number")) in pulled]
-    return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded, "skipped": skipped, "estimated": estimated, **({"cues_left_out": left_out} if left_out else {})}
+    return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded, "skipped": skipped, "estimated": estimated, **({"cues_left_out": left_out} if left_out else {}), **({"notes": notes} if notes else {})}
 
 
 OVERLAY_DISSOLVE = 0.6  # seconds a picture that comes in at a word dissolves over the one before, when its beat and the story set no transition

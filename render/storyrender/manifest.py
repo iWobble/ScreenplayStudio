@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import camera
+from . import clip as clips
 
 DEFAULT_SIZE = (1080, 1920)
 ASPECTS = ((9, 16), (1, 1), (4, 5), (16, 9))  # the shapes a film may have (formats.SHAPES)
@@ -194,6 +195,8 @@ class Shot:
     picture_lead: float | None = None
     """Seconds before its first word that the shot's picture arrives (a silent shot's: before its own start), over the end of the shot before; the
     sound does not move. None: the picture starts where the shot's sound starts, as it always did. 0: at the first word."""
+    clip: "clips.Clip | None" = None
+    """A video of the author over the still, picture-in-picture, with its own sound (see clip.py). The shot lasts at least as long as it plays."""
 
 
 @dataclass
@@ -227,6 +230,8 @@ class Manifest:
     end_transition_seconds: float = 0.0
     chapters: list[Chapter] = field(default_factory=list)
     """The story's chapters in order; a shot names one by id. Empty for a story that is not cut into chapters."""
+    notes: list[str] = field(default_factory=list)
+    """What was left out and why, for the render's log (a beat's clip whose file could not be read)."""
 
 
 @dataclass
@@ -388,6 +393,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         return file
 
     shots: list[Shot] = []
+    notes: list[str] = []
     for i, s in enumerate(shots_raw, 1):
         sid = str(s.get("id") or f"shot{i}")
         where = f"shot {sid}"
@@ -459,6 +465,14 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             if not 0 <= shot.bed_volume <= 1:
                 raise ManifestError(f"{where}: bed_volume is 0–1 (got {shot.bed_volume})")
         shot.bed_muffled = bool(s.get("bed_muffled", False))
+        if s.get("clip"):  # a video of the author over the still (clip.py): a bad setting is refused, a file that cannot be read is left out and noted
+            try:
+                shot.clip = clips.load(s["clip"], lambda name: (base / name).resolve(), probe, f"{where} clip", notes)
+            except clips.ClipError as e:
+                raise ManifestError(str(e)) from e
+            if shot.clip is None and not shot.hold and not s.get("lines") and not s.get("sfx"):  # it was all the beat had: hold its picture instead
+                shot.hold = clips.FALLBACK_HOLD
+                notes[-1] += f" (its picture is held {clips.FALLBACK_HOLD:g} s instead)"
         for j, ln in enumerate(s.get("lines") or [], 1):
             lw = f"{where} line {j}"
             start, end = 0.0, None
@@ -558,6 +572,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         end_transition=end_transition,
         end_transition_seconds=end_transition_seconds,
         chapters=[Chapter(str(c["id"]), str(c.get("title") or c["id"])) for c in raw.get("chapters") or [] if isinstance(c, dict) and c.get("id")],
+        notes=notes,
     )
 
 
@@ -596,7 +611,7 @@ def plan(manifest: Manifest) -> Timeline:
         if shot.starts_during and shot.starts_during["line"] in said:  # it comes in at a word already spoken: its hold counts from there
             anchor = _on_word(said, shot.starts_during["line"], shot.starts_during.get("at"), shot.starts_during.get("share"))
             hold = max(0.0, anchor + shot.hold - clock) if shot.hold else 0.0
-        duration = max(hold, spoken, sfx_end) + shot.after
+        duration = max(hold, spoken, sfx_end, shot.clip.duration if shot.clip else 0.0) + shot.after  # a clip plays to its end
         if index == len(manifest.shots) - 1:
             duration += manifest.end_hold
         shots.append(PlannedShot(shot, clock, duration, lines, sfx_at=sfx_at, anchor=anchor))  # (a sound may start before its beat's sound: into the beat before)

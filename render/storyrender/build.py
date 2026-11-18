@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import camera, captions, ffmpeg
+from . import clip as clips
 from .manifest import MAX_SHORT_SECONDS, Ambience, Manifest, Move, Overlay, PlannedShot, Rock, Shot, Timeline, plan
 
 SUPERSAMPLE = 4  # zoompan steps in whole pixels of the picture it moves over: on 4x the frame a slow move is 0.25-pixel steps, where 2x showed a faint jitter
@@ -294,7 +295,13 @@ def _clip(planned: PlannedShot, size, fps, out: Path, *, draft: bool, edge: Edge
     dips = _dips(edge, int(frames), fps) if edge else ""
     looks = looks_filter(planned, size)  # over the whole picture, its overlay too, and under the fades of its transitions
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-framerate", str(fps), "-t", f"{planned.duration:.3f}", "-i", str(planned.shot.still)]
-    if planned.shot.overlay is not None:
+    if planned.shot.clip is not None:  # the author's clip in a corner, over the still and its overlay, under the dips (clip.py)
+        graph = f"[0:v]{zoompan_filter(planned, size, fps)}[base];{overlay_filter(planned.shot.overlay, size, fps, planned.duration)}" if planned.shot.overlay else f"[0:v]{zoompan_filter(planned, size, fps)}[v]"
+        cmd += [*(_overlay_input(planned.shot.overlay, fps) if planned.shot.overlay else []), "-i", str(planned.shot.clip.video)]
+        graph += ";" + clips.video_filter(planned.shot.clip, 2 if planned.shot.overlay else 1, size, fps, planned.duration, "[v]", "[vc]")
+        after = ",".join(x for x in (looks, dips) if x)  # the looks on words over the whole frame, the clip too, then the transitions' fades
+        cmd += ["-filter_complex", graph + (f";[vc]{after}[vd]" if after else ""), "-map", "[vd]" if after else "[vc]"]
+    elif planned.shot.overlay is not None:
         cmd += _overlay_input(planned.shot.overlay, fps)
         graph = f"[0:v]{zoompan_filter(planned, size, fps)}[base];{overlay_filter(planned.shot.overlay, size, fps, planned.duration)}"
         after = ",".join(x for x in (looks, dips) if x)
@@ -337,7 +344,7 @@ def _pieces(planned: PlannedShot, silences: list[tuple[float, dict]] | None = No
     effects = [(fx, planned.audio_start + (planned.sfx_at[i] if i < len(planned.sfx_at) else max(fx.at, -planned.audio_start))) for i, fx in enumerate(planned.shot.sfx)]
     return [(p.line.audio, p.start, p.line.volume, _cut(p.line), f"lowpass=f={MUFFLE_HZ}," if p.line.muffled else "", p.line.duration) for p in planned.lines if p.line.audio] + [
         (fx.audio, at, fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out) + _hushed(silences, at, fx.duration), fx.duration) for fx, at in effects
-    ]
+    ] + ([(c.video, planned.start, c.volume, clips.audio_cut(c), "", c.duration)] if clips.heard(c := planned.shot.clip) else [])  # the clip's sound, with its picture
 
 
 SAME_MOMENT = 0.05  # seconds: a sound that starts this close to dead air starts with it (the cue's own sound), and is not silenced
@@ -635,6 +642,7 @@ def render(manifest: Manifest, out: Path, *, draft: bool = False, keep: Path | N
         "shots": len(timeline.shots),
         "captions": len(captions.cues(timeline)),
         "short_ok": seconds <= MAX_SHORT_SECONDS,
+        **({"notes": manifest.notes} if manifest.notes else {}),  # what was left out and why (a beat's clip that could not be read)
     }
 
 
@@ -648,6 +656,7 @@ def speech_windows(timeline: Timeline) -> list[tuple[float, float]]:
     """When someone is speaking, as (start, end) seconds on the film: each line's span, with lines closer than one attack plus one release
     joined, so the music does not pump up in a short pause between two lines and the ramps never overlap."""
     spans = sorted((pl.start, pl.start + pl.line.duration) for p in timeline.shots for pl in p.lines if pl.line.duration > 0)
+    spans = sorted(spans + [(p.start, p.start + p.shot.clip.duration) for p in timeline.shots if clips.heard(p.shot.clip)])  # a clip's sound is a voice
     joined: list[tuple[float, float]] = []
     for begin, end in spans:
         if joined and begin - joined[-1][1] < DUCK_ATTACK + DUCK_RELEASE:

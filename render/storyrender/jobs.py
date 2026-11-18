@@ -1612,6 +1612,8 @@ def render_video(job: dict, ctx: Context) -> dict:
     if pulled.get("placeholders"):
         ctx.note(f"no still yet for beat {', '.join(pulled['placeholders'])}: a plain card stands in for it in this draft")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)
+    for note in [*pulled.get("notes", []), *m.notes]:  # what was left out and why (a beat's clip that could not be read)
+        ctx.note(note)
     _note_overlaps(ctx, m)
     _note_estimates(ctx, pulled)
     full = ctx.work / f"{name}.mp4"
