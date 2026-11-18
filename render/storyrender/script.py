@@ -51,6 +51,37 @@ def _speech(ld: dict) -> tuple[str, bool]:
     return spoken, False
 
 
+def _cue_note(cue: dict, sounds: dict, beats: dict) -> str:
+    """A cue as the note the import reads back: `[[Sound: clang | Camera: punch 1.08]]`, `[[Pic: a probe in dark space]]`. Empty for one that says nothing."""
+    parts = []
+    if cue.get("sound"):
+        snd = sounds.get(str(cue["sound"]), {})
+        said = _clean(_data(snd).get("prompt")) or _clean(snd.get("title")) or _slug_words(str(cue["sound"]))
+        parts.append(f"Sound: {said.rstrip('.')}")
+    if isinstance(cue.get("camera"), dict) and cue["camera"].get("kind"):
+        parts.append(f"Camera: {fountain_mod.camera_words(cue['camera'])}")
+    if cue.get("pic"):
+        shown = _data(beats.get(str(cue["pic"]), {}))
+        parts.append(f"Pic: {_clean(shown.get('direction')) or _clean(shown.get('picture'))}".rstrip(": "))
+    return f"[[{' | '.join(p.replace(']]', ']').replace('|', '/') for p in parts)}]]" if parts else ""
+
+
+def _with_cues(words: str, cues: list[dict], sounds: dict, beats: dict) -> str:
+    """A line's words with its cue notes put back where they stood: before the word that had that many spoken words before it (a v3 tag such as
+    [sighs] is not a spoken word), or after the last."""
+    notes = sorted(((int(c.get("word") or 0), note) for c in cues if (note := _cue_note(c, sounds, beats))), key=lambda x: x[0])
+    if not notes:
+        return words
+    tokens, out, spoken = words.split(" "), [], 0
+    for token in tokens:
+        if not (token.startswith("[") and token.endswith("]")):
+            out += [note for at, note in notes if at == spoken]
+            spoken += 1
+        out.append(token)
+    out += [note for at, note in notes if at >= spoken]
+    return " ".join(out)
+
+
 def _dual(ld: dict) -> str:
     """` ^` after the cue of a line spoken at the same time as the one before: Fountain's dual dialogue, on the second speaker's cue. The two speeches
     keep the blank line between them, as the format writes it (screenplain sets them side by side only then)."""
@@ -354,8 +385,11 @@ def fountain_complete(records: dict) -> str:
 
     scene_now, bed_now, chapter_now, first, time_now = None, None, None, True, ""
     scene_numbers: dict[str, str] = {}
+    by_slug = {str(b.get("slug")): b for b in records.get("beats", [])}
     for beat in records.get("beats", []):
         d = _data(beat)
+        if isinstance(d.get("starts_during"), dict) and d["starts_during"].get("line"):
+            continue  # a picture that comes in at a word of a line: written as the Pic note among that line's words, never as a picture of its own
         number = str(d.get("number") or "").strip()
         chapter_slug = d.get("chapter")
         new_chapter = bool(chapter_slug) and chapter_slug != chapter_now
@@ -455,7 +489,7 @@ def fountain_complete(records: dict) -> str:
             if direction:
                 out.append(f"({direction.rstrip('.').lower()})" if _clean(ld.get("direction")) else f"({direction})")  # a typed direction is lower-cased; the writer's own is as they had it
             words, inline = _speech(ld)
-            out.append(words)
+            out.append(_with_cues(words, [c for c in (d.get("cues") if isinstance(d.get("cues"), list) else []) if isinstance(c, dict) and c.get("line") == line.get("slug")], sounds, by_slug))
             extra = [x for x in (None if inline else _say("Delivery", ld.get("delivery_text")), _say("Voice", ld.get("voice")), _say("Note", ld.get("take_notes"))) if x]
             out += ([f"[[{' '.join(extra)}]]"] if extra else []) + [""]
         if kept["end"]:

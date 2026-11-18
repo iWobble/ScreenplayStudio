@@ -218,7 +218,8 @@ Piece = tuple[Path, float, float, str, str, float]  # file, seconds into the fil
 def _pieces(planned: PlannedShot) -> list[Piece]:
     """A shot's sounds with where each starts on the film: its lines, and its sound effects counted from where its sound starts."""
     return [(p.line.audio, p.start, p.line.volume, _cut(p.line), f"lowpass=f={MUFFLE_HZ}," if p.line.muffled else "", p.line.duration) for p in planned.lines if p.line.audio] + [
-        (fx.audio, planned.audio_start + max(fx.at, 0.0), fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out), fx.duration) for fx in planned.shot.sfx
+        (fx.audio, planned.audio_start + (planned.sfx_at[i] if i < len(planned.sfx_at) else max(fx.at, 0.0)), fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out), fx.duration)
+        for i, fx in enumerate(planned.shot.sfx)
     ]
 
 
@@ -636,8 +637,8 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
                 "shot": planned.shot.id,
                 "start": round(planned.audio_start, 3),  # where its sound starts (a picture lead may bring its picture earlier)
                 "sounds": [
-                    {"id": fx.ref, "start": round(planned.audio_start + fx.at, 3), "end": round(planned.audio_start + fx.at + fx.duration, 3), "volume": fx.volume}
-                    for fx in planned.shot.sfx
+                    {"id": fx.ref, "start": round(planned.audio_start + at, 3), "end": round(planned.audio_start + at + fx.duration, 3), "volume": fx.volume}
+                    for at, fx in zip(planned.sfx_at, planned.shot.sfx, strict=True)
                 ],
                 "lines": [
                     {
