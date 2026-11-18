@@ -178,7 +178,11 @@ class Shot:
     beat_ambience: Ambience | None = None
     """A beat's own bed, laid over `ambience` (its scene's), which runs on under it without a seam: a cheer over the tavern. None: only the scene's."""
     camera_cues: list[dict] = field(default_factory=list)
-    """Camera moves on words of the shot's lines (v212): {kind: punch|shake|nudge, amount?, x?, y?, line, at|share}, on top of the shot's own move."""
+    """Camera moves on words of the shot's lines (v212): {kind: punch|shake|nudge|whip-pan|sway, amount?, x?, y?, seconds?, line, at|share, nudge?},
+    on top of the shot's own move."""
+    look_cues: list[dict] = field(default_factory=list)
+    """Looks on words of the shot's lines (v218): {kind: flash|burn|dip|freeze|tint|blur|vignette|glitch, amount?, seconds?, color?, line, at|share,
+    nudge?}, laid over the picture that is up at that word."""
     starts_during: dict | None = None
     """A picture that comes in at a word of a line of an earlier shot (a Pic note among the words, v211): {"line": its id, "at": seconds into it} or
     {"line", "share": 0–1}. It adds no time of its own; `hold` keeps it up at least that long from where it comes in."""
@@ -242,6 +246,8 @@ class PlannedShot:
     """Where each of the shot's sound effects starts, in seconds from `audio_start` (one placed on a word, there)."""
     camera: list[tuple[float, dict]] = field(default_factory=list)
     """The camera cues that fall while this shot's picture is up: (seconds into the picture, the cue)."""
+    looks: list[tuple[float, dict]] = field(default_factory=list)
+    """The looks on words that fall while this shot's picture is up: (seconds into the picture, the look), as `camera`."""
     anchor: float | None = None
     """Where on the film the picture of a shot that `starts_during` a line comes in (None for any other shot)."""
 
@@ -332,6 +338,19 @@ def _nudge(value, where: str) -> float:
     return seconds
 
 
+def _word_cues(rows: object, check: Callable[[object], dict | None], where: str, rule: str) -> list[dict]:
+    """A shot's cues of one sort on words of its lines (camera moves, looks…): each checked by `check` (a ManifestError naming the cue when it is
+    not one), placed on its line ({line, at|share}, or a plain `at` in the shot) and with its nudge (v216)."""
+    out = []
+    for j, raw in enumerate(rows or [], 1):  # type: ignore[arg-type]
+        cue = check(raw)
+        if cue is None:
+            raise ManifestError(f"{where} {j}: {rule} (got {raw})")
+        placed = _on_a_line({"line": raw.get("line") or "", "at": raw.get("line_at"), "share": raw.get("line_share")}, f"{where} {j}") if raw.get("line") else {"at": float(raw.get("at") or 0)}
+        out.append({**cue, **placed, **({"nudge": _nudge(raw["nudge"], f"{where} {j}")} if raw.get("nudge") not in (None, "", 0) else {})})
+    return out
+
+
 def _ambience(amb: dict, audio_path: Callable[[str, str], Path], where: str) -> Ambience:
     """A shot's bed (`ambience`, its scene's; `beat_ambience`, the beat's own over it) from the manifest."""
     return Ambience(
@@ -379,12 +398,8 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             tail=float(s.get("tail", TAIL)),
             chapter=str(s["chapter"]) if s.get("chapter") else None,
         )
-        for j, cue_row in enumerate(s.get("camera_cues") or [], 1):
-            cue = camera.cue_of(cue_row)
-            if cue is None:
-                raise ManifestError(f"{where} camera cue {j}: kind is {', '.join(camera.CUES)} (got {cue_row})")
-            placed = _on_a_line({"line": cue_row.get("line") or "", "at": cue_row.get("line_at"), "share": cue_row.get("line_share")}, f"{where} camera cue {j}") if cue_row.get("line") else {"at": float(cue_row.get("at") or 0)}
-            shot.camera_cues.append({**cue, **placed, **({"nudge": _nudge(cue_row["nudge"], f"{where} camera cue {j}")} if cue_row.get("nudge") not in (None, "", 0) else {})})
+        shot.camera_cues = _word_cues(s.get("camera_cues"), camera.cue_of, f"{where} camera cue", f"kind is {', '.join(camera.CUES)}")
+        shot.look_cues = _word_cues(s.get("look_cues"), camera.look_of, f"{where} look cue", f"kind is {', '.join(camera.LOOKS)}, amount 0–1, seconds a number and color one the kind takes")
         if isinstance(s.get("starts_during"), dict) and s["starts_during"].get("line"):
             shot.starts_during = _on_a_line(s["starts_during"], f"{where} starts_during")
         if s.get("picture_lead") not in (None, ""):
@@ -574,17 +589,18 @@ def plan(manifest: Manifest) -> Timeline:
             duration += manifest.end_hold
         placed = [at if fx.line in said else max(at, 0.0) for at, fx in zip(sfx_at, shot.sfx, strict=True)]  # (one on a word may start before its beat's sound)
         shots.append(PlannedShot(shot, clock, duration, lines, sfx_at=placed, anchor=anchor))
-        for cue in shot.camera_cues:
-            when = _on_word(said, cue["line"], cue.get("at"), cue.get("share")) if cue.get("line") in said else clock + cue.get("at", 0.0) if not cue.get("line") else None
-            if when is not None:
-                moves.append((when + cue.get("nudge", 0.0), len(shots) - 1, {k: v for k, v in cue.items() if k not in ("line", "at", "share", "nudge")}))
+        for bucket, cues in (("camera", shot.camera_cues), ("looks", shot.look_cues)):
+            for cue in cues:
+                when = _on_word(said, cue["line"], cue.get("at"), cue.get("share")) if cue.get("line") in said else clock + cue.get("at", 0.0) if not cue.get("line") else None
+                if when is not None:
+                    moves.append((when + cue.get("nudge", 0.0), len(shots) - 1, bucket, {k: v for k, v in cue.items() if k not in ("line", "at", "share", "nudge")}))
         clock += duration
     _pictures(shots, clock)
-    for when, own, cue in moves:  # a camera cue moves the picture that is up when it falls (a picture that came in at an earlier word, perhaps)
+    for when, own, bucket, cue in moves:  # a camera cue or a look changes the picture that is up when it falls (one that came in at an earlier word, perhaps)
         when = max(when, shots[own].start)  # a nudge never brings it before its own beat's picture is up
         planned = next((p for p in reversed(shots) if p.start <= when + 1e-9), shots[0]) if shots else None
         if planned is not None:
-            planned.camera.append((when - planned.start, cue))
+            getattr(planned, bucket).append((when - planned.start, cue))
     return Timeline(shots)
 
 

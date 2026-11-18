@@ -19,7 +19,7 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from . import beat_import, beats, numbering
+from . import beat_import, beats, camera, numbering
 
 LINE_SEP = "¶"
 """Between two speakers in an audio cell: the importer reads a name after it as the next speaker, whatever the words before it end in."""
@@ -111,15 +111,16 @@ def _take_nudges(block: list[str]) -> tuple[list[str], float | None]:
     return kept, found
 
 
-_CUE_PART = re.compile(r"^\s*(?P<kind>sound|pic|camera|nudge)\s*(?::\s*(?P<text>.*?))?\s*$", re.I | re.S)
-"""One part of a cue note: `Sound: clang`, `Camera: punch 1.08`, `Pic: a probe in dark space` (or a bare `Pic`), and beside a Sound or a Camera,
-`Nudge: 0.1` (seconds later, or earlier when negative, than the word puts them: v216)."""
+_CUE_PART = re.compile(r"^\s*(?P<kind>sound|pic|camera|look|nudge)\s*(?::\s*(?P<text>.*?))?\s*$", re.I | re.S)
+"""One part of a cue note: `Sound: clang`, `Camera: punch 1.08`, `Look: dip white 1.2` (v218), `Pic: a probe in dark space` (or a bare `Pic`), and
+beside a Sound, a Camera or a Look, `Nudge: 0.1` (seconds later, or earlier when negative, than the word puts them: v216)."""
+_NUDGED = ("sound", "camera", "look")  # the parts a Nudge moves
 _CUE_NUDGE = re.compile(r"^([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*s?$", re.I)
 _CUE_MARK = "\u2064"  # a cue note inside a speech while the text is cut and read: `⁤<hex of the note's words>⁤`, no space in it, never cleared as a note
 
 
 def cue_parts(words: str) -> "dict[str, str] | None":
-    """A note's words as a cue, when every part of it (`|` between them) is a Sound, a Pic or a Camera: {"sound": "clang", "camera": "punch"}. None
+    """A note's words as a cue, when every part of it (`|` between them) is a Sound, a Pic, a Camera or a Look: {"sound": "clang", "camera": "punch"}. None
     for any other note."""
     parts: dict[str, str] = {}
     for piece in words.split("|"):
@@ -128,8 +129,8 @@ def cue_parts(words: str) -> "dict[str, str] | None":
             return None
         said = " ".join((m["text"] or "").split())
         parts[m["kind"].lower()] = said if m["kind"].lower() == "pic" else said.rstrip(".")  # a Pic's words are its Shot direction, as written
-    if "nudge" in parts and not (("sound" in parts or "camera" in parts) and _CUE_NUDGE.match(parts["nudge"])):
-        return None  # a nudge moves a sound or a camera move; alone it is a line's own Nudge note, or only a note
+    if "nudge" in parts and not (any(k in parts for k in _NUDGED) and _CUE_NUDGE.match(parts["nudge"])):
+        return None  # a nudge moves a sound, a camera move or a look; alone it is a line's own Nudge note, or only a note
     return parts if parts and all(v or k == "pic" for k, v in parts.items()) else None
 
 
@@ -1132,13 +1133,74 @@ def cue_sounds(beat: dict) -> list[dict]:
     ]
 
 
-CAMERA_CUES = ("punch", "shake", "nudge")
+CAMERA_CUES = tuple(camera.CUES)  # punch, shake, nudge (v212), whip-pan, sway (v218)
+CAMERA_SLOTS = {"whip-pan": ("direction", "amount"), "sway": ("amount", "seconds")}  # the words after a kind, in order (see `slot_words`)
+_SECONDS_WORD = re.compile(r"^(\d+(?:\.\d*)?|\.\d+)s$", re.I)
+_NUMBER_WORD = re.compile(r"^-?(\d+(?:\.\d*)?|\.\d+)$")
+
+
+def _slots(rest: str, slots: tuple[str, ...], colours: tuple[str, ...] = ()) -> "dict | None":
+    """The words after a cue's kind read into its slots, in the order the kind takes them (camera.LOOK_SLOTS): a colour word, a direction (left or
+    right: x -1 or 1), then numbers for the amount and the seconds, in that order; a number written `2s` is the seconds whatever comes before it.
+    None when a word fits no slot (the note is then kept as it was written)."""
+    out: dict = {}
+    numbers = [k for k in slots if k in ("amount", "seconds")]
+    for word in rest.split():
+        low = word.lower().rstrip(",.")
+        if "color" in slots and low in colours and "color" not in out:
+            out["color"] = low
+        elif "direction" in slots and low in ("left", "right") and "x" not in out:
+            out["x"] = -1 if low == "left" else 1
+        elif (m := _SECONDS_WORD.match(low)) and "seconds" in slots and "seconds" not in out:
+            out["seconds"] = float(m.group(1))
+            numbers = [k for k in numbers if k != "seconds"]
+        elif _NUMBER_WORD.match(low) and (left := [k for k in numbers if k not in out]):
+            out[left[0]] = float(low)
+        else:
+            return None
+    return out
+
+
+def slot_words(row: dict, slots: tuple[str, ...]) -> str:
+    """A cue's camera, look or mix values as its note writes them after its kind, in its slots' order: the reverse of `_slots`. The seconds are
+    written `2s` when the kind also takes an amount and has none, so they read back as the seconds."""
+    words = []
+    if "color" in slots and row.get("color"):
+        words.append(str(row["color"]))
+    if "direction" in slots and row.get("x") not in (None, ""):
+        words.append("left" if float(row["x"]) < 0 else "right")
+    if "amount" in slots and row.get("amount") is not None:
+        words.append(f"{float(row['amount']):g}")
+    if "seconds" in slots and row.get("seconds") is not None:
+        words.append(f"{float(row['seconds']):g}" + ("s" if "amount" in slots and row.get("amount") is None else ""))
+    return " ".join(words)
+
+
+def _kind_and(words: str, table: dict) -> dict:
+    """A note's words as {kind, its values}: read into the kind's slots (`table`), else the words kept as `said`, for the export to write back."""
+    kind, _, rest = " ".join(str(words or "").split()).partition(" ")
+    out: dict = {"kind": kind.lower()}
+    colours = tuple(camera.TINTS) if out["kind"] == "tint" else ("black", "white") if out["kind"] == "dip" else tuple(camera.FLASHES)
+    read = _slots(rest, table[out["kind"]], colours) if out["kind"] in table else None
+    if read is not None:
+        return out | read
+    return out | ({"said": rest} if rest else {})
+
+
+def _kind_words(row: dict, table: dict) -> str:
+    kind = str((row or {}).get("kind") or "")
+    if row.get("said"):
+        return f"{kind} {row['said']}"
+    return f"{kind} {slot_words(row, table[kind])}".strip() if kind in table else kind
 
 
 def camera_cue(words: str) -> dict:
     """A Camera note's words as the cue's camera: `punch` or `punch 1.1` ({"kind": "punch", "amount": 1.1}), `shake 2`, `nudge 0.7,0.4` ({"kind":
-    "nudge", "x": 0.7, "y": 0.4}). Any other words are kept as the kind, for the export to write back."""
+    "nudge", "x": 0.7, "y": 0.4}), `whip-pan left 0.5` ({"kind": "whip-pan", "x": -1, "amount": 0.5}), `sway 1.5 3` (amount, seconds). Any other
+    words are kept as the kind, for the export to write back."""
     kind, _, rest = " ".join(str(words or "").split()).partition(" ")
+    if kind.lower() in CAMERA_SLOTS:
+        return _kind_and(words, CAMERA_SLOTS)
     out: dict = {"kind": kind.lower()}
     numbers = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", rest)]
     if out["kind"] == "nudge" and len(numbers) >= 2:
@@ -1153,11 +1215,24 @@ def camera_cue(words: str) -> dict:
 def camera_words(camera: dict) -> str:
     """A cue's camera as its note writes it: the reverse of `camera_cue`."""
     kind = str((camera or {}).get("kind") or "")
+    if kind in CAMERA_SLOTS:
+        return _kind_words(camera, CAMERA_SLOTS)
     if "x" in camera and "y" in camera:
         return f"{kind} {float(camera['x']):g},{float(camera['y']):g}"
     if camera.get("amount") is not None:
         return f"{kind} {float(camera['amount']):g}"
     return f"{kind} {camera['said']}".strip() if camera.get("said") else kind
+
+
+def look_cue(words: str) -> dict:
+    """A Look note's words as the cue's look (v218): `flash` ({"kind": "flash"}), `dip white 1.2` ({"kind": "dip", "color": "white", "seconds":
+    1.2}), `tint sepia 0.5`, `blur 0.6`, `blur 2s`. The words after the kind: a colour, then the amount, then the seconds (camera.LOOK_SLOTS)."""
+    return _kind_and(words, camera.LOOK_SLOTS)
+
+
+def look_words(look: dict) -> str:
+    """A cue's look as its note writes it: the reverse of `look_cue`."""
+    return _kind_words(look, camera.LOOK_SLOTS)
 
 
 def beat_cues(beat: dict, story: str, number: str, numbers: dict[int, str]) -> list[dict]:
@@ -1174,6 +1249,8 @@ def beat_cues(beat: dict, story: str, number: str, numbers: dict[int, str]) -> l
                     entry["sound"] = f"{story}-sound-{number}-{k}"
             if cue.get("camera"):
                 entry["camera"] = camera_cue(cue["camera"])
+            if cue.get("look"):
+                entry["look"] = look_cue(cue["look"])  # a flash, a dip, a tint… at that word (v218)
             if cue.get("nudge") and (seconds := float(_CUE_NUDGE.match(cue["nudge"]).group(1))):
                 entry["nudge"] = seconds  # the sound and the camera move, that much later (or earlier) than the word puts them (v216)
             if "pic" in cue:

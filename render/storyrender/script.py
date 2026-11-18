@@ -52,7 +52,8 @@ def _speech(ld: dict) -> tuple[str, bool]:
 
 
 def _cue_note(cue: dict, sounds: dict, beats: dict) -> str:
-    """A cue as the note the import reads back: `[[Sound: clang | Camera: punch 1.08]]`, `[[Pic: a probe in dark space]]`. Empty for one that says nothing."""
+    """A cue as the note the import reads back: `[[Sound: clang | Camera: punch 1.08 | Look: flash]]`, `[[Pic: a probe in dark space]]`. Empty for one
+    that says nothing."""
     parts = []
     if cue.get("sound"):
         snd = sounds.get(str(cue["sound"]), {})
@@ -60,7 +61,9 @@ def _cue_note(cue: dict, sounds: dict, beats: dict) -> str:
         parts.append(f"Sound: {said.rstrip('.')}")
     if isinstance(cue.get("camera"), dict) and cue["camera"].get("kind"):
         parts.append(f"Camera: {fountain_mod.camera_words(cue['camera'])}")
-    if parts and _nudge(cue.get("nudge")):  # beside its Sound or Camera (v216)
+    if isinstance(cue.get("look"), dict) and cue["look"].get("kind"):
+        parts.append(f"Look: {fountain_mod.look_words(cue['look'])}")  # v218
+    if parts and _nudge(cue.get("nudge")):  # beside its Sound, Camera or Look (v216)
         parts.append(f"Nudge: {_nudge(cue['nudge'])}")
     if cue.get("pic"):
         shown = _data(beats.get(str(cue["pic"]), {}))

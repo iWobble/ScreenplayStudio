@@ -178,6 +178,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         effects = _sound_effects(creds, out, data(beat).get("sounds"), sounds, data, missing)
         effects += _cue_sounds(creds, out, data(beat), sounds, data, missing, heard, estimated)
         moves = _camera_cues(data(beat), heard, estimated)
+        looks = _look_cues(data(beat), heard, estimated)
         is_card = cards.is_plain(data(beat))  # it shows a plain card: that is its picture, so it always plays and is never waiting for a still
         has_still = bool(data(beat).get("still")) or is_card
         if not spoken and not effects and not data(beat).get("hold_seconds") and not has_still:
@@ -189,7 +190,9 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         if effects:
             shot["sfx"] = effects
         if moves:
-            shot["camera_cues"] = moves  # a punch, shake or nudge on a word (v212)
+            shot["camera_cues"] = moves  # a punch, shake or nudge on a word (v212); a whip-pan or a sway (v218)
+        if looks:
+            shot["look_cues"] = looks  # a flash, a dip, a tint… on a word (v218)
         under, over = _ambience(creds, out, data(beat), scenes, sounds, data, taken, missing, data(story_row))
         if under:
             shot["ambience"] = under
@@ -299,8 +302,8 @@ def _cue_sounds(creds, out: Path, beat: dict, sounds: dict, data, missing: list,
 
 
 def _cue_nudge(cue: dict) -> dict:
-    """A cue row's `nudge` (v216: dragged on the Timeline, or `Nudge:` in its note): seconds later, or earlier when negative, for its sound and its
-    camera move. Nothing when it has none (an overlay's picture is placed by its own beat, never by this)."""
+    """A cue row's `nudge` (v216: dragged on the Timeline, or `Nudge:` in its note): seconds later, or earlier when negative, for its sound, its
+    camera move and its look (v218). Nothing when it has none (an overlay's picture is placed by its own beat, never by this)."""
     seconds = _seconds(cue.get("nudge"), -10.0, 10.0)
     return {"nudge": seconds} if seconds else {}
 
@@ -308,15 +311,26 @@ def _cue_nudge(cue: dict) -> dict:
 def _camera_cues(beat: dict, heard: dict, estimated: list) -> list[dict]:
     """The camera moves on words of a beat's lines (v212), each at the end of the word spoken before its note, as the sound beside it is. One of a
     kind the render does not know, or on a line with no take, is left out."""
+    return _word_cues(beat, heard, estimated, "camera", camera.cue_of)
+
+
+def _look_cues(beat: dict, heard: dict, estimated: list) -> list[dict]:
+    """The looks on words of a beat's lines (v218: a flash, a dip, a tint…), placed as its camera moves are."""
+    return _word_cues(beat, heard, estimated, "look", camera.look_of)
+
+
+def _word_cues(beat: dict, heard: dict, estimated: list, key: str, check, *, after: bool = True) -> list[dict]:
+    """The cue rows' `key` (camera, look…) checked by `check` and placed on their word: at the end of the word spoken before the note (`after`),
+    else at the start of the word after it. One the render does not know (an unknown kind, a bad number), or on a line with no take, is left out."""
     out = []
     for cue in _cues(beat):
-        move = camera.cue_of(cue.get("camera"))
-        if move is None or str(cue["line"]) not in heard:
+        found = check(cue.get(key))
+        if found is None or str(cue["line"]) not in heard:
             continue
-        kind, value = word_place(heard[str(cue["line"])], int(cue.get("word") or 0), after=True)
+        kind, value = word_place(heard[str(cue["line"])], int(cue.get("word") or 0), after=after)
         if kind == "share" and f"{cue['line']} word {cue.get('word')}" not in estimated:
             estimated.append(f"{cue['line']} word {cue.get('word')}")
-        out.append({**move, "line": str(cue["line"]), f"line_{kind}": value, **_cue_nudge(cue)})
+        out.append({**found, "line": str(cue["line"]), f"line_{kind}": value, **_cue_nudge(cue)})
     return out
 
 
