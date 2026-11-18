@@ -1023,7 +1023,7 @@ def test_a_beat_has_shot_direction_for_fresh_and_older_workspaces_and_the_still_
     slugs = list(blueprints)
     assert slugs.index("beat-direction-field") > slugs.index("beat")
     prompt = sent_text(_flow("screenplay-take-still")["actions"], "still")
-    line = 'THIS MOMENT: ${entry.data.picture}\nShot direction (where the camera looks): ${entry.data.direction|default:"none"}\n'
+    line = 'THIS MOMENT: ${entry.data.picture|split:" Delivery:"|first|default:"none"}\nShot direction (where the camera looks): ${entry.data.direction|default:"none"}\n'
     assert prompt.count(line) == 1
 
 

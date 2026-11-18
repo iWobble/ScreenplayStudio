@@ -106,12 +106,9 @@ OLD_STILL_LINES = [
     "Reference pictures other than a character's own are for the place, light and style only: match their room, layout, light and furnishings, and never draw anyone who is in them.",
     "The people in this picture are the characters listed below and any figure THIS MOMENT names (a crowd, a skeleton, a stranger); nobody who appears only in a reference picture.",
     "STORY SETTING: ${steps.story.output.rows.0.data.setting}\n",
-    "CHARACTERS (each exactly as in their reference, with these rules): ${steps.cast.output.text}\n",
     "SCENE: ${steps.scene.output.rows.0.data.place}\n",
     "Light: ${steps.scene.output.rows.0.data.look}\n",
     "Always on the set: ${steps.scene.output.rows.0.data.set_dressing}\n",
-    'CHANGES THAT HOLD FROM EARLIER BEATS ON (draw them in this picture, whatever the references show): ${steps.changes.output.text|default:"none"}\n',
-    "THIS MOMENT: ${entry.data.picture}\n",
     'Shot direction (where the camera looks): ${entry.data.direction|default:"none"}\n',
     "What they are doing and how they look: ${entry.data.expression}\n",
     "The one prop the frame is about: ${entry.data.focus}\n",
@@ -122,15 +119,14 @@ OLD_STILL_LINES = [
 WORLD = "steps.context.output.branches.world.output.rows.0.data"
 
 
-def _beat_context(*, format="", world=None, series=None, chapter=None, story_premise="Two old sailors bet on an onion."):
+def _beat_context(*, format="", world=None, series=None, chapter=None, story_premise="Two old sailors bet on an onion.", cast=None, picture="The cook lifts the onion."):
     branch = lambda data: {"output": {"rows": [{"data": data}]} if data is not None else {}}  # noqa: E731 (a skipped collect has no rows)
     return {
-        "entry": {"data": {"cast": "cook", "picture": "The cook lifts the onion.", "expression": "proud", "focus": "the onion", "chapter": "ch-1" if chapter else ""}},
+        "entry": {"data": {"cast": "cook", "picture": picture, "expression": "proud", "focus": "the onion", "chapter": "ch-1" if chapter else ""}},
         "steps": {
             "story": {"output": {"rows": [{"data": {"setting": "A ship's galley.", "premise": story_premise, "format": format, "series": "s" if series else ""}}]}},
-            "context": {"output": {"branches": {"world": branch({"rules": "Painted miniatures.", **(world or {})}), "series": branch(series), "chapter": branch(chapter)}}},
             "scene": {"output": {"rows": [{"data": {"place": "The galley", "look": "Lamplight", "set_dressing": "Pots"}}]}},
-            "cast": {"output": {"text": "- the cook"}},
+            "context": {"output": {"branches": {**({"world": branch({"rules": "Painted miniatures.", **(world or {})}), "series": branch(series), "chapter": branch(chapter)}), "cast": cast if cast is not None else {"steps": {"people": {"text": "- the cook\n  data.role: Cook\n  data.age_state: old", "count": 1}, "things": {"text": "", "count": 0}, "someone": {"entity": "entry"}}}}}},
         },
     }
 
@@ -163,7 +159,7 @@ def test_the_series_and_chapter_are_looked_up_only_when_the_story_and_beat_name_
     # Marvin runs a workflow's first ten steps unless the workspace raises it: take-still was already at twelve, so the three lookups are
     # one parallel step in the place of the world's, and a story with no world still fails the run (the world branch is unguarded).
     acts = _actions("screenplay-take-still")
-    assert len(acts) == 12 and [a.get("id") for a in acts].index("context") == 2
+    assert len(acts) == 11 and [a.get("id") for a in acts].index("context") == 2  # (v213: the cast lookups moved into it, as a branch)
     context = _step("screenplay-take-still", "context")
     assert context["kind"] == "parallel" and context.get("join", "all") == "all" and "on_branch_failure" not in context
     branches = {b["name"]: b["steps"] for b in context["branches"]}
@@ -311,3 +307,52 @@ def test_the_cover_asks_before_spending_shows_the_prompt_and_offers_keep_or_redo
     prompt = _prompt("screenplay-make-cover")
     assert "gold lettering on a dark painted brush-stroke block, exactly this text and nothing else: ${entry.title}." in prompt
     assert "No other text anywhere" in prompt
+
+
+# ── who is in a still (v213) ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+NOBODY = "NOBODY appears in this picture: no people, children or figures of any kind (the style picture's characters are not in it), unless THIS MOMENT names a figure."
+SHIPS = {"steps": {"people": {"text": "", "count": 0}, "things": {"text": "- The Flash ships\n  data.role: three generation ships\n  data.rules: hulls as in the reference", "count": 1}, "someone": {"skipped": True}}}
+
+
+def test_the_cast_is_read_as_people_and_things_and_someone_is_looked_for_only_among_the_people():
+    branches = {b["name"]: b["steps"] for b in _step("screenplay-take-still", "context")["branches"]}
+    people, things, someone = branches["cast"]
+    on = {"field": "entry.data.cast", "op": "longer_than", "value": 0}
+    assert people["query"]["where"] == [{"field": "actor", "op": "exists"}, {"field": "presence", "op": "neq", "value": "voice only"}, {"field": "presence", "op": "neq", "value": "object"}]
+    assert things["query"]["where"] == [{"field": "actor", "op": "missing"}, {"field": "presence", "op": "neq", "value": "voice only"}]
+    assert people["when"] == things["when"] == on and "data.age_state" in people["fields"] and "data.age_state" not in things["fields"]
+    assert someone["when"] == {"field": "steps.people.output.count", "op": "gt", "value": 0}
+
+
+def test_a_still_with_people_names_them_with_readable_labels_and_never_says_nobody():
+    said = render(_prompt("screenplay-take-still"), _beat_context())
+    assert "CHARACTERS (each exactly as in their reference, with these rules): - the cook\n  Role: Cook\n  Age: old\n" in said
+    assert "IN THE PICTURE BUT NOT A PERSON (an object such as a ship, exactly as in its reference): none\n" in said
+    assert NOBODY not in said and "data." not in said
+
+
+def test_a_still_of_ships_or_of_no_cast_says_nobody_is_in_it_and_gives_the_ships_no_age():
+    for cast in (SHIPS, {"steps": {"people": {"skipped": True}, "things": {"skipped": True}, "someone": {"skipped": True}}}):
+        said = render(_prompt("screenplay-take-still"), _beat_context(cast=cast))
+        assert NOBODY in said and "Age:" not in said and "data." not in said
+        assert said.index(NOBODY) > said.index("THIS MOMENT:")  # near the end, after the moment it may name a figure in
+    assert "  Role: three generation ships\n  Rules: hulls as in the reference\n" in render(_prompt("screenplay-take-still"), _beat_context(cast=SHIPS))
+
+
+def test_this_moment_is_the_picture_without_its_delivery_note_and_the_changes_read_as_words():
+    said = render(_prompt("screenplay-take-still"), _beat_context(picture="Interior: Shuttle Hangar - 2302 Delivery: Narrator (V.O.)."))
+    assert "THIS MOMENT: Interior: Shuttle Hangar - 2302\n" in said and "Narrator" not in said
+    context = _beat_context()
+    context["steps"]["changes"] = {"output": {"text": "- Beat 03\n  data.number: 03\n  data.changes: the mast is broken"}}
+    assert "  Beat number: 03\n  Changes: the mast is broken" in render(_prompt("screenplay-take-still"), context)
+
+
+def test_the_import_no_longer_writes_the_delivery_note_into_a_beats_picture_and_a_refresh_leaves_an_old_one():
+    from storyrender import beat_import
+
+    rows = [{"beat": "01", "picture": "The hangar. Delivery: Narrator (V.O.).", "lines": [{"speaker": "Narrator", "text": "They waited."}], "sounds": [], "hold": None, "chapter": None}]
+    plan = beat_import.import_plan("s", rows, {})
+    (_slug, _title, beat), (_ls, _lt, line) = plan["beats"][0], plan["lines"][0]
+    assert beat["picture"] == "The hangar." and line.get("extension") == "V.O."  # the line still gets how it is said
+    old = {"s-beat-01": {"id": "b1", "title": beat_import.import_plan("s", rows, {})["beats"][0][1], "dataJson": {**beat, "picture": "The hangar. Delivery: Narrator (V.O.)."}}}
+    assert beat_import.import_plan("s", rows, old, refresh=True)["updates"] == []  # a picture made before keeps its note: not a difference

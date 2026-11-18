@@ -152,11 +152,17 @@ META = {"chapter", "audio_notes"}
 """Fields that only say where a beat sits. Nothing is made from them, so they may change on a beat that has a picture."""
 
 
+def without_delivery(picture: object) -> str:
+    """A beat's picture without the `Delivery: …` note the cut adds after it (how its lines are said, which the import gives each line): a still's
+    prompt reads the picture, and `Narrator (V.O.)` there asked for a figure."""
+    return str(picture or "").split(" Delivery:", 1)[0].rstrip() if picture not in (None, "") else ("" if picture is None else picture)
+
+
 def _refresh(plan: dict, slug: str, record: dict, title: str, data: dict, worked_on) -> None:
     """An existing record, when refreshing: bring it in line with the sheet if nothing has been made from it, otherwise keep it and say why."""
     current = record.get("dataJson") or {}
     same = lambda a, b: (a if a not in (None, "") else "") == (b if b not in (None, "") else "")  # noqa: E731  nothing and an empty text are the same
-    changed = {k: v for k, v in data.items() if k != "status" and not same(current.get(k), v)}
+    changed = {k: v for k, v in data.items() if k != "status" and not same(without_delivery(current.get(k)) if k == "picture" else current.get(k), v)}  # (a picture made before v213 ends with its Delivery note)
     title_differs = bool(record.get("title")) and record.get("title") != title
     if not changed and not title_differs:
         plan["same"] += 1
@@ -215,7 +221,7 @@ def import_plan(story: str, rows: list[dict], existing: "dict[str, dict] | set[s
         if card:
             data.update({"shows": PLAIN_CARD, **{key: card[word] for key, word in (("info_title", "title"), ("info_text", "text")) if card[word]}})
         elif row["picture"]:
-            data["picture"] = row["picture"]
+            data["picture"] = without_delivery(row["picture"])  # how the lines are said goes to each line's fields, not into what the picture shows (v213)
         if row["hold"] and not row["lines"]:
             data["hold_seconds"] = row["hold"]  # only a silent beat lasts as long as its time; a spoken one lasts as long as its recording
         data["audio_notes"] = notes_of(row)
