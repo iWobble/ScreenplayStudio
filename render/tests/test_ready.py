@@ -82,6 +82,20 @@ def test_sounds_with_no_prompt_block_no_length_and_repeats_are_worth_a_look():
     assert any("no length" in f[2] for f in found) and any("described more than once" in f[2] for f in found)
 
 
+def test_a_sound_to_generate_longer_than_elevenlabs_makes_is_to_fix_and_a_long_sound_of_your_own_is_not():
+    """A Sound's length takes any real length now (a 72 s music bed was refused at 30), so the 0.5 to 30 s an ElevenLabs effect can be is checked here."""
+    sounds = [
+        {"slug": "a", "title": "Storm", "prompt": "a storm", "source": "generated", "kind": "ambience", "duration_seconds": 45},
+        {"slug": "b", "title": "Knock", "prompt": "a knock", "source": "generated", "kind": "effect", "duration_seconds": 30},
+        {"slug": "c", "title": "Corridor loop", "prompt": "", "source": "uploaded", "kind": "music", "duration_seconds": 72.046},
+        {"slug": "d", "title": "Theme", "prompt": "a theme", "source": "generated", "kind": "music", "duration_seconds": 72},
+        {"slug": "e", "title": "Click", "prompt": "a click", "source": "generated", "kind": "effect", "duration_seconds": 0.2},
+    ]
+    (said,) = [f[2] for f in run(sounds=sounds) if f[0] == "fix" and "ElevenLabs makes" in f[2]]
+    assert "Storm (45 s)" in said and "Click (0.2 s)" in said and "2 to generate ask for" in said
+    assert "Knock" not in said and "Corridor" not in said and "Theme" not in said  # 30 s is allowed; your own file and music are not effects
+
+
 def test_scenes_without_set_dressing_are_listed():
     found = run(scenes=[{"slug": "sc1", "place": "Cabin"}, {"slug": "sc2", "place": "Deck", "set_dressing": "ropes"}])
     assert any("1 of 2 scenes have no set dressing" in f[2] and "Cabin" in f[2] for f in found)
