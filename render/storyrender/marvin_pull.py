@@ -279,7 +279,7 @@ OVERLAY_DISSOLVE = 0.6  # seconds a picture that comes in at a word dissolves ov
 
 
 def _cues(beat: dict) -> list[dict]:
-    """A beat's `cues` (v211): [{line, word, sound?, volume?, camera?, pic?}], only the well-formed ones."""
+    """A beat's `cues` (v211): [{line, word, sound?, volume?, ring?, camera?, pic?}], only the well-formed ones."""
     raw = beat.get("cues")
     return [c for c in raw if isinstance(c, dict) and c.get("line") and isinstance(c.get("word", 0), (int, float))] if isinstance(raw, list) else []
 
@@ -311,7 +311,7 @@ def _cue_sounds(creds, out: Path, beat: dict, sounds: dict, data, missing: list,
     for cue in _cues(beat):
         if not cue.get("sound") or str(cue["line"]) not in heard:
             continue
-        found = _sound_effects(creds, out, [{"sound": cue["sound"], "volume": cue.get("volume")}], sounds, data, missing)
+        found = _sound_effects(creds, out, [{"sound": cue["sound"], "volume": cue.get("volume"), "ring": cue.get("ring")}], sounds, data, missing)
         if not found:
             continue
         kind, value = word_place(heard[str(cue["line"])], int(cue.get("word") or 0), after=True)
@@ -433,8 +433,8 @@ def music_of(creds, out: Path, story_data: dict, data) -> dict | None:
 
 
 def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) -> list[dict]:
-    """A beat's `sounds` ([{sound, at, volume}]) as manifest `sfx`: each sound's take downloaded. A sound with no take yet is
-    named in `not_recorded`, like a line with none, and left out."""
+    """A beat's `sounds` ([{sound, at, volume, ring}]) as manifest `sfx`: each sound's take downloaded. A sound with no take yet is
+    named in `not_recorded`, like a line with none, and left out. `ring: true` (v225) goes with it: it rings over, never lengthening its beat."""
     effects = []
     for item in placed if isinstance(placed, list) else []:
         row = sounds.get(str(item.get("sound"))) if isinstance(item, dict) else None
@@ -447,7 +447,7 @@ def _sound_effects(creds, out: Path, placed, sounds: dict, data, missing: list) 
             continue
         file = _fetch_asset(creds, str(d["audio"]), out / "audio" / "sounds" / row["slug"], "mp3")
         volume = item.get("volume") if item.get("volume") is not None else d.get("volume")
-        effects.append({"id": row["slug"], "audio": str(file.relative_to(out)), "at": float(item.get("at") or 0), "volume": float(volume if volume is not None else 0.6), **fades_of(d)})
+        effects.append({"id": row["slug"], "audio": str(file.relative_to(out)), "at": float(item.get("at") or 0), "volume": float(volume if volume is not None else 0.6), **fades_of(d), **({"ring": True} if item.get("ring") is True else {})})
     return effects
 
 

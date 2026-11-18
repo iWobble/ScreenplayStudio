@@ -801,7 +801,7 @@ def listen(manifest: Manifest, out: Path, *, keep: Path | None = None) -> dict:
                 "shot": planned.shot.id,
                 "start": round(planned.audio_start, 3),  # where its sound starts (a picture lead may bring its picture earlier)
                 "sounds": [
-                    {"id": fx.ref, "start": round(planned.audio_start + at, 3), "end": round(planned.audio_start + at + fx.duration, 3), "volume": fx.volume}
+                    {"id": fx.ref, "start": round(planned.audio_start + at, 3), "end": round(planned.audio_start + at + fx.duration, 3), "volume": fx.volume, **({"ring": True} if fx.ring else {})}
                     for at, fx in zip(planned.sfx_at, planned.shot.sfx, strict=True)
                 ],
                 "lines": [

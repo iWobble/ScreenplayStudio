@@ -1325,6 +1325,7 @@ def _import_beats(job: dict, ctx: Context) -> dict:
             for cue in cues:
                 if cue.get("sound") in already:  # an import before v211 placed this note's sound from the beat's start: it stays there, never twice
                     moved.append(f"beat {number}: {cue.pop('sound')} is in its Sound effects from the start; move it to the word by hand if you want it there")
+                    cue.pop("ring", None)  # (its Ring went with its sound)
             if kept := [c for c in cues if set(c) - {"line", "word"}]:
                 add["cues"] = kept  # the notes among its lines' words reach a beat that has none (v211)
         if rec and beat.get("fountain") and (not str(data.get("fountain") or "").strip() or (revision is not None and str(data.get("fountain")).strip() != beat["fountain"].strip())):

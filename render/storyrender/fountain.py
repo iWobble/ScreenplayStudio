@@ -111,12 +111,12 @@ def _take_nudges(block: list[str]) -> tuple[list[str], float | None]:
     return kept, found
 
 
-_CUE_PART = re.compile(r"^\s*(?P<kind>sound|pic|camera|look|mix|emphasis|nudge)\s*(?::\s*(?P<text>.*?))?\s*$", re.I | re.S)
+_CUE_PART = re.compile(r"^\s*(?P<kind>sound|pic|camera|look|mix|emphasis|nudge|ring)\s*(?::\s*(?P<text>.*?))?\s*$", re.I | re.S)
 """One part of a cue note: `Sound: clang`, `Camera: punch 1.08`, `Look: dip white 1.2` (v218), `Mix: dead-air 2`, `Emphasis` (or `Emphasis: 1.5`,
 v219), `Pic: a probe in dark space` (or a bare `Pic`), and beside any but a Pic, `Nudge: 0.1` (seconds later, or earlier when negative, than the
-word puts them: v216)."""
+word puts them: v216). Beside a Sound, a bare `Ring` (v225): the sound plays in full over the beats after it, never lengthening its own."""
 _NUDGED = ("sound", "camera", "look", "mix", "emphasis")  # the parts a Nudge moves
-_BARE = ("pic", "emphasis")  # the parts that may stand without words
+_BARE = ("pic", "emphasis", "ring")  # the parts that may stand without words
 _CUE_NUDGE = re.compile(r"^([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*s?$", re.I)
 _CUE_MARK = "\u2064"  # a cue note inside a speech while the text is cut and read: `⁤<hex of the note's words>⁤`, no space in it, never cleared as a note
 
@@ -134,6 +134,8 @@ def cue_parts(words: str) -> "dict[str, str] | None":
         parts[m["kind"].lower()] = said if m["kind"].lower() == "pic" else said.rstrip(".")  # a Pic's words are its Shot direction, as written
     if "nudge" in parts and not (any(k in parts for k in _NUDGED) and _CUE_NUDGE.match(parts["nudge"])):
         return None  # a nudge moves a sound, a camera move or a look; alone it is a line's own Nudge note, or only a note
+    if "ring" in parts and (parts["ring"] or "sound" not in parts):
+        return None  # a Ring says only that its Sound rings over: alone, or with words, it is only a note
     if parts.get("emphasis") and not _NUMBER_WORD.match(parts["emphasis"]):
         return None  # an emphasis says how much bigger, or nothing
     return parts if parts and all(v or k in _BARE for k, v in parts.items()) else None
@@ -1262,6 +1264,8 @@ def beat_cues(beat: dict, story: str, number: str, numbers: dict[int, str]) -> l
                 k = next((k for k, c in enumerate(sounds, 1) if c.get("line") == i and c.get("word") == cue["word"] and c.get("prompt") == cue["sound"]), None)
                 if k:
                     entry["sound"] = f"{story}-sound-{number}-{k}"
+                    if "ring" in cue:
+                        entry["ring"] = True  # it rings over the beats after it, never lengthening this one (v225)
             if cue.get("camera"):
                 entry["camera"] = camera_cue(cue["camera"])
             if cue.get("look"):

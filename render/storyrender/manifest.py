@@ -12,7 +12,8 @@ A shot lasts max(hold, lead + its lines + gaps + tail): the audio decides, as th
 The sound is laid out first, shot after shot (each line at its own place on the film's clock); the pictures are cut from it. With no `picture_lead`
 a shot's picture starts where its sound starts, as it always did. A shot with `picture_lead` shows its picture that many seconds before its first
 word (a silent one, before its own start), so the picture changes while the line before is still being spoken and the voice runs on across the cut.
-A line's `nudge` moves it later (+) or earlier (-) than where it would start, so two voices may overlap.
+A line's `nudge` moves it later (+) or earlier (-) than where it would start, so two voices may overlap. A sound effect with `ring: true` (v225)
+plays in full without lengthening its shot: it sounds on over the shots after it, and only the last shot waits for it, so the film never cuts it off.
 """
 
 import json
@@ -96,6 +97,7 @@ class Sfx:
     line_at: float | None = None  # seconds into that line (from its word timings)
     line_share: float | None = None  # …or how far into it, 0–1, when the take has no word timings (an estimate from the text)
     line_nudge: float = 0.0  # seconds later (or earlier, negative) than the word puts it, never before the film starts (v216)
+    ring: bool = False  # it rings over (v225): played in full, it never lengthens its beat; it sounds on over the beats after it
 
 
 @dataclass
@@ -505,7 +507,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
         for j, fx in enumerate(s.get("sfx") or [], 1):
             file = audio_path(fx.get("audio") or "", f"{where} sfx {j}")
             shot.sfx.append(
-                Sfx(file, float(fx.get("at", 0)), float(fx.get("volume", 1)), probe(file), ref=fx.get("id"), fade_in=float(fx.get("fade_in") or 0), fade_out=float(fx.get("fade_out") or 0))
+                Sfx(file, float(fx.get("at", 0)), float(fx.get("volume", 1)), probe(file), ref=fx.get("id"), fade_in=float(fx.get("fade_in") or 0), fade_out=float(fx.get("fade_out") or 0), ring=fx.get("ring") is True)
             )
             if fx.get("line"):
                 placed = _on_a_line({"line": fx["line"], "at": fx.get("line_at"), "share": fx.get("line_share")}, f"{where} sfx {j}")
@@ -584,6 +586,7 @@ def plan(manifest: Manifest) -> Timeline:
     clock = 0.0
     said: dict[str, PlannedLine] = {}  # every line laid so far, by its id: a cue on one of its words is placed from it
     moves: list[tuple[float, dict]] = []  # the camera cues, where on the film each falls
+    rung = 0.0  # where the latest sound that rings over ends, on the film
     for index, shot in enumerate(manifest.shots):
         cursor = shot.lead
         lines: list[PlannedLine] = []
@@ -606,7 +609,12 @@ def plan(manifest: Manifest) -> Timeline:
         said.update((p.line.ref, p) for p in lines if p.line.ref)
         # On a word: nudged. Placed in the beat (`at`, v222): a negative one starts before the beat. Either way, never before the film starts.
         sfx_at = [(max(_on_word(said, fx.line, fx.line_at, fx.line_share) + fx.line_nudge, 0.0) - clock) if fx.line in said else max(fx.at, -clock) for fx in shot.sfx]
-        sfx_end = max((at + fx.duration for at, fx in zip(sfx_at, shot.sfx, strict=True)), default=0.0)
+        sfx_end = max((at + fx.duration for at, fx in zip(sfx_at, shot.sfx, strict=True) if not fx.ring), default=0.0)
+        # A sound that rings over (v225) never lengthens its beat: it sounds on over the pictures after it. The film still never ends before it does,
+        # so the last beat waits for every one still ringing, as it waits for a sound of its own.
+        rung = max([rung, *(clock + at + fx.duration for at, fx in zip(sfx_at, shot.sfx, strict=True) if fx.ring)])
+        if index == len(manifest.shots) - 1 and rung > 0:
+            sfx_end = max(sfx_end, rung - clock)
         hold, anchor = shot.hold, None
         if shot.starts_during and shot.starts_during["line"] in said:  # it comes in at a word already spoken: its hold counts from there
             anchor = _on_word(said, shot.starts_during["line"], shot.starts_during.get("at"), shot.starts_during.get("share"))
