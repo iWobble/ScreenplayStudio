@@ -18,7 +18,7 @@ from pathlib import Path
 from . import captions, ffmpeg
 from .manifest import MAX_SHORT_SECONDS, Ambience, Manifest, Move, Overlay, PlannedShot, Rock, Shot, Timeline, plan
 
-SUPERSAMPLE = 2  # zoompan on a larger picture moves smoothly instead of in whole-pixel steps
+SUPERSAMPLE = 4  # zoompan steps in whole pixels of the picture it moves over: on 4x the frame a slow move is 0.25-pixel steps, where 2x showed a faint jitter
 SAMPLE_RATE = 48000
 
 
