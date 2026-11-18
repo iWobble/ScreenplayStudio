@@ -77,6 +77,7 @@ class Line:
     volume: float = 1.0  # how loud the line is in the mix, whichever take is used: 1 is as recorded
     muffled: bool = False  # heard through a wall: the highs are cut (the same low-pass as a muffled bed)
     nudge: float = 0.0  # seconds later (+) or earlier (-) than where the line would start: a negative one overlaps the line before (an interruption)
+    simultaneous: bool = False  # spoken at the same time as the line before in its shot (dual dialogue): it starts when that one starts
 
 
 @dataclass
@@ -418,6 +419,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
                     volume=_line_volume(ln.get("volume"), lw),
                     muffled=bool(ln.get("muffled", False)),
                     nudge=_nudge(ln.get("nudge"), lw),
+                    simultaneous=bool(ln.get("simultaneous", False)),
                 )
             )
         for j, fx in enumerate(s.get("sfx") or [], 1):
@@ -500,12 +502,20 @@ def plan(manifest: Manifest) -> Timeline:
         lines: list[PlannedLine] = []
         last_end = 0.0  # where the latest line ends, in the shot's own seconds: with nudges an earlier line may end after the last
         for line in shot.lines:
+            together = line.simultaneous and bool(lines)  # dual dialogue: it starts when the line before starts, and the next follows the later of the two
+            if together:
+                cursor = lines[-1].start - clock
             if line.nudge:
                 cursor = max(cursor + line.nudge, -clock)  # never before the film starts; the next line follows this one where it now ends
             lines.append(PlannedLine(line, clock + cursor))
+            if together:
+                cursor = max(lines[-2].start - clock + lines[-2].line.duration, cursor + line.duration) + shot.gap
+                last_end = max(last_end, cursor - shot.gap)
+                continue
             last_end = max(last_end, cursor + line.duration)
             cursor += line.duration + shot.gap
-        spoken = (max(cursor - shot.gap, last_end) if any(line.nudge for line in shot.lines) else cursor - shot.gap) + shot.tail if shot.lines else 0.0
+        moved = any(line.nudge or line.simultaneous for line in shot.lines)
+        spoken = (max(cursor - shot.gap, last_end) if moved else cursor - shot.gap) + shot.tail if shot.lines else 0.0
         sfx_end = max((fx.at + fx.duration for fx in shot.sfx), default=0.0)
         duration = max(shot.hold, spoken, sfx_end) + shot.after
         if index == len(manifest.shots) - 1:
@@ -549,6 +559,8 @@ def overlaps(timeline: Timeline) -> list[tuple[str, str, float]]:
         for b in placed[i + 1 :]:
             if b.start >= a.start + a.line.duration:
                 break
+            if b.line.simultaneous:
+                continue  # dual dialogue: two at once on purpose
             both = min(a.start + a.line.duration, b.start + b.line.duration) - b.start
             if both >= min(a.line.duration, b.line.duration) - 1e-6:
                 found.append((a.line.ref or a.line.text[:30], b.line.ref or b.line.text[:30], round(both, 3)))

@@ -314,7 +314,7 @@ def test_the_lists_on_an_entrys_page_are_in_the_scripts_order_too_never_by_title
     want = {
         ("story", "Chapters"): numbered,
         ("story", "Beats"): numbered,
-        ("story", "Scenes"): made,  # places as the script first meets them
+        ("story", "Scenes"): numbered,  # by the scene number: places as the script first meets them, one put in later where it plays (v210)
         ("story", "Speech lines"): {"by": "beat", "then": "order"},  # beat by beat (its slug ends in its number), then as spoken
         ("story", "Takes"): {"by": "line", "then": "created_at"},  # line by line, each line's takes as recorded
         ("story", "Characters"): made,  # as they first appear
