@@ -1,6 +1,7 @@
 """Camera cues on a word (v212): `[[Camera: punch]]`, `[[Camera: shake 2]]`, `[[Camera: nudge 0.7,0.4]]` among a line's words move the camera at the end
 of the word before the note, on top of the beat's own move, inside the zoompan the still is moved by; the frame never leaves the picture."""
 
+import json
 import subprocess
 from array import array
 from pathlib import Path
@@ -121,3 +122,17 @@ def test_the_pull_times_a_camera_cue_as_the_sound_beside_it_and_leaves_out_an_un
     heard = {"s-line-01-1": {"text": "The hammer strikes the wheel.", "words": [{"text": w, "start": i * 0.5, "end": i * 0.5 + 0.4} for i, w in enumerate("The hammer strikes the wheel.".split())]}}
     beat = {"cues": [{"line": "s-line-01-1", "word": 3, "camera": {"kind": "punch", "amount": 1.08}}, {"line": "s-line-01-1", "word": 4, "camera": {"kind": "dolly"}}, {"line": "s-line-09-1", "word": 1, "camera": {"kind": "shake"}}]}
     assert marvin_pull._camera_cues(beat, heard, []) == [{"kind": "punch", "amount": 1.08, "line": "s-line-01-1", "line_at": 1.4}]
+
+
+@pytest.mark.parametrize("shape", [(1080, 1920), (1080, 1080), (1080, 1350), (1920, 1080)])
+def test_a_camera_cue_leaves_the_films_own_settings_alone(tmp_path, shape):
+    """A loop over a shot's camera cues once reused the name of the whole manifest, so the size, loudness, captions and the rest were read from the last cue."""
+    still = _square(tmp_path / "sq.png")
+    audio = tmp_path / "a.wav"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=duration=1", str(audio)], check=True)
+    (tmp_path / "m.json").write_text(json.dumps({
+        "title": "Wide", "size": list(shape), "loudness": -14,
+        "shots": [{"id": "a", "still": str(still), "lines": [{"audio": str(audio), "text": "x", "id": "l1"}], "camera_cues": [{"kind": "shake", "amount": 3, "line": "l1", "line_at": 0.5}]}],
+    }))  # fmt: skip
+    m = manifest.load(tmp_path / "m.json", probe=lambda _p: 1.0)
+    assert m.size == shape and m.title == "Wide" and m.loudness == -14
