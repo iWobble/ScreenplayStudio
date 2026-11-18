@@ -111,8 +111,10 @@ def _take_nudges(block: list[str]) -> tuple[list[str], float | None]:
     return kept, found
 
 
-_CUE_PART = re.compile(r"^\s*(?P<kind>sound|pic|camera)\s*(?::\s*(?P<text>.*?))?\s*$", re.I | re.S)
-"""One part of a cue note: `Sound: clang`, `Camera: punch 1.08`, `Pic: a probe in dark space` (or a bare `Pic`)."""
+_CUE_PART = re.compile(r"^\s*(?P<kind>sound|pic|camera|nudge)\s*(?::\s*(?P<text>.*?))?\s*$", re.I | re.S)
+"""One part of a cue note: `Sound: clang`, `Camera: punch 1.08`, `Pic: a probe in dark space` (or a bare `Pic`), and beside a Sound or a Camera,
+`Nudge: 0.1` (seconds later, or earlier when negative, than the word puts them: v216)."""
+_CUE_NUDGE = re.compile(r"^([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*s?$", re.I)
 _CUE_MARK = "\u2064"  # a cue note inside a speech while the text is cut and read: `⁤<hex of the note's words>⁤`, no space in it, never cleared as a note
 
 
@@ -126,6 +128,8 @@ def cue_parts(words: str) -> "dict[str, str] | None":
             return None
         said = " ".join((m["text"] or "").split())
         parts[m["kind"].lower()] = said if m["kind"].lower() == "pic" else said.rstrip(".")  # a Pic's words are its Shot direction, as written
+    if "nudge" in parts and not (("sound" in parts or "camera" in parts) and _CUE_NUDGE.match(parts["nudge"])):
+        return None  # a nudge moves a sound or a camera move; alone it is a line's own Nudge note, or only a note
     return parts if parts and all(v or k == "pic" for k, v in parts.items()) else None
 
 
@@ -1170,6 +1174,8 @@ def beat_cues(beat: dict, story: str, number: str, numbers: dict[int, str]) -> l
                     entry["sound"] = f"{story}-sound-{number}-{k}"
             if cue.get("camera"):
                 entry["camera"] = camera_cue(cue["camera"])
+            if cue.get("nudge") and (seconds := float(_CUE_NUDGE.match(cue["nudge"]).group(1))):
+                entry["nudge"] = seconds  # the sound and the camera move, that much later (or earlier) than the word puts them (v216)
             if "pic" in cue:
                 overlay = next((o for o in beat.get("overlays") or [] if o["starts_during"] == {"line": i, "word": cue["word"]}), None)
                 if overlay is not None and id(overlay) in numbers:

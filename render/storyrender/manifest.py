@@ -94,6 +94,7 @@ class Sfx:
     line: str | None = None  # placed on a word of a line (a cue, v211): the line's id; `at` is then ignored
     line_at: float | None = None  # seconds into that line (from its word timings)
     line_share: float | None = None  # …or how far into it, 0–1, when the take has no word timings (an estimate from the text)
+    line_nudge: float = 0.0  # seconds later (or earlier, negative) than the word puts it, never before the film starts (v216)
 
 
 @dataclass
@@ -383,7 +384,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             if cue is None:
                 raise ManifestError(f"{where} camera cue {j}: kind is {', '.join(camera.CUES)} (got {raw})")
             placed = _on_a_line({"line": raw.get("line") or "", "at": raw.get("line_at"), "share": raw.get("line_share")}, f"{where} camera cue {j}") if raw.get("line") else {"at": float(raw.get("at") or 0)}
-            shot.camera_cues.append({**cue, **placed})
+            shot.camera_cues.append({**cue, **placed, **({"nudge": _nudge(raw["nudge"], f"{where} camera cue {j}")} if raw.get("nudge") not in (None, "", 0) else {})})
         if isinstance(s.get("starts_during"), dict) and s["starts_during"].get("line"):
             shot.starts_during = _on_a_line(s["starts_during"], f"{where} starts_during")
         if s.get("picture_lead") not in (None, ""):
@@ -469,6 +470,7 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             if fx.get("line"):
                 placed = _on_a_line({"line": fx["line"], "at": fx.get("line_at"), "share": fx.get("line_share")}, f"{where} sfx {j}")
                 shot.sfx[-1].line, shot.sfx[-1].line_at, shot.sfx[-1].line_share = placed["line"], placed.get("at"), placed.get("share")
+                shot.sfx[-1].line_nudge = _nudge(fx.get("nudge"), f"{where} sfx {j}")
         shots.append(shot)
 
     music = raw.get("music")
@@ -561,7 +563,7 @@ def plan(manifest: Manifest) -> Timeline:
         moved = any(line.nudge or line.simultaneous for line in shot.lines)
         spoken = (max(cursor - shot.gap, last_end) if moved else cursor - shot.gap) + shot.tail if shot.lines else 0.0
         said.update((p.line.ref, p) for p in lines if p.line.ref)
-        sfx_at = [(_on_word(said, fx.line, fx.line_at, fx.line_share) - clock) if fx.line in said else fx.at for fx in shot.sfx]
+        sfx_at = [(max(_on_word(said, fx.line, fx.line_at, fx.line_share) + fx.line_nudge, 0.0) - clock) if fx.line in said else fx.at for fx in shot.sfx]  # on a word: nudged, never before 0
         sfx_end = max((at + fx.duration for at, fx in zip(sfx_at, shot.sfx, strict=True)), default=0.0)
         hold, anchor = shot.hold, None
         if shot.starts_during and shot.starts_during["line"] in said:  # it comes in at a word already spoken: its hold counts from there
@@ -570,14 +572,16 @@ def plan(manifest: Manifest) -> Timeline:
         duration = max(hold, spoken, sfx_end) + shot.after
         if index == len(manifest.shots) - 1:
             duration += manifest.end_hold
-        shots.append(PlannedShot(shot, clock, duration, lines, sfx_at=[max(at, 0.0) for at in sfx_at], anchor=anchor))
+        placed = [at if fx.line in said else max(at, 0.0) for at, fx in zip(sfx_at, shot.sfx, strict=True)]  # (one on a word may start before its beat's sound)
+        shots.append(PlannedShot(shot, clock, duration, lines, sfx_at=placed, anchor=anchor))
         for cue in shot.camera_cues:
             when = _on_word(said, cue["line"], cue.get("at"), cue.get("share")) if cue.get("line") in said else clock + cue.get("at", 0.0) if not cue.get("line") else None
             if when is not None:
-                moves.append((when, {k: v for k, v in cue.items() if k not in ("line", "at", "share")}))
+                moves.append((when + cue.get("nudge", 0.0), len(shots) - 1, {k: v for k, v in cue.items() if k not in ("line", "at", "share", "nudge")}))
         clock += duration
     _pictures(shots, clock)
-    for when, cue in moves:  # a camera cue moves the picture that is up when it falls (a picture that came in at an earlier word, perhaps)
+    for when, own, cue in moves:  # a camera cue moves the picture that is up when it falls (a picture that came in at an earlier word, perhaps)
+        when = max(when, shots[own].start)  # a nudge never brings it before its own beat's picture is up
         planned = next((p for p in reversed(shots) if p.start <= when + 1e-9), shots[0]) if shots else None
         if planned is not None:
             planned.camera.append((when - planned.start, cue))

@@ -60,6 +60,8 @@ def _cue_note(cue: dict, sounds: dict, beats: dict) -> str:
         parts.append(f"Sound: {said.rstrip('.')}")
     if isinstance(cue.get("camera"), dict) and cue["camera"].get("kind"):
         parts.append(f"Camera: {fountain_mod.camera_words(cue['camera'])}")
+    if parts and _nudge(cue.get("nudge")):  # beside its Sound or Camera (v216)
+        parts.append(f"Nudge: {_nudge(cue['nudge'])}")
     if cue.get("pic"):
         shown = _data(beats.get(str(cue["pic"]), {}))
         parts.append(f"Pic: {_clean(shown.get('direction')) or _clean(shown.get('picture'))}".rstrip(": "))

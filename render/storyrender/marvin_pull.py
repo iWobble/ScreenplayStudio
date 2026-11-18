@@ -294,8 +294,15 @@ def _cue_sounds(creds, out: Path, beat: dict, sounds: dict, data, missing: list,
         kind, value = word_place(heard[str(cue["line"])], int(cue.get("word") or 0), after=True)
         if kind == "share":
             estimated.append(f"{cue['line']} word {cue.get('word')}")
-        effects.append({**found[0], "line": str(cue["line"]), f"line_{kind}": value})
+        effects.append({**found[0], "line": str(cue["line"]), f"line_{kind}": value, **_cue_nudge(cue)})
     return effects
+
+
+def _cue_nudge(cue: dict) -> dict:
+    """A cue row's `nudge` (v216: dragged on the Timeline, or `Nudge:` in its note): seconds later, or earlier when negative, for its sound and its
+    camera move. Nothing when it has none (an overlay's picture is placed by its own beat, never by this)."""
+    seconds = _seconds(cue.get("nudge"), -10.0, 10.0)
+    return {"nudge": seconds} if seconds else {}
 
 
 def _camera_cues(beat: dict, heard: dict, estimated: list) -> list[dict]:
@@ -309,7 +316,7 @@ def _camera_cues(beat: dict, heard: dict, estimated: list) -> list[dict]:
         kind, value = word_place(heard[str(cue["line"])], int(cue.get("word") or 0), after=True)
         if kind == "share" and f"{cue['line']} word {cue.get('word')}" not in estimated:
             estimated.append(f"{cue['line']} word {cue.get('word')}")
-        out.append({**move, "line": str(cue["line"]), f"line_{kind}": value})
+        out.append({**move, "line": str(cue["line"]), f"line_{kind}": value, **_cue_nudge(cue)})
     return out
 
 
