@@ -124,14 +124,15 @@ def test_the_pull_times_a_camera_cue_as_the_sound_beside_it_and_leaves_out_an_un
     assert marvin_pull._camera_cues(beat, heard, []) == [{"kind": "punch", "amount": 1.08, "line": "s-line-01-1", "line_at": 1.4}]
 
 
-def test_a_camera_cue_leaves_the_films_own_settings_alone(tmp_path):
+@pytest.mark.parametrize("shape", [(1080, 1920), (1080, 1080), (1080, 1350), (1920, 1080)])
+def test_a_camera_cue_leaves_the_films_own_settings_alone(tmp_path, shape):
     """A loop over a shot's camera cues once reused the name of the whole manifest, so the size, loudness, captions and the rest were read from the last cue."""
     still = _square(tmp_path / "sq.png")
     audio = tmp_path / "a.wav"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=duration=1", str(audio)], check=True)
     (tmp_path / "m.json").write_text(json.dumps({
-        "title": "Wide", "size": [1920, 1080], "loudness": -14,
+        "title": "Wide", "size": list(shape), "loudness": -14,
         "shots": [{"id": "a", "still": str(still), "lines": [{"audio": str(audio), "text": "x", "id": "l1"}], "camera_cues": [{"kind": "shake", "amount": 3, "line": "l1", "line_at": 0.5}]}],
     }))  # fmt: skip
     m = manifest.load(tmp_path / "m.json", probe=lambda _p: 1.0)
-    assert m.size == (1920, 1080) and m.title == "Wide" and m.loudness == -14
+    assert m.size == shape and m.title == "Wide" and m.loudness == -14
