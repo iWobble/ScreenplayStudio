@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import captions, ffmpeg
+from . import camera, captions, ffmpeg
 from .manifest import MAX_SHORT_SECONDS, Ambience, Manifest, Move, Overlay, PlannedShot, Rock, Shot, Timeline, plan
 
 SUPERSAMPLE = 4  # zoompan steps in whole pixels of the picture it moves over: on 4x the frame a slow move is 0.25-pixel steps, where 2x showed a faint jitter
@@ -36,6 +36,8 @@ def zoompan_filter(planned: PlannedShot, size: tuple[int, int], fps: int) -> str
 
     zoom = mix(a.zoom, b.zoom)
     cx, cy = mix(a.x, b.x), mix(a.y, b.y)
+    if planned.camera:
+        zoom, cx, cy = camera_cues(planned.camera, fps, zoom, cx, cy)
     if rock and rock.heave:
         cy = f"({cy}+{rock.heave}*sin(2*PI*({planned.start:.4f}+on/{fps})/{rock.seconds * HEAVE_PERIOD:.4f}))"  # rises and falls a little out of step with the roll
     x = f"max(0,min(iw-iw/({zoom}),{cx}*iw-iw/(2*{zoom})))"
@@ -48,6 +50,44 @@ def zoompan_filter(planned: PlannedShot, size: tuple[int, int], fps: int) -> str
     if rock and rock.degrees:
         chain += f",{rock_filter(rock, planned.start, size)}"
     return chain + ",format=yuv420p"
+
+
+def _bump(t: str, attack: float, release: float) -> str:
+    """0, easing up to 1 over `attack` seconds from t = 0 and back to 0 over `release`: 0 outside that window."""
+    return f"if(lt({t},0),0,if(lt({t},{attack:g}),0.5-0.5*cos(PI*{t}/{attack:g}),if(lt({t},{attack + release:g}),0.5+0.5*cos(PI*({t}-{attack:g})/{release:g}),0)))"
+
+
+def _rise(t: str, seconds: float) -> str:
+    """0 before t = 0, easing up to 1 over `seconds`, then 1."""
+    return f"if(lt({t},0),0,if(lt({t},{seconds:g}),0.5-0.5*cos(PI*{t}/{seconds:g}),1))"
+
+
+def camera_cues(cues: list[tuple[float, dict]], fps: int, zoom: str, cx: str, cy: str) -> tuple[str, str, str]:
+    """The zoompan zoom and centre with the camera cues on words added (v212), each a term that is 0 outside its own short window, on top of the
+    shot's own move: a punch multiplies the zoom by up to its amount and settles back; a shake moves the centre by a share of the frame that dies
+    away; a nudge zooms in a little and drifts the centre toward its point, and stays. Only ever closer (zoom >= 1), and the x/y clamp after this
+    keeps the frame inside the picture however near an edge or a clip's end a cue falls."""
+    grow, shake_x, shake_y, drift_x, drift_y = [], [], [], [], []
+    for at, cue in cues:
+        t = f"(on/{fps}-{at:.4f})"
+        if cue["kind"] == "punch":
+            grow.append(f"{float(cue.get('amount') or camera.PUNCH) - 1:.4f}*{_bump(t, camera.PUNCH_ATTACK, camera.PUNCH_RELEASE)}")
+        elif cue["kind"] == "shake":
+            amp = float(cue.get("amount") if cue.get("amount") is not None else camera.SHAKE) / 100
+            fading = f"{amp:.4f}*exp(-{t}/{camera.SHAKE_DECAY:g})"
+            shake_x.append(f"if(between({t},0,{camera.SHAKE_SECONDS:g}),{fading}*sin(2*PI*{camera.SHAKE_HZ[0]:g}*{t}),0)")
+            shake_y.append(f"if(between({t},0,{camera.SHAKE_SECONDS:g}),{fading}*sin(2*PI*{camera.SHAKE_HZ[1]:g}*{t}+1),0)")
+        elif cue["kind"] == "nudge":
+            ease = _rise(t, camera.NUDGE_SECONDS)
+            grow.append(f"{camera.NUDGE_ZOOM - 1:.4f}*{ease}")
+            drift_x.append(f"{camera.NUDGE_SHARE}*({float(cue['x']):.4f}-{cx})*{ease}")
+            drift_y.append(f"{camera.NUDGE_SHARE}*({float(cue['y']):.4f}-{cy})*{ease}")
+    if grow:
+        zoom = f"({zoom})*(1+{'+'.join(grow)})"
+    # a drift is a share of the picture; a shake, of the frame, which on the picture is less the closer the camera is
+    cx = f"({cx}{''.join('+' + d for d in drift_x)}{f'+({chr(43).join(shake_x)})/({zoom})' if shake_x else ''})" if drift_x or shake_x else cx
+    cy = f"({cy}{''.join('+' + d for d in drift_y)}{f'+({chr(43).join(shake_y)})/({zoom})' if shake_y else ''})" if drift_y or shake_y else cy
+    return zoom, cx, cy
 
 
 HEAVE_PERIOD = 0.8  # the heave runs a little faster than the roll, so the two do not move as one

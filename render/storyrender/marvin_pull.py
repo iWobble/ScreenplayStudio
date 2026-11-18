@@ -177,6 +177,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             heard[line["slug"]] = {"text": str(d.get("text") or ""), "words": spoken_words({}, record.get("metadataJson"))}
         effects = _sound_effects(creds, out, data(beat).get("sounds"), sounds, data, missing)
         effects += _cue_sounds(creds, out, data(beat), sounds, data, missing, heard, estimated)
+        moves = _camera_cues(data(beat), heard, estimated)
         is_card = cards.is_plain(data(beat))  # it shows a plain card: that is its picture, so it always plays and is never waiting for a still
         has_still = bool(data(beat).get("still")) or is_card
         if not spoken and not effects and not data(beat).get("hold_seconds") and not has_still:
@@ -187,6 +188,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         shot.update(transition_of(data(beat), data(story_row)))
         if effects:
             shot["sfx"] = effects
+        if moves:
+            shot["camera_cues"] = moves  # a punch, shake or nudge on a word (v212)
         under, over = _ambience(creds, out, data(beat), scenes, sounds, data, taken, missing, data(story_row))
         if under:
             shot["ambience"] = under
@@ -293,6 +296,21 @@ def _cue_sounds(creds, out: Path, beat: dict, sounds: dict, data, missing: list,
             estimated.append(f"{cue['line']} word {cue.get('word')}")
         effects.append({**found[0], "line": str(cue["line"]), f"line_{kind}": value})
     return effects
+
+
+def _camera_cues(beat: dict, heard: dict, estimated: list) -> list[dict]:
+    """The camera moves on words of a beat's lines (v212), each at the end of the word spoken before its note, as the sound beside it is. One of a
+    kind the render does not know, or on a line with no take, is left out."""
+    out = []
+    for cue in _cues(beat):
+        move = camera.cue_of(cue.get("camera"))
+        if move is None or str(cue["line"]) not in heard:
+            continue
+        kind, value = word_place(heard[str(cue["line"])], int(cue.get("word") or 0), after=True)
+        if kind == "share" and f"{cue['line']} word {cue.get('word')}" not in estimated:
+            estimated.append(f"{cue['line']} word {cue.get('word')}")
+        out.append({**move, "line": str(cue["line"]), f"line_{kind}": value})
+    return out
 
 
 def _starts_during(beat: dict, heard: dict, estimated: list) -> dict | None:
