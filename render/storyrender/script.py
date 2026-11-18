@@ -370,6 +370,8 @@ def fountain_complete(records: dict) -> str:
     sd = _data(story)
     scenes, sounds, chapters = records.get("scenes", {}), records.get("sounds", {}), records.get("chapters", {})
     lines_by_beat = records.get("lines", {})
+    placed = [{**ln, "dataJson": {**_data(ln), "beat": slug}} for slug, held in lines_by_beat.items() for ln in held]  # each line with the beat that holds it
+    cue_rows, _unknown = lines_of.cues_by_beat(records.get("beats", []), placed)  # a cue row follows its line, wherever it was left (v221)
     out: list[str] = [f"Title: {_clean(story.get('title') or story.get('slug'))}", f"Credit: {_clean(sd.get('credit')) or 'A Storyworld film'}"]
     for key, label in (("author", "Author"), ("source", "Source"), ("draft_date", "Draft date"), ("contact", "Contact"), ("copyright", "Copyright")):
         raw = [ln.strip() for ln in str(sd.get(key) or "").splitlines() if ln.strip()]
@@ -499,7 +501,7 @@ def fountain_complete(records: dict) -> str:
             if direction:
                 out.append(f"({direction.rstrip('.').lower()})" if _clean(ld.get("direction")) else f"({direction})")  # a typed direction is lower-cased; the writer's own is as they had it
             words, inline = _speech(ld)
-            out.append(_with_cues(words, [c for c in (d.get("cues") if isinstance(d.get("cues"), list) else []) if isinstance(c, dict) and c.get("line") == line.get("slug")], sounds, by_slug))
+            out.append(_with_cues(words, [c for c in cue_rows.get(beat.get("slug", ""), []) if isinstance(c, dict) and c.get("line") == line.get("slug")], sounds, by_slug))
             extra = [x for x in (None if inline else _say("Delivery", ld.get("delivery_text")), _say("Voice", ld.get("voice")), _say("Note", ld.get("take_notes"))) if x]
             out += ([f"[[{' '.join(extra)}]]"] if extra else []) + [""]
         if kept["end"]:
