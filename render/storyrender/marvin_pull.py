@@ -179,6 +179,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         effects += _cue_sounds(creds, out, data(beat), sounds, data, missing, heard, estimated)
         moves = _camera_cues(data(beat), heard, estimated)
         looks = _look_cues(data(beat), heard, estimated)
+        mixes = _mix_cues(data(beat), heard, estimated)
+        stressed = _emphasis_cues(data(beat), heard, estimated)
         is_card = cards.is_plain(data(beat))  # it shows a plain card: that is its picture, so it always plays and is never waiting for a still
         has_still = bool(data(beat).get("still")) or is_card
         if not spoken and not effects and not data(beat).get("hold_seconds") and not has_still:
@@ -193,6 +195,10 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             shot["camera_cues"] = moves  # a punch, shake or nudge on a word (v212); a whip-pan or a sway (v218)
         if looks:
             shot["look_cues"] = looks  # a flash, a dip, a tint… on a word (v218)
+        if mixes:
+            shot["mix_cues"] = mixes  # dead air or a duck from a word (v219)
+        if stressed:
+            shot["emphasis_cues"] = stressed  # a word the captions show bigger (v219)
         under, over = _ambience(creds, out, data(beat), scenes, sounds, data, taken, missing, data(story_row))
         if under:
             shot["ambience"] = under
@@ -303,7 +309,7 @@ def _cue_sounds(creds, out: Path, beat: dict, sounds: dict, data, missing: list,
 
 def _cue_nudge(cue: dict) -> dict:
     """A cue row's `nudge` (v216: dragged on the Timeline, or `Nudge:` in its note): seconds later, or earlier when negative, for its sound, its
-    camera move and its look (v218). Nothing when it has none (an overlay's picture is placed by its own beat, never by this)."""
+    camera move, its look (v218), its mix and its emphasis (v219). Nothing when it has none (an overlay's picture is placed by its own beat, never by this)."""
     seconds = _seconds(cue.get("nudge"), -10.0, 10.0)
     return {"nudge": seconds} if seconds else {}
 
@@ -317,6 +323,16 @@ def _camera_cues(beat: dict, heard: dict, estimated: list) -> list[dict]:
 def _look_cues(beat: dict, heard: dict, estimated: list) -> list[dict]:
     """The looks on words of a beat's lines (v218: a flash, a dip, a tint…), placed as its camera moves are."""
     return _word_cues(beat, heard, estimated, "look", camera.look_of)
+
+
+def _mix_cues(beat: dict, heard: dict, estimated: list) -> list[dict]:
+    """The mix changed at words of a beat's lines (v219: dead air, a duck), placed as its camera moves are."""
+    return _word_cues(beat, heard, estimated, "mix", camera.mix_of)
+
+
+def _emphasis_cues(beat: dict, heard: dict, estimated: list) -> list[dict]:
+    """The words a beat's captions emphasise (v219): the word after the cue's gap, so at its start."""
+    return _word_cues(beat, heard, estimated, "emphasis", camera.emphasis_of, after=False)
 
 
 def _word_cues(beat: dict, heard: dict, estimated: list, key: str, check, *, after: bool = True) -> list[dict]:

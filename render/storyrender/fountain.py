@@ -111,16 +111,19 @@ def _take_nudges(block: list[str]) -> tuple[list[str], float | None]:
     return kept, found
 
 
-_CUE_PART = re.compile(r"^\s*(?P<kind>sound|pic|camera|look|nudge)\s*(?::\s*(?P<text>.*?))?\s*$", re.I | re.S)
-"""One part of a cue note: `Sound: clang`, `Camera: punch 1.08`, `Look: dip white 1.2` (v218), `Pic: a probe in dark space` (or a bare `Pic`), and
-beside a Sound, a Camera or a Look, `Nudge: 0.1` (seconds later, or earlier when negative, than the word puts them: v216)."""
-_NUDGED = ("sound", "camera", "look")  # the parts a Nudge moves
+_CUE_PART = re.compile(r"^\s*(?P<kind>sound|pic|camera|look|mix|emphasis|nudge)\s*(?::\s*(?P<text>.*?))?\s*$", re.I | re.S)
+"""One part of a cue note: `Sound: clang`, `Camera: punch 1.08`, `Look: dip white 1.2` (v218), `Mix: dead-air 2`, `Emphasis` (or `Emphasis: 1.5`,
+v219), `Pic: a probe in dark space` (or a bare `Pic`), and beside any but a Pic, `Nudge: 0.1` (seconds later, or earlier when negative, than the
+word puts them: v216)."""
+_NUDGED = ("sound", "camera", "look", "mix", "emphasis")  # the parts a Nudge moves
+_BARE = ("pic", "emphasis")  # the parts that may stand without words
 _CUE_NUDGE = re.compile(r"^([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*s?$", re.I)
 _CUE_MARK = "\u2064"  # a cue note inside a speech while the text is cut and read: `⁤<hex of the note's words>⁤`, no space in it, never cleared as a note
 
 
 def cue_parts(words: str) -> "dict[str, str] | None":
-    """A note's words as a cue, when every part of it (`|` between them) is a Sound, a Pic, a Camera or a Look: {"sound": "clang", "camera": "punch"}. None
+    """A note's words as a cue, when every part of it (`|` between them) is a Sound, a Pic, a Camera, a Look, a Mix or an Emphasis: {"sound": "clang",
+    "camera": "punch"}. None
     for any other note."""
     parts: dict[str, str] = {}
     for piece in words.split("|"):
@@ -131,7 +134,9 @@ def cue_parts(words: str) -> "dict[str, str] | None":
         parts[m["kind"].lower()] = said if m["kind"].lower() == "pic" else said.rstrip(".")  # a Pic's words are its Shot direction, as written
     if "nudge" in parts and not (any(k in parts for k in _NUDGED) and _CUE_NUDGE.match(parts["nudge"])):
         return None  # a nudge moves a sound, a camera move or a look; alone it is a line's own Nudge note, or only a note
-    return parts if parts and all(v or k == "pic" for k, v in parts.items()) else None
+    if parts.get("emphasis") and not _NUMBER_WORD.match(parts["emphasis"]):
+        return None  # an emphasis says how much bigger, or nothing
+    return parts if parts and all(v or k in _BARE for k, v in parts.items()) else None
 
 
 def _in_speech(note: "re.Match[str]") -> bool:
@@ -1235,6 +1240,16 @@ def look_words(look: dict) -> str:
     return _kind_words(look, camera.LOOK_SLOTS)
 
 
+def mix_cue(words: str) -> dict:
+    """A Mix note's words as the cue's mix (v219): `dead-air` or `dead-air 2` (seconds), `duck 0.3 2` (the level, then seconds), `duck 2s`."""
+    return _kind_and(words, camera.MIX_SLOTS)
+
+
+def mix_words(mix: dict) -> str:
+    """A cue's mix as its note writes it: the reverse of `mix_cue`."""
+    return _kind_words(mix, camera.MIX_SLOTS)
+
+
 def beat_cues(beat: dict, story: str, number: str, numbers: dict[int, str]) -> list[dict]:
     """A beat's `cues`: each note among its lines' words as {line: the speech line's slug, word: words spoken before it, sound: the Sound's slug,
     camera: {kind, …}, pic: the slug of the beat it starts}. `numbers` gives each overlay beat (by id) its number."""
@@ -1251,6 +1266,10 @@ def beat_cues(beat: dict, story: str, number: str, numbers: dict[int, str]) -> l
                 entry["camera"] = camera_cue(cue["camera"])
             if cue.get("look"):
                 entry["look"] = look_cue(cue["look"])  # a flash, a dip, a tint… at that word (v218)
+            if cue.get("mix"):
+                entry["mix"] = mix_cue(cue["mix"])  # dead air or a duck from that word (v219)
+            if "emphasis" in cue:
+                entry["emphasis"] = {"scale": float(cue["emphasis"])} if cue["emphasis"] else True  # the word after it, bigger in the captions (v219)
             if cue.get("nudge") and (seconds := float(_CUE_NUDGE.match(cue["nudge"]).group(1))):
                 entry["nudge"] = seconds  # the sound and the camera move, that much later (or earlier) than the word puts them (v216)
             if "pic" in cue:
