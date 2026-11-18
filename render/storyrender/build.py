@@ -333,19 +333,29 @@ Piece = tuple[Path, float, float, str, str, float]  # file, seconds into the fil
 
 def _pieces(planned: PlannedShot, silences: list[tuple[float, dict]] | None = None) -> list[Piece]:
     """A shot's sounds with where each starts on the film: its lines, and its sound effects counted from where its sound starts. A sound effect
-    already playing when dead air starts (`silences`, v219) goes quiet with the beds; one that starts in it is heard."""
+    goes quiet with the beds through dead air (`silences`, v219), unless it starts with it: the cue's own sound rings out into the silence."""
     effects = [(fx, planned.audio_start + (planned.sfx_at[i] if i < len(planned.sfx_at) else max(fx.at, 0.0))) for i, fx in enumerate(planned.shot.sfx)]
     return [(p.line.audio, p.start, p.line.volume, _cut(p.line), f"lowpass=f={MUFFLE_HZ}," if p.line.muffled else "", p.line.duration) for p in planned.lines if p.line.audio] + [
         (fx.audio, at, fx.volume, "", fades(fx.duration, fx.fade_in, fx.fade_out) + _hushed(silences, at, fx.duration), fx.duration) for fx, at in effects
     ]
 
 
+SAME_MOMENT = 0.05  # seconds: a sound that starts this close to dead air starts with it (the cue's own sound), and is not silenced
+
+
 def _hushed(silences: list[tuple[float, dict]] | None, at: float, length: float) -> str:
-    """The volume filter (with a trailing comma, or nothing) that silences a sound starting `at` seconds into the film through each dead air that
-    starts while it plays, on the sound's own clock."""
-    caught = [(when, cue) for when, cue in silences or [] if at < when - 1e-3 and when < at + length]
+    """The volume filter (with a trailing comma, or nothing) that silences a sound starting `at` seconds into the film through each dead air it
+    overlaps, on the sound's own clock; not one it starts with."""
+    caught = [
+        (when, cue) for when, cue in silences or []
+        if cue["kind"] == "dead-air" and abs(at - when) > SAME_MOMENT and when < at + length and at < when + _lasts(cue) + camera.MIX_RAMPS["dead-air"][1]
+    ]  # fmt: skip
     gain = mix_gain(caught, ("dead-air",))
     return f"volume='{_shifted(gain, at)}':eval=frame," if gain else ""
+
+
+def _lasts(cue: dict) -> float:
+    return float(cue["seconds"]) if cue.get("seconds") is not None else camera.MIX_DEFAULTS[cue["kind"]][1]
 
 
 def mix_gain(cues: list[tuple[float, dict]], kinds: tuple[str, ...]) -> str | None:
@@ -355,9 +365,8 @@ def mix_gain(cues: list[tuple[float, dict]], kinds: tuple[str, ...]) -> str | No
     for at, cue in cues:
         if cue["kind"] not in kinds:
             continue
-        level, seconds = camera.MIX_DEFAULTS[cue["kind"]]
-        level = float(cue["amount"]) if cue.get("amount") is not None else level
-        seconds = float(cue["seconds"]) if cue.get("seconds") is not None else seconds
+        level = float(cue["amount"]) if cue.get("amount") is not None else camera.MIX_DEFAULTS[cue["kind"]][0]
+        seconds = _lasts(cue)
         down, up = camera.MIX_RAMPS[cue["kind"]]
         terms.append(f"(1-{1 - level:.4f}*min(clip((t-{at:.4f})/{down:g},0,1),clip(({at + seconds + up:.4f}-t)/{up:g},0,1)))")
     return "*".join(terms) or None

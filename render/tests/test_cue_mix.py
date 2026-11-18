@@ -2,6 +2,7 @@
 `[[Mix: duck 0.3 2]]` dips the music and the beds under; the voice is never touched. `[[Emphasis]]` shows the word after it bigger, in the captions."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -44,12 +45,20 @@ def test_a_duck_lowers_the_beds_and_music_by_its_amount(tmp_path):
 
 
 @needs_ffmpeg
-def test_dead_air_silences_a_sound_already_playing_and_lets_one_that_starts_in_it_ring(tmp_path):
-    long_clang, short_clang = _tone(tmp_path / "c1.wav", 2.5, CLANG), _tone(tmp_path / "c2.wav", 0.6, 600)
-    sounds = [Sfx(long_clang, at=0.0, duration=2.5), Sfx(short_clang, duration=0.6, line="l1", line_at=0.5)]  # the second, on the dead air's own word
-    dead = _film(tmp_path, "dead", [{"kind": "dead-air", "seconds": 1.0, "line": "l1", "at": 0.5}], sounds)
-    assert _strength(dead, 1.2, CLANG) < 0.01 < _strength(dead, 0.5, CLANG)
-    assert _strength(dead, 1.0, 600) > 0.04  # a tone at ffmpeg's own level is about 0.06
+def test_dead_air_silences_the_sounds_but_lets_its_own_ring(tmp_path):
+    long_clang, own, later = _tone(tmp_path / "c1.wav", 2.5, CLANG), _tone(tmp_path / "c2.wav", 0.6, 600), _tone(tmp_path / "c3.wav", 0.4, 900)
+    sounds = [Sfx(long_clang, at=0.0, duration=2.5), Sfx(own, duration=0.6, line="l1", line_at=0.5), Sfx(later, duration=0.4, line="l1", line_at=0.9)]
+    dead = _film(tmp_path, "dead", [{"kind": "dead-air", "seconds": 1.0, "line": "l1", "at": 0.5}], sounds)  # the second on the dead air's own word
+    assert _strength(dead, 1.2, CLANG) < 0.01 < _strength(dead, 0.5, CLANG)  # already playing: silenced
+    assert _strength(dead, 1.0, 600) > 0.04  # its own sound rings (a tone at ffmpeg's own level is about 0.06)
+    assert _strength(dead, 1.3, 900) < 0.01  # one that starts in the silence is silenced too
+
+
+def test_only_a_sound_that_starts_with_the_dead_air_is_left_alone():
+    dead = [(1.0, {"kind": "dead-air", "seconds": 1.0})]
+    assert build._hushed(dead, 1.02, 0.5) == "" and build._hushed(dead, 3.0, 1.0) == "" and build._hushed(dead, 0.0, 0.9) == ""
+    assert build._hushed(dead, 1.5, 0.2).startswith("volume='(1-1.0000*") and build._hushed(dead, 0.0, 1.5).startswith("volume=")
+    assert build._hushed([(1.0, {"kind": "duck"})], 0.0, 5.0) == ""  # a duck leaves the sounds alone
 
 
 def test_the_mix_gain_is_one_outside_its_window_and_absent_without_a_cue():
@@ -138,6 +147,7 @@ def test_mix_and_emphasis_notes_reach_the_beats_cues_and_the_complete_script_wri
 
 
 def test_the_check_takes_mix_and_emphasis_notes_as_cues():
-    assert [f for f in validate.check(TEXT) if "note" in f.code or "pic" in f.code] == []
+    bare = re.sub(r" ?\[\[[^\]]*\]\]", "", TEXT)
+    assert [(f.code, f.problem) for f in validate.check(TEXT)] == [(f.code, f.problem) for f in validate.check(bare)]
     assert fountain.cue_parts("Emphasis") == {"emphasis": ""} and fountain.cue_parts("Emphasis | Nudge: 0.1") == {"emphasis": "", "nudge": "0.1"}
     assert fountain.cue_parts("Emphasis: loudly") is None and fountain.cue_parts("Mix") is None

@@ -179,7 +179,7 @@ def look_of(raw: object) -> dict | None:
 # `[[Mix: dead-air 2]]` among a line's words changes the beds under the voice at that word for a while; the voice itself is never touched.
 
 MIXES = {
-    "dead-air": "the beds, the music and the sounds already playing drop to silence, and come back: dead-air, dead-air 2 (seconds)",
+    "dead-air": "the beds, the music and the sound effects (all but one that starts with it) drop to silence, and come back: dead-air, dead-air 2 (seconds)",
     "duck": "the music and the beds dip under for a while: duck, duck 0.3 (the level they dip to, 0-1), duck 0.3 2 (for 2 seconds), duck 2s",
 }
 MIX_SLOTS = {"dead-air": ("seconds",), "duck": ("amount", "seconds")}
