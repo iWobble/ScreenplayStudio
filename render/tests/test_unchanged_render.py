@@ -2,7 +2,7 @@
 the captions it burns in, are the same to the character as Studio v217 made them. (A shake is left out on purpose: v218 gives it room to show.)
 
 The commands are recorded with ffmpeg itself stubbed out, so nothing is encoded. To refresh the golden file after a change that is *meant* to alter
-every render: STORYRENDER_GOLDEN=1 pytest tests/test_unchanged_render.py. (The golden file was made by v217 with one fix: see the last test.)"""
+every render: STORYRENDER_GOLDEN=1 pytest tests/test_unchanged_render.py."""
 
 import json
 import os
@@ -87,8 +87,8 @@ def test_a_film_without_the_new_cue_keys_renders_exactly_as_before(tmp_path, mon
 
 
 def test_a_camera_cue_no_longer_hides_the_films_own_settings(tmp_path):
-    """v212 to v217 read the film's music, captions, size, beds… from the last camera cue's row instead of the manifest (a loop reused the name), so a
-    film with a camera cue lost them all. The golden file above is v217 with only that put right."""
+    """v212 to v216 read the film's music, captions, size, beds… from the last camera cue's row instead of the manifest (a loop reused the name), so a
+    film with a camera cue lost them all (put right in v217). The golden file above is v217's."""
     film = manifest.load(_manifest(tmp_path), probe=lambda _p: 2.0)
     assert film.title == "Unchanged" and film.caption["style"] == "highlight" and film.music and film.ambience and film.ambience_duck == "strong"
     assert film.end_transition == "fade" and film.start_fade == 1.0
