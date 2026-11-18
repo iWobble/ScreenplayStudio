@@ -895,7 +895,8 @@ def test_a_second_import_leaves_the_characters_and_scenes_that_are_there(casting
     done = run(ctx)
     assert done["result"]["characters_made"] == ["s-chet", "s-hand"] and done["result"]["scenes_made"] == ["s-captains-cabin"]
     patched = {p[0]: p[1]["dataJson"] for p in fake.patched if p[0] != "e0"}
-    assert set(patched) == {"c1"}  # the only change to what exists: the Character gets the age and sex the screenplay says of her
+    assert set(patched) == {"c1", "sc1"}  # the only changes to what exists: the Character gets the age and sex the screenplay says of her
+    assert patched["sc1"] == {"story": "s", "number": "1"}  # and the Scene, which had no number, where its place first plays (v210)
     assert patched["c1"] == {"story": "s", "speaker": "valerie", "actor": "nell", "age": "40s", "sex": "female", "age_state": "mid"}  # nothing else touched
 
 
@@ -914,7 +915,7 @@ def test_running_the_import_again_makes_the_scenes_and_puts_earlier_beats_in_the
     again.on_hand["scene"]["s-the-reef"] = {"id": "sc1", "slug": "s-the-reef", "title": "Reef", "dataJson": {"story": "s", "look": "mine"}}
     done = run(ctx2)
     assert done["result"]["records_filled_in"] >= len(beats) and done["result"]["scenes_made"] == ["s-captains-cabin"]
-    put = {p[0]: p[1]["dataJson"]["scene"] for p in again.patched if p[0] != "e0"}
+    put = {p[0]: p[1]["dataJson"]["scene"] for p in again.patched if p[0] not in ("e0", "sc1")}  # (sc1, the scene, is given its number)
     assert set(put.values()) == {"s-the-reef", "s-captains-cabin"} and len(put) == len(beats)
 
 

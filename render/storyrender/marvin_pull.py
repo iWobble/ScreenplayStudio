@@ -165,6 +165,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
                 entry["volume"] = d["volume"]
             if d.get("muffled"):
                 entry["muffled"] = True
+            if d.get("simultaneous") is True:
+                entry["simultaneous"] = True  # dual dialogue: spoken at the same time as the line before
             if nudge := _seconds(d.get("nudge"), -10.0, 10.0):  # later (+) or earlier (-) than where it would start: two voices may overlap
                 entry["nudge"] = nudge
             if words := spoken_words(d, record.get("metadataJson")):

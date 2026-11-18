@@ -51,6 +51,12 @@ def _speech(ld: dict) -> tuple[str, bool]:
     return spoken, False
 
 
+def _dual(ld: dict) -> str:
+    """` ^` after the cue of a line spoken at the same time as the one before: Fountain's dual dialogue, on the second speaker's cue. The two speeches
+    keep the blank line between them, as the format writes it (screenplain sets them side by side only then)."""
+    return " ^" if ld.get("simultaneous") is True or str(ld.get("simultaneous")).lower() == "true" else ""
+
+
 def _nudge(value: object) -> str:
     """A line's nudge as the Nudge note writes it (`-0.4`), or nothing when it has none."""
     try:
@@ -260,7 +266,7 @@ def fountain(records: dict) -> str:
             spoken = _clean(ld.get("text"))
             if not spoken:
                 continue
-            out.append(_cue(ld.get("speaker") or "", _clean(ld.get("extension"))))
+            out.append(_cue(ld.get("speaker") or "", _clean(ld.get("extension"))) + _dual(ld))
             if _clean(ld.get("direction")):
                 out.append(f"({_clean(ld['direction']).rstrip('.').lower()})")
             out += [_speech(ld)[0], ""]
@@ -347,7 +353,7 @@ def fountain_complete(records: dict) -> str:
         out += [f"[[{_clean(cd.get('speaker') or ch.get('title') or '').replace('-', ' ').upper()} is {_clean(ch.get('title'))}. " + " ".join(bits) + "]]", ""]
 
     scene_now, bed_now, chapter_now, first, time_now = None, None, None, True, ""
-    scene_numbers: dict[str, int] = {}
+    scene_numbers: dict[str, str] = {}
     for beat in records.get("beats", []):
         d = _data(beat)
         number = str(d.get("number") or "").strip()
@@ -378,7 +384,8 @@ def fountain_complete(records: dict) -> str:
             scene_now, time_now = scene_slug, when
             scene = scenes.get(str(scene_slug), {})
             heading = _clean(scene.get("title") or _slug_words(str(scene_slug))).upper()
-            scene_numbers[str(scene_slug)] = scene_numbers.get(str(scene_slug), len(scene_numbers) + 1)
+            own = re.sub(r"[^\w.-]", "", _clean(_data(scene).get("number")))  # the scene's own number (1, 1a), else the count of places so far
+            scene_numbers[str(scene_slug)] = scene_numbers.get(str(scene_slug)) or own or str(len(scene_numbers) + 1)
             out += [_heading_line(heading, f" #{scene_numbers[str(scene_slug)]}#", scene, when), ""]
             sc = _data(scene)
             said = [x for x in (_say("Place", sc.get("place")), _say("Light", sc.get("look")), _say("Set dressing", sc.get("set_dressing")), _say("Continuity", sc.get("continuity"))) if x]
@@ -444,7 +451,7 @@ def fountain_complete(records: dict) -> str:
             direction = _clean(ld.get("direction")) or noted
             if nudge := _nudge(ld.get("nudge")):
                 out += [f"[[Nudge: {nudge}]]", ""]  # a paragraph of its own right before the speaker, which the import reads back as the line's
-            out.append(_cue(ld.get("speaker") or "", ext))
+            out.append(_cue(ld.get("speaker") or "", ext) + _dual(ld))  # `NAME ^`: spoken at the same time as the line before (dual dialogue)
             if direction:
                 out.append(f"({direction.rstrip('.').lower()})" if _clean(ld.get("direction")) else f"({direction})")  # a typed direction is lower-cased; the writer's own is as they had it
             words, inline = _speech(ld)
@@ -463,10 +470,14 @@ _SCENE_ONLY = ("place", "set_dressing", "inside_outside", "continuity", "ambienc
 
 
 def _is_scene(row: dict, story: str) -> bool:
-    """Whether an entry of the story is one of its scenes: it carries a field only a scene has (a beat also has an ambience, and a number). A scene
-    with no ambience of its own is still a scene (it was left out, and then written as a bare `.HEADING` under its slug)."""
+    """Whether an entry of the story is one of its scenes: it carries a field only a scene has, or an ambience, and it is not a beat or a chapter (by
+    their slugs: a beat also has an ambience) nor a line or a take (they name their beat). A scene has a number too (v210), so that tells nothing.
+    A scene with no ambience of its own is still a scene (it was left out, and then written as a bare `.HEADING` under its slug)."""
     d = _data(row)
-    return d.get("story") == story and "number" not in d and ("ambience" in d or any(k in d for k in _SCENE_ONLY))
+    slug = str(row.get("slug") or "")
+    if d.get("story") != story or slug.startswith((f"{story}-beat-", f"{story}-chapter-")) or "beat" in d:
+        return False
+    return "ambience" in d or any(k in d for k in _SCENE_ONLY)
 
 
 def pull_records(story: str, creds: tuple[str, str]) -> dict:

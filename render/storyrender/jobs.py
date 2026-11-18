@@ -577,15 +577,23 @@ def _people_fill(ctx: Context, story: str, fplan) -> list[tuple[dict, dict]]:
     return out
 
 
+def scene_number(fplan, slug_key: str) -> str:
+    """A scene's number: where its place first appears in the script (1, 2, 3...; a place seen again keeps its number), so the story lists its scenes
+    in the order they play. Empty for a place the script does not name."""
+    order = list(fplan.places)
+    return str(order.index(slug_key) + 1) if slug_key in order else ""
+
+
 def _scenes_fill(ctx: Context, story: str, fplan) -> list[tuple[dict, dict]]:
     """Scenes the story has whose place, light, set dressing or continuity is empty, given what a `[[Scene …]]` note naming them says (a complete
-    script brought in again). Only an empty field is filled, never one a person set."""
+    script brought in again), and those with no number yet (see `scene_number`). Only an empty field is filled, never one a person set."""
     said = fountain.scenes_said(fplan)
     out: list[tuple[dict, dict]] = []
-    for rec in _all(ctx.creds, {"entry_type": "scene", "data": {"story": story}}) if said else []:
-        fields = said.get(str(rec.get("slug") or "").removeprefix(f"{story}-"))
+    for rec in _all(ctx.creds, {"entry_type": "scene", "data": {"story": story}}):
+        key = str(rec.get("slug") or "").removeprefix(f"{story}-")
+        fields = {**said.get(key, {}), **({"number": number} if (number := scene_number(fplan, key)) else {})}
         data = rec.get("dataJson") or {}
-        missing = {k: v for k, v in (fields or {}).items() if not str(data.get(k) or "").strip()}
+        missing = {k: v for k, v in fields.items() if not str(data.get(k) or "").strip()}
         if missing:
             out.append((rec, missing))
     return out
@@ -644,7 +652,7 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
         if slug not in want or slug in have_scenes:
             continue
         kind = fountain.kind_of_places(place["kinds"])  # INT. / EXT. kept as a field of its own, not as words in the place
-        data = {"story": story, "place": place["name"], "inside_outside": kind, "look": ", ".join(place["times"]), "status": "draft"}
+        data = {"story": story, "number": scene_number(fplan, slug_key), "place": place["name"], "inside_outside": kind, "look": ", ".join(place["times"]), "status": "draft"}
         for key, value in said.get(slug_key, {}).items():  # the scene as the records had it, in place of what the heading alone would give
             if value.rstrip(".") != str(data.get(key) or ""):
                 data[key] = value

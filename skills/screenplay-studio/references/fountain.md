@@ -77,7 +77,7 @@ Drop anchor in a graveyard, boy?
 ```
 
 - A cue is **all capitals, alone on its line**. **Never put a capitals line above action text:** the import makes it a speaker, and that person reads the action aloud. A sound is made only from a `[[Sound:]]` note (or `the sound of X`): a word or a line in capitals is never a sound, and a capitals line standing alone is read as action. If a line of capitals must be action, start it with `!` (`!THE PLAGUE OF THE SEA RISES.`).
-- A blank line between speakers. No dual dialogue (`^`) unless two voices must overlap.
+- A blank line between speakers. No dual dialogue (`^`) unless two voices must overlap: `NAME ^` on the second speaker's cue, after a blank line, plays that line at the same time as the one before (v210).
 - The parenthetical is the delivery note (kept with the line).
 - A beat holds at most 6 lines; the next starts a new one.
 
