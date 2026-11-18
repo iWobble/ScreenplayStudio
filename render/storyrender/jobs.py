@@ -14,7 +14,7 @@ from pathlib import Path
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
-from . import audio_convert, audio_measure, beat_import, build, captions, cards, chapters, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, numbering, ready, script, validate, voices, waveform
+from . import audio_convert, audio_measure, beat_import, build, captions, cards, chapters, clip, ffmpeg, filmstrip, formats, fountain, manifest, marvin_pull, numbering, ready, script, validate, voices, waveform
 from .looks import trash_old_looks
 
 
@@ -292,6 +292,165 @@ def make_waveform(job: dict, ctx: Context) -> dict:
         raise JobError(f"could not read “{name}” as sound: {e}") from e
     marvin_api.update_entry(ctx.creds, slug, {target: wave})
     return {"result": {"entry": slug, "field": field, "wave_field": target, "points": wave["length"]}, "log": f"{name}: {wave['length']} peaks written to {target} on {slug}"}
+
+
+CLIP_FACTS = ("clip_seconds", "clip_width", "clip_height", "clip_has_audio", "clip_poster")  # what describe-video writes on a beat
+CLIP_HEARD = ("clip_text", "clip_words")  # what transcribe-clip writes (on the transcriber), emptied here when the clip changes
+VIDEO_SUFFIXES = (".webm", ".mp4", ".mov", ".m4v", ".mkv")
+
+
+def _is_video(mime: "str | None", name: str) -> bool:
+    return str(mime or "").startswith("video/") or Path(name).suffix.lower() in VIDEO_SUFFIXES
+
+
+def _clip_args(job: dict) -> tuple[str, str, "str | None"]:
+    """(the beat's slug, the field holding the clip, the clip asked about or None): `clip` is what the beat held when the job was asked for,
+    so a job for a clip since replaced does nothing."""
+    args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
+    slug, field = str(args.get("entry") or "").strip(), str(args.get("field") or "clip").strip()
+    if not slug:
+        raise JobError("this kind of job needs args.entry (the beat's slug)")
+    return slug, field, (str(args.get("clip") or "").strip() if "clip" in args else None)
+
+
+def _rewrite_clip_facts(ctx: Context, slug: str, field: str, held: str, put: dict, drop: tuple[str, ...] = ()) -> "dict | None":
+    """Write `put` and remove `drop` on the beat as it is now, only while its clip is still `held` (a clip changed meanwhile has its own job,
+    and a person's edit since the job began is kept). Never writes the clip itself, so it never sets off the beat's clip workflow again.
+    The beat's fields before the write, or None when the clip changed and nothing was written."""
+    row = next(iter(marvin_api.query(ctx.creds, {"entries": slug}, limit=1)), None)
+    if row is None:
+        raise JobError(f"no entry “{slug}”")
+    before = dict(row.get("dataJson") or {})
+    if str(before.get(field) or "").strip() != held:
+        return None
+    data = {k: v for k, v in before.items() if k not in drop}
+    data.update(put)
+    if data != before:
+        _patch_entry(ctx, row, data)
+    return before
+
+
+def _trash_poster(ctx: Context, ref, slug: str) -> None:
+    """Send a poster this job kind made for this beat to the Trash; anything else in the field (or one that cannot be read) is left alone."""
+    if not ref or not isinstance(ref, str):
+        return
+    try:
+        meta = marvin_api.asset(ctx.creds, ref).get("metadataJson") or {}
+        if meta.get("kind") == "clip-poster" and meta.get("beat") == slug:
+            marvin_api.request(ctx.creds, f"/api/platform/assets/{ref}", method="DELETE")
+    except marvin_api.MarvinError as e:
+        ctx.note(f"the old poster {ref} was left in the library ({str(e).splitlines()[0][:120]})")
+
+
+def _queue_job(ctx: Context, slug: str, title: str, kind: str, args: dict) -> str:
+    types = {t["slug"]: t["id"] for t in json.loads(marvin_api.request(ctx.creds, "/api/platform/entry-types"))}
+    if "job" not in types:
+        raise JobError("this workspace has no “job” entry type")
+    made = marvin_api.create_entry(ctx.creds, types["job"], slug, title, {"kind": kind, "args": args, "status": "queued"})
+    return str(made.get("slug") or slug)
+
+
+@job_kind(
+    "describe-video",
+    description="Look at the video in a beat's clip field and write what it is to the beat: its length (clip_seconds), its picture's width and height as a player shows it (a phone's portrait take reads portrait), whether it has sound, and a poster frame from about a second in (a new image asset). The same facts go on the video asset's own metadata (`video`). A clip with sound is then sent to the transcriber (transcribe-clip) for what is said in it. An emptied clip field empties these fields. Nothing is changed in the file",
+    inputs={
+        "entry": {"type": "string", "description": "the beat's slug"},
+        "field": {"type": "string", "required": False, "description": "the field holding the video (clip by default)"},
+        "clip": {"type": "string", "required": False, "description": "the clip the beat held when this was asked for: a job for a clip since replaced does nothing"},
+    },
+    produces=["image/jpeg"],
+    needs=["ffmpeg"],
+)
+def describe_video(job: dict, ctx: Context) -> dict:
+    """A beat's clip → its length, size, frame rate, sound and a poster, written to the beat and to the asset's metadata; a clip with sound is
+    queued for transcribing. An empty clip field empties what an earlier clip left."""
+    slug, field, asked = _clip_args(job)
+    row = next(iter(marvin_api.query(ctx.creds, {"entries": slug}, limit=1)), None)
+    if row is None:
+        raise JobError(f"no entry “{slug}”")
+    data = row.get("dataJson") or row.get("data") or {}
+    held = str(data.get(field) or "").strip()
+    if asked is not None and asked != held:
+        said = f"Skipped: the clip on {slug} changed again after this was asked for; the job asked for since describes the one there now."
+        return {"result": {"skipped": True, "entry": slug, "summary": said}, "log": said}
+    if not held:
+        return _forget_clip(ctx, slug, field)
+    asset = marvin_api.asset(ctx.creds, held)
+    name = asset.get("name") or asset.get("slug") or "clip"
+    if not _is_video(asset.get("mimeType"), name):
+        raise JobError(f"“{name}” ({asset.get('mimeType') or 'unknown type'}) is not a video")
+    src = ctx.work / f"clip{Path(name).suffix or '.bin'}"
+    marvin_api.download_asset(ctx.creds, asset.get("id") or held, src)
+    try:
+        facts = clip.describe(src)
+    except (ffmpeg.FfmpegError, ValueError) as e:
+        raise JobError(f"could not read “{name}” as a video: {str(e).splitlines()[0][:200]}") from e
+    ctx.note(f"{name}: {facts['duration_seconds']:g} s, {facts['width']}x{facts['height']}, {facts['fps'] or '?'} fps, " + ("with sound" if facts["has_audio"] else "no sound"))
+    _keep_video_facts(ctx, asset, held, facts)
+    base = str(job.get("job") or ctx.name or slug)  # this job's slug: names what it makes, so a second run never meets a taken name
+    poster = _make_poster(ctx, src, facts["duration_seconds"], f"{base}-poster", slug, asset.get("id") or held, name)
+    put = {"clip_seconds": facts["duration_seconds"], "clip_width": facts["width"], "clip_height": facts["height"], "clip_has_audio": facts["has_audio"]}
+    if poster:
+        put["clip_poster"] = poster
+    before = _rewrite_clip_facts(ctx, slug, field, held, put, drop=CLIP_HEARD + (() if poster else ("clip_poster",)))
+    if before is None:
+        _trash_poster(ctx, poster, slug)
+        said = f"Skipped writing: the clip on {slug} changed while {name} was being looked at; the job asked for since describes the new one."
+        return {"result": {"skipped": True, "entry": slug, "summary": said}, "log": said}
+    if before.get("clip_poster") != poster:
+        _trash_poster(ctx, before.get("clip_poster"), slug)
+    heard = _ask_for_words(ctx, f"{base}-words", slug, field, held, facts["has_audio"], str(row.get("title") or slug))
+    return {"result": {"entry": slug, "field": field, "clip": held, **facts, "poster": poster, **heard}, "log": f"{name}: {facts['duration_seconds']:g} s, {facts['width']}x{facts['height']}" + (f", {facts['fps']:g} fps" if facts["fps"] else "") + f"; {heard['words']}"}
+
+
+def _forget_clip(ctx: Context, slug: str, field: str) -> dict:
+    before = _rewrite_clip_facts(ctx, slug, field, "", {}, drop=CLIP_FACTS + CLIP_HEARD)
+    if before is None:
+        said = f"Skipped: {slug} has a clip again; the job asked for since describes it."
+        return {"result": {"skipped": True, "entry": slug, "summary": said}, "log": said}
+    _trash_poster(ctx, before.get("clip_poster"), slug)
+    gone = [k for k in CLIP_FACTS + CLIP_HEARD if k in before]
+    return {"result": {"entry": slug, "field": field, "cleared": gone}, "log": f"{slug} has no clip: " + (f"emptied {', '.join(gone)}" if gone else "nothing to empty")}
+
+
+def _keep_video_facts(ctx: Context, asset: dict, held: str, facts: dict) -> None:
+    """The facts on the asset itself (`video`), so the same file used again elsewhere is known. One that cannot be written is said, not fatal."""
+    merged = {**(asset.get("metadataJson") or {}), "video": facts}
+    try:
+        marvin_api.request(ctx.creds, f"/api/platform/assets/{asset.get('id') or held}", method="PATCH", data=json.dumps({"metadata": merged}).encode(), content_type="application/json")
+    except marvin_api.MarvinError as e:
+        ctx.note(f"could not write the facts to the video's own metadata ({str(e).splitlines()[0][:120]}); the beat has them")
+
+
+def _make_poster(ctx: Context, src: Path, total: float, poster_slug: str, slug: str, clip_id: str, name: str) -> "str | None":
+    """The poster frame, uploaded: its asset id, or None (said) when no frame could be pictured. The beat is described either way."""
+    out = ctx.work / f"{poster_slug}.jpg"
+    try:
+        clip.poster(src, total, out)
+        made = marvin_api.upload_asset(
+            ctx.creds,
+            out,
+            slug=poster_slug,
+            name=f"Poster: {name}",
+            mime="image/jpeg",
+            description=f"A frame of the clip on {slug}, about {clip.poster_at(total):g} s in.",
+            metadata={"kind": "clip-poster", "beat": slug, "clip": clip_id, "at": round(clip.poster_at(total), 3)},
+        )
+    except (ffmpeg.FfmpegError, marvin_api.MarvinError) as e:
+        ctx.note(f"no poster: {str(e).splitlines()[0][:200]}")
+        return None
+    return str(made["id"])
+
+
+def _ask_for_words(ctx: Context, job_slug: str, slug: str, field: str, held: str, has_audio: bool, title: str) -> dict:
+    """Queue the transcriber for a clip with sound; say why not for one without. Never fails the job: a queue that cannot be reached is said."""
+    if not has_audio:
+        return {"words": "no sound in the clip, so nothing to transcribe (What you said stays empty)"}
+    try:
+        queued = _queue_job(ctx, job_slug, f"What was said in the clip: {title}", "transcribe-clip", {"entry": slug, "field": field, "clip": held})
+    except (JobError, marvin_api.MarvinError) as e:
+        return {"words": f"could not ask for the words ({str(e).splitlines()[0][:160]})"}
+    return {"words": f"the words are being transcribed ({queued})", "transcribe_job": queued}
 
 
 SCRIPT_FILES = {"fountain": "text/plain", "pdf": "application/pdf", "html": "text/html", "breakdown": "text/html"}

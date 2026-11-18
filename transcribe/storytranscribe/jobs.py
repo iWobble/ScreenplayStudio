@@ -164,3 +164,62 @@ def time_words(job: dict, ctx: Context) -> dict:
     note = f"{len(words)} words timed in {record.get('name') or held}" + ("" if script else " (heard, as the take has no written text)") + told
     ctx.note(note)
     return {"result": {"entry": slug, "asset": record.get("id") or held, "words": len(words), "language": language, "from_text": bool(script)}, "log": note + "."}
+
+
+def has_sound(path: Path) -> bool:
+    """Whether the file holds a sound stream at all (decoding one with none fails inside faster-whisper with an IndexError)."""
+    import av
+
+    with av.open(str(path)) as container:
+        return bool(container.streams.audio)
+
+
+def _clip_now(ctx: Context, slug: str, field: str) -> tuple[dict, str]:
+    row = next(iter(marvin_api.query(ctx.creds, {"entries": slug}, limit=1)), None)
+    if row is None:
+        raise JobError(f"no entry “{slug}”")
+    return row, str((row.get("dataJson") or row.get("data") or {}).get(field) or "").strip()
+
+
+@job_kind(
+    "transcribe-clip",
+    description="Listen to the video in a beat's clip field (faster-whisper, on this machine's CPU, free) and write what is said in it to the beat: the words as text (clip_text) and each word with its start and end in seconds from the start of the recording (clip_words), the same clock as the clip's start and stop fields. A clip with no sound or no speech leaves them empty and says so. Queued by describe-video",
+    inputs={
+        "entry": {"type": "string", "description": "the beat's slug"},
+        "field": {"type": "string", "required": False, "description": "the field holding the video (clip by default)"},
+        "clip": {"type": "string", "required": False, "description": "the clip the beat held when this was asked for: a job for a clip since replaced does nothing"},
+        "language": {"type": "string", "required": False, "description": "the spoken language as a code, e.g. en; empty to detect it"},
+        "model": {"type": "string", "required": False, "description": "tiny, base, small, medium or large-v3 (default small)"},
+    },
+    produces=[],
+    needs=["faster-whisper"],
+)
+def transcribe_clip(job: dict, ctx: Context) -> dict:
+    """A beat's clip → what is said in it, as `clip_text` and `clip_words` ([{word, start, end}]) on the beat, while the beat still holds that clip."""
+    args = (job.get("args") or {}) if isinstance(job.get("args"), dict) else {}
+    slug, field = str(args.get("entry") or "").strip(), str(args.get("field") or "clip").strip()
+    if not slug:
+        raise JobError("this kind of job needs args.entry (the beat's slug)")
+    _row, held = _clip_now(ctx, slug, field)
+    asked = str(args.get("clip") or "").strip() if "clip" in args else held
+    if not held or held != asked:
+        said = f"Skipped: the clip on {slug} changed after this was asked for; nothing was written."
+        return {"result": {"skipped": True, "entry": slug, "summary": said}, "log": said}
+    record = marvin_api.asset(ctx.creds, held)
+    name = record.get("name") or held
+    source = ctx.work / f"clip{Path(str(record.get('originalFilename') or name)).suffix or '.webm'}"
+    marvin_api.download_asset(ctx.creds, record.get("id") or held, source)
+    words, language = [], ""
+    if has_sound(source):
+        heard, language = heard_words(load_model(str(args.get("model") or MODEL)), source, language=str(args.get("language") or "") or None)
+        words = [{"word": w["text"], "start": round(w["start"], 3), "end": round(w["end"], 3)} for w in heard]
+        said = f"{len(words)} words heard in {name} ({language})" if words else f"no speech heard in {name}: What you said stays empty"
+    else:
+        said = f"{name} has no sound: What you said stays empty"
+    ctx.note(said)
+    _row, now = _clip_now(ctx, slug, field)
+    if now != held:
+        said = f"Skipped writing: the clip on {slug} changed while {name} was being listened to."
+        return {"result": {"skipped": True, "entry": slug, "summary": said}, "log": said}
+    marvin_api.update_entry(ctx.creds, slug, {"clip_text": " ".join(w["word"] for w in words), "clip_words": words})
+    return {"result": {"entry": slug, "clip": held, "words": len(words), "language": language}, "log": said + "."}
