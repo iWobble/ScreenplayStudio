@@ -11,7 +11,9 @@ One image, `screenplay-studio-worker`, holds every kind of job the Screenplay St
 | `convert-audio` | a recording a browser made (webm, ogg) into an mp3 or m4a, and the entry's field pointed at it |
 | `measure-audio` | the real length of the recording in an entry's audio field (a browser's webm has none in its header: it is decoded), written to the entry's `duration_seconds`; the file is not changed |
 | `describe-audio` | what a take's recording says about itself: its make, loudness (LUFS), average level, loudest moment, noise floor, clipping, the silence before and after, and where it came from (when the take does not say); the file is not changed |
+| `describe-video` | a beat's clip (the video in its `clip` field): its length, its picture's size as a player shows it, its frame rate, whether it has sound and a poster frame, written to the beat (`clip_seconds`, `clip_width`, `clip_height`, `clip_has_audio`, `clip_poster`) and to the video's own metadata (`video`); a clip with sound is queued for `transcribe-clip`; the file is not changed |
 | `transcribe` | a recording into text (faster-whisper, free, on the CPU) |
+| `transcribe-clip` | what is said in a beat's clip, written to the beat as `clip_text` and `clip_words` (each word's start and end from the start of the recording); runs on the transcriber |
 
 The workers only reach **out** to Marvin and poll for `job` records; nothing listens. Run one container for the light jobs and one for transcribing (a long transcription then never holds up a filmstrip); `WORKER_KINDS` chooses what each offers.
 
