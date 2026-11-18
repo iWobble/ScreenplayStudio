@@ -151,3 +151,20 @@ def test_the_check_takes_mix_and_emphasis_notes_as_cues():
     assert [(f.code, f.problem) for f in validate.check(TEXT)] == [(f.code, f.problem) for f in validate.check(bare)]
     assert fountain.cue_parts("Emphasis") == {"emphasis": ""} and fountain.cue_parts("Emphasis | Nudge: 0.1") == {"emphasis": "", "nudge": "0.1"}
     assert fountain.cue_parts("Emphasis: loudly") is None and fountain.cue_parts("Mix") is None
+
+
+def test_a_film_with_every_new_cue_kind_keeps_its_own_settings(tmp_path):
+    """None of the cue loops reuses a name the manifest's own settings are read from (v212 to v216 lost a film's size, title and loudness that way)."""
+    on = {"line": "l1", "line_at": 0.5}
+    shot = {
+        "id": "a", "lines": [{"duration": 2.0, "text": "w", "id": "l1"}],
+        "camera_cues": [{"kind": "whip-pan", "x": -1, **on}, {"kind": "sway", "seconds": 2, **on}],
+        "look_cues": [{"kind": k, **on} for k in camera.LOOKS],
+        "mix_cues": [{"kind": k, **on} for k in camera.MIXES],
+        "emphasis_cues": [{"scale": 1.5, **on}],
+    }  # fmt: skip
+    (tmp_path / "m.json").write_text(json.dumps({"title": "Wide", "size": [1920, 1080], "loudness": -14, "caption": {"style": "box"}, "end_fade": 2, "shots": [shot]}))
+    film = manifest.load(tmp_path / "m.json", probe=lambda _p: 1.0, need_stills=False)
+    assert (film.title, film.size, film.loudness, film.caption, film.end_fade) == ("Wide", (1920, 1080), -14.0, {"style": "box"}, 2.0)
+    loaded = film.shots[0]
+    assert len(loaded.camera_cues) == 2 and len(loaded.look_cues) == len(camera.LOOKS) and len(loaded.mix_cues) == 2 and len(loaded.emphasis_cues) == 1
