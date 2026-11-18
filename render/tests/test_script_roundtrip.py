@@ -4,7 +4,7 @@ characters and the title page. Offline: the import runs against the fake workspa
 
 import re
 
-from storyrender import fountain, numbering, script
+from storyrender import fountain, numbering, script, validate
 from tests.test_fountain import casting, run  # noqa: F401  (the fake workspace and the import runner)
 
 MAX_TEXT = """Title: THE LAST LIGHT
@@ -129,3 +129,44 @@ def test_the_most_detailed_screenplay_comes_back_out_as_itself(casting):
     page = fountain.title_page(MAX_TEXT)
     assert {k: page[k] for k in ("credit", "author", "source", "draft_date", "setting", "premise", "copyright")} == {k: fountain.title_page(exported)[k] for k in ("credit", "author", "source", "draft_date", "setting", "premise", "copyright")}
     assert "Agent: Someone" in fountain.title_page(exported)["contact"]
+
+
+NUDGED = """Title: Nudged
+
+INT. KITCHEN - DAY
+
+Mara stirs a pot.
+
+MARA
+You're late.
+
+[[Nudge: -0.4]]
+
+JONAH
+The path is gone.
+
+MARA
+[[Nudge: 0.3s]]
+(quietly)
+Then we wait.
+"""
+
+
+def test_a_nudge_note_fills_the_lines_nudge_and_the_complete_script_writes_it_back(casting):
+    fake, ctx = casting(NUDGED)
+    run(ctx)
+    made = {m["dataJson"].get("text"): m["dataJson"].get("nudge") for m in fake.made if m["entryTypeId"] == "T-line"}
+    assert made == {"You're late.": None, "The path is gone.": -0.4, "Then we wait.": 0.3}  # the note is never spoken: it is the line's nudge
+    exported = script.fountain_complete(_records_from(fake))
+    assert "[[Nudge: -0.4]]\n\nJONAH" in exported and "[[Nudge: 0.3]]\n\nMARA" in exported
+    said = lambda text: [(e["name"], e["text"], e.get("nudge")) for e in fountain.parse(text) if e["t"] == "dialogue"]  # noqa: E731
+    assert said(exported) == said(NUDGED) == [("MARA", "You're late.", None), ("JONAH", "The path is gone.", -0.4), ("MARA", "Then we wait.", 0.3)]
+    assert script.fountain_complete(_records_from(fake)).count("Nudge") == 2  # written from the line, never also carried from the beat's own text
+
+
+def test_a_nudge_note_is_read_above_the_speaker_or_under_it_and_never_spoken():
+    text = "INT. ROOM - DAY\n\nA door.\n\n[[Nudge: -0.4]]\nBOB\nYou are late.\n\nANN\n[[nudge: .25 s]]\n(quietly)\nI know.\n\nBOB\nGood.\n"
+    said = [(e["name"], e["text"], e.get("nudge"), e["paren"]) for e in fountain.parse(text) if e["t"] == "dialogue"]
+    assert said == [("BOB", "You are late.", -0.4, []), ("ANN", "I know.", 0.25, ["quietly"]), ("BOB", "Good.", None, [])]
+    assert [e.get("line") for e in fountain.parse(text, lines=True) if e["t"] == "dialogue"] == [5, 8, 13]  # each speech starts on its cue
+    assert not [f for f in validate.check(text) if f.level == "error"] and not fountain.lint(text)  # a speech with a nudge under its cue is still one speech

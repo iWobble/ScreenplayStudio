@@ -52,7 +52,7 @@ _STYLE = (
 
 _SCRIPT = r"""
 const a=document.getElementById('a'),pic=document.getElementById('pic'),cap=document.getElementById('caption'),where=document.getElementById('where'),seek=document.getElementById('seek'),strip=document.getElementById('strip'),play=document.getElementById('play');
-const total=SHOTS.length?SHOTS[SHOTS.length-1].start+SHOTS[SHOTS.length-1].duration:0;let cur=-1;
+const LINES=SHOTS.flatMap(x=>x.lines||[]);const total=SHOTS.length?SHOTS[SHOTS.length-1].start+SHOTS[SHOTS.length-1].duration:0;let cur=-1;
 const clamp=(x,z)=>{const h=.5/Math.max(z,1);return Math.min(Math.max(x,h),1-h)};
 const tc=s=>Math.floor(s/60)+':'+(s%60).toFixed(1).padStart(4,'0');
 SHOTS.forEach((s,i)=>{const t=document.createElement('img');t.src=s.image;t.alt=s.label;t.title=s.label;t.onclick=()=>go(i,true);strip.append(t)});
@@ -62,7 +62,7 @@ function frame(){const t=a.currentTime,i=idx(t),s=SHOTS[i];if(!s){requestAnimati
  if(i!==cur){cur=i;pic.src=s.image;[...strip.children].forEach((c,k)=>c.classList.toggle('on',k===i));strip.children[i].scrollIntoView({block:'nearest',inline:'center'})}
  const p=Math.min(1,Math.max(0,(t-s.start)/Math.max(s.duration,.01))),f=s.from,o=s.to,z=f.zoom+(o.zoom-f.zoom)*p,x=clamp(f.x+(o.x-f.x)*p,z),y=clamp(f.y+(o.y-f.y)*p,z);
  pic.style.transform='translate('+(-(x*z-.5)*100)+'%,'+(-(y*z-.5)*100)+'%) scale('+z+')';
- const L=(s.lines||[]).find(l=>t>=l.start&&t<=l.end+.15);cap.replaceChildren();if(L){const b=document.createElement('b');b.textContent=(L.speaker||'')+(L.speaker?': ':'');cap.append(b,document.createTextNode(L.text||''))}
+ const L=LINES.filter(l=>t>=l.start&&t<=l.end+.15).pop();cap.replaceChildren();if(L){const b=document.createElement('b');b.textContent=(L.speaker||'')+(L.speaker?': ':'');cap.append(b,document.createTextNode(L.text||''))}
  where.textContent=s.label+' · '+(i+1)+'/'+SHOTS.length+' · '+tc(t)+' / '+tc(total);seek.value=total?Math.round(1000*t/total):0;play.innerHTML=a.paused?'&#9654;':'&#10074;&#10074;';requestAnimationFrame(frame)}
 document.getElementById('next').onclick=()=>go(idx(a.currentTime)+1,!a.paused);document.getElementById('prev').onclick=()=>{const i=idx(a.currentTime);go(a.currentTime-SHOTS[i].start>1.2?i:i-1,!a.paused)};
 play.onclick=()=>a.paused?a.play():a.pause();seek.oninput=()=>{a.currentTime=total*seek.value/1000};

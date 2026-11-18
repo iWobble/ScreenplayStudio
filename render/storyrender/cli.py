@@ -42,7 +42,7 @@ def cmd_plan(a) -> int:
             {
                 "seconds": round(t.duration, 3),
                 "shots": [
-                    {"id": s.shot.id, "start": round(s.start, 3), "seconds": round(s.duration, 3), "lines": [round(p.start, 3) for p in s.lines]}
+                    {"id": s.shot.id, "start": round(s.start, 3), "seconds": round(s.duration, 3), "lines": [round(p.start, 3) for p in s.lines], **({"sound_starts": round(s.audio_start, 3)} if s.audio_start != s.start else {})}
                     for s in t.shots
                 ],
             },

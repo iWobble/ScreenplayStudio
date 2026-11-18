@@ -89,6 +89,28 @@ as a page break does, and its words are that beat's Shot direction. To any other
 PIC_CHARS = 400  # a direction longer than this is more than a shot: the check says so
 
 
+_NUDGE_LINE = re.compile(r"^[ \t]*\[\[[ \t]*nudge[ \t]*:[ \t]*(?P<s>[+-]?(?:\d+(?:\.\d*)?|\.\d+))[ \t]*s?\.?[ \t]*\]\][ \t]*$", re.I | re.M)
+"""A line's nudge, on a line of its own right before its speaker (as a paragraph of its own, or with no blank line) or right under the speaker:
+`[[Nudge: -0.4]]` starts the line that many seconds earlier (+ later) than where it would start. To any other Fountain app it is a note."""
+_NUDGE_MARK = "\u2063"  # what a nudge note is read as while the text is cut into paragraphs: a line no note-clearing removes, so a speech stays one
+
+
+def _nudge_marked(text: str) -> str:
+    return _NUDGE_LINE.sub(lambda m: f"{_NUDGE_MARK}{float(m['s']):g}", text)
+
+
+def _take_nudges(block: list[str]) -> tuple[list[str], float | None]:
+    """A paragraph without its nudge lines, and the last nudge they held (None when none)."""
+    found = None
+    kept = []
+    for ln in block:
+        if ln.startswith(_NUDGE_MARK):
+            found = float(ln[len(_NUDGE_MARK) :])
+        else:
+            kept.append(ln)
+    return kept, found
+
+
 _INFO_CARD_NOTE = re.compile(r"[ \t]*\[\[[ \t]*info[ \t]+card[ \t]*:(?P<text>(?:(?!\]\]).)*?)\]\][ \t]*", re.I)
 """The info card shown over a picture, on a line of its own inside that picture's text: `[[Info card: label | title | sentence]]`. Any slot may be
 empty; one slot alone is the title (`[[Info card: 2302]]`)."""
@@ -210,15 +232,18 @@ def _notes_out(text: str, gone) -> str:
 
 
 def _clean(text: str) -> str:
-    return _notes_out(_BONEYARD.sub("", _readable(_normal(text))), lambda _m: "")  # a boneyard and a note are the writer's, not the story's
+    return _notes_out(_BONEYARD.sub("", _nudge_marked(_readable(_normal(text)))), lambda _m: "")  # a boneyard and a note are the writer's, not the story's
 
 
-def _blocks_at(text: str) -> list[tuple[int, list[str]]]:
-    """The text's paragraphs (runs of lines between blank ones), each with the line it starts on."""
+def _blocks_at(text: str, *, marks: bool = False) -> list[tuple[int, list[str]]]:
+    """The text's paragraphs (runs of lines between blank ones), each with the line it starts on. A nudge note's line (see `_nudge_marked`) is left
+    out without ending the paragraph it stands in, unless `marks` keeps it for the reader that takes its value."""
     blocks: list[tuple[int, list[str]]] = []
     cur: list[str] = []
     start = 0
     for n, raw in enumerate(text.split("\n")):
+        if raw.startswith(_NUDGE_MARK) and not marks:
+            continue
         if not raw.strip() and not (cur and raw == "  " and _is_character(cur[0])):  # two spaces keep a gap inside a speech
             if cur:
                 blocks.append((start, cur))
@@ -346,15 +371,27 @@ def parse(text: str, *, lines: bool = False) -> list[dict]:
     """The screenplay's elements in order: {t: scene|action|dialogue|transition|section|centred, ...}. A title page and synopses are left out; a page break (`===`) is {t: break},
     a Pic note {t: break, direction} (one written with a page break is one break).
     With `lines`, each element also says the line (counting from 0) of the text it starts on."""
-    blocks = _blocks_at(_blank_comments(_readable(_normal(text))) if lines else _clean(text))  # to say where each element is, a note or boneyard keeps its line breaks
+    text = _nudge_marked(_normal(text))
+    blocks = _blocks_at(_blank_comments(_readable(text)) if lines else _clean(text), marks=True)  # to say where each element is, a note or boneyard keeps its line breaks
     if blocks and all(_ANY_KEY.match(ln) or ln.startswith((" ", "\t")) for ln in blocks[0][1]) and _TITLE_KEY.match(blocks[0][1][0]):
         blocks = blocks[1:]  # a title page: it starts with a key Fountain knows, and every line is a key or the rest of one
     known = {_cue_name(block[0]) for _start, block in blocks if len(block) >= 2 and _is_character(block[0])}
     out: list[dict] = []
+    pending: float | None = None  # a nudge note read: it is the next speech's, when nothing else comes first
     for start, block in blocks:
+        while block and block[0].startswith(_NUDGE_MARK):  # written right above the speaker, with no blank line
+            block, pending = block[1:], float(block[0][len(_NUDGE_MARK) :])
+            start += 1
+        if not block:
+            continue
         pieces = _split_cues(start, block, known)
         for n, (at, piece) in enumerate(pieces):
-            for el in _plain_elements(_block_elements(piece)):
+            piece, said = _take_nudges(piece)
+            pending = said if said is not None else pending
+            for el in _plain_elements(_block_elements(piece) if piece else []):
+                if el["t"] == "dialogue" and pending is not None:
+                    el["nudge"] = pending
+                pending = None
                 if n == 0 and len(pieces) > 1 and el["t"] == "dialogue":
                     el["dual"] = False  # written together with no blank line, only the second can be the one that speaks over the first
                 if el["t"] == "break" and out and out[-1]["t"] == "break":  # a Pic note and a page break written together are one break
@@ -744,7 +781,7 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
                 if len(cur["lines"]) >= LINES_PER_BEAT:
                     cur = start(f"(continued) {cur['picture'][:80]}", ln, sc)
                 who = names.get(el["name"], el["name"].capitalize())
-                cur["lines"].append({"speaker": who, "text": el["text"], "at": ln, "end": el.get("end"), "dual": bool(el.get("dual"))})
+                cur["lines"].append({"speaker": who, "text": el["text"], "at": ln, "end": el.get("end"), "dual": bool(el.get("dual")), **({"nudge": el["nudge"]} if el.get("nudge") else {})})
                 note = ", ".join(el["paren"] + ([el["ext"]] if el["ext"] else []))
                 if note:
                     cur["notes"].append(f"{who} ({note})")
@@ -1156,7 +1193,7 @@ def lint(text: str, limit: "int | None" = MAX_LINT) -> list[str]:
     a capitals line standing alone or ending in a full stop, which is read as a speaker (`CRUNCH.`), and a line that is a place and a time in capitals
     but does not start with INT. or EXT., which is not a scene. It reads the text only: nothing is changed. The split report lists the first
     `limit` and says how many more; the Fountain check (`limit=None`) lists them all."""
-    plain = _NOTE.sub(_blank_out, _BONEYARD.sub(_blank_out, _readable(_normal(text))))
+    plain = _NOTE.sub(_blank_out, _BONEYARD.sub(_blank_out, _nudge_marked(_readable(_normal(text)))))
     found: list[str] = []
     for index, (start, block) in enumerate(_blocks_at(plain)):
         first = block[0].strip()
@@ -1290,7 +1327,7 @@ def check(plan: Plan) -> list[str]:
 def _blank_comments(text: str) -> str:
     """The text with each note and boneyard replaced by as many line breaks as it held, so every line keeps its number."""
     keep = lambda m: "\n" * m.group().count("\n")  # noqa: E731
-    return _notes_out(_BONEYARD.sub(keep, text), keep)
+    return _notes_out(_BONEYARD.sub(keep, _nudge_marked(text)), keep)  # (a nudge note stays a line of its own: a speech with one is still one speech)
 
 
 def chapter_texts(text: str, plan: Plan) -> "dict[int, str] | None":
@@ -1378,7 +1415,7 @@ def mark_cards(rows: list[dict], plan: Plan) -> None:
 def attach_source(imp: dict, plan: Plan, story: str) -> None:
     """Give the records an import plan is about to make (`beat_import.import_plan`) what the screenplay said that the beat sheet cannot carry: each
     beat's own text as written (`fountain`), the transition written before it and the Shot direction of its Pic note, its Info card and Changes notes,
-    each line's own text (`fountain`) and whether it is spoken over the line before (`simultaneous`). New records only; one that exists is left as it is."""
+    each line's own text (`fountain`), whether it is spoken over the line before (`simultaneous`) and its nudge. New records only; one that exists is left as it is."""
     by_number = {n: b for _c, n, b in plan.rows()}
     for _slug, _title, data in imp["beats"]:
         beat = by_number.get(str(data.get("number")))
@@ -1407,6 +1444,8 @@ def attach_source(imp: dict, plan: Plan, story: str) -> None:
             data["fountain"] = ln["fountain"]
         if ln and ln.get("dual"):
             data["simultaneous"] = True
+        if ln and ln.get("nudge"):
+            data["nudge"] = ln["nudge"]  # `[[Nudge: -0.4]]`: earlier (or later) than where it would start
 
 
 # --- how long bringing it in takes ---------------------------------------------------------------------------------------------------------

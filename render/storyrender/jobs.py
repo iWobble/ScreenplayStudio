@@ -37,6 +37,7 @@ def audio_cut(job: dict, ctx: Context) -> dict:
     pulled = marvin_pull.pull(story, ctx.work / "story", creds=ctx.creds)
     ctx.note(f"pulled {pulled['lines']} recorded lines in {pulled['shots']} shots")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration, need_stills=False)
+    _note_overlaps(ctx, m)
     result = build.listen(m, ctx.work / f"{name}.mp3")
     ctx.note(f"mixed the audio: {result['seconds']} s")
     asset = marvin_api.upload_asset(
@@ -364,6 +365,7 @@ def make_filmstrip(job: dict, ctx: Context) -> dict:
     if pulled.get("skipped"):
         ctx.note(f"left out, because they have no words, no sound, no hold and no picture: beat {', '.join(pulled['skipped'])}")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)  # stills are needed: a beat with none is named, not skipped
+    _note_overlaps(ctx, m)
     made = filmstrip.make(m, ctx.work / "filmstrip")
     ctx.note(f"mixed the sound and built the page: {made['seconds']} s, {made['shots']} shots")
     title = m.title or story
@@ -1326,6 +1328,8 @@ def _import_beats(job: dict, ctx: Context) -> dict:
                 line_add = {"fountain": ln["fountain"], **({"simultaneous": True} if ln.get("dual") else {})}
             if line_rec and ln.get("speaker") and not str((line_rec.get("dataJson") or {}).get("character") or "").strip():
                 line_add["character"] = _character_slug(story, ln["speaker"], people)  # a line made before lines named their Character gets it
+            if line_rec and ln.get("nudge") and (line_rec.get("dataJson") or {}).get("nudge") in (None, ""):
+                line_add["nudge"] = ln["nudge"]  # a `[[Nudge: …]]` note reaches a line with none; one a person set is theirs
             if line_add:
                 link.append((line_rec, line_add))  # one change per record: a PATCH replaces dataJson, so two would undo each other
     rows_by_number = {str(number): beat for _chapter, number, beat in fplan.rows()}
@@ -1513,9 +1517,19 @@ def _write(ctx: Context, types: dict, extra: list, plan: dict, link: list, fill:
     return written
 
 
+def _note_overlaps(ctx: Context, m: manifest.Manifest) -> None:
+    """Say which lines a nudge has laid wholly over another (one voice hidden under the other), so a nudge gone too far is seen."""
+    for one, other, seconds in manifest.overlaps(manifest.plan(m)):
+        ctx.note(f"line {other} lies wholly over line {one} ({seconds:g} s together): check their nudges")
+
+
 # The copy that goes to Marvin keeps the film's own shape: 720 on the short side (a vertical Short 720x1280, a wide film 1280x720, a square 720x720).
 # It was a fixed 720:1280, which squashed a wide film into a vertical frame.
 PREVIEW_SCALE = "scale='if(gt(iw,ih),-2,720)':'if(gt(iw,ih),720,-2)'"
+# Its encode: at CRF 28 a slow move over a textured still (stars, grain) froze the texture and let it jump, a shimmer; at 22 the copy follows the
+# move (on a noisy test still, 0.63 of the motion against 0.26). The cap keeps the worst picture under Marvin's 100 MB upload for a 5-minute film:
+# (2.2 + 0.096) Mbit/s x 300 s is about 86 MB; an ordinary story is far under it.
+PREVIEW_ENCODE = ["-c:v", "libx264", "-crf", "22", "-preset", "medium", "-maxrate", "2.2M", "-bufsize", "4.4M", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k"]
 
 
 def _keep_subtitles(ctx: Context, story: str, name: str, title: str, text: str) -> None:
@@ -1569,6 +1583,7 @@ def render_video(job: dict, ctx: Context) -> dict:
     if pulled.get("placeholders"):
         ctx.note(f"no still yet for beat {', '.join(pulled['placeholders'])}: a plain card stands in for it in this draft")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)
+    _note_overlaps(ctx, m)
     full = ctx.work / f"{name}.mp4"
     made = build.render(m, full, draft=draft)
     size_mb = full.stat().st_size / 1e6
@@ -1587,7 +1602,7 @@ def render_video(job: dict, ctx: Context) -> dict:
     upload = full
     if quality != "full":
         upload = ctx.work / f"{name}-preview.mp4"
-        ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(full), "-vf", PREVIEW_SCALE, "-c:v", "libx264", "-crf", "28", "-preset", "medium", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(upload)])
+        ffmpeg.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(full), "-vf", PREVIEW_SCALE, *PREVIEW_ENCODE, "-movflags", "+faststart", str(upload)])
         ctx.note(f"made the smaller copy for Marvin (720 on the short side): {upload.stat().st_size / 1e6:.0f} MB")
     title = m.title or story
     try:
