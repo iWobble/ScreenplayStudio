@@ -65,7 +65,7 @@ def test_a_manifest_must_be_a_known_shape_and_point_at_real_files(tmp_path):
 def test_the_zoompan_filter_runs_from_the_first_position_to_the_second_over_the_shots_frames():
     planned = manifest.plan(_manifest(_shot("a", hold=2, move_from=Move(0.5, 0.5, 1.0), move_to=Move(0.6, 0.4, 1.25)))).shots[0]
     f = build.zoompan_filter(planned, (1080, 1920), 30)
-    assert "scale=2160:3840" in f and "s=1080x1920" in f and "fps=30" in f and "on/59" in f  # 60 frames
+    assert f"scale={1080 * build.SUPERSAMPLE}:{1920 * build.SUPERSAMPLE}" in f and "s=1080x1920" in f and "fps=30" in f and "on/59" in f  # 60 frames
     assert "(1.0+(1.25-1.0)*" in f and "(0.5+(0.6-0.5)*" in f
 
 

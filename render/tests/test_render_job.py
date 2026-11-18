@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -199,3 +200,12 @@ def test_a_draft_gets_placeholder_cards_for_beats_with_no_still_and_says_so_but_
     assert marvin.placeholders_asked == [True] and any("no still yet for beat 02" in n for n in ctx.notes)
     jobs.render_video({"job": "render-2", "args": {"story": "s"}}, _ctx(tmp_path))
     assert marvin.placeholders_asked == [True, False]  # a real render still insists on its pictures
+
+
+@pytest.mark.parametrize("size,expected", [("1920x1080", "1280,720"), ("1080x1920", "720,1280"), ("1080x1080", "720,720"), ("1080x1350", "720,900")])
+def test_the_copy_for_marvin_keeps_the_films_own_shape(tmp_path, size, expected):
+    """It was a fixed 720:1280, which squashed a wide film into a vertical frame."""
+    out = tmp_path / "p.png"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"testsrc=s={size}:d=0.2", "-vf", jobs.PREVIEW_SCALE, "-frames:v", "1", str(out)], check=True)
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(out)], capture_output=True, text=True, check=True)
+    assert probe.stdout.strip() == expected
