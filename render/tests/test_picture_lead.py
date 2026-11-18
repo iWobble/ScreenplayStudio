@@ -1,11 +1,13 @@
 """A picture lead and a line's nudge: the sound is laid out first and the pictures are cut from it, so a picture can come before its words while the
 line before is still spoken, and a line can be moved earlier or later (two voices overlapping). Nothing changes when neither is set."""
 
+import cmath
 import json
+import math
 import subprocess
+from array import array
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from storyrender import build, captions, ffmpeg, jobs, manifest, marvin_pull
@@ -147,16 +149,16 @@ def _colour(path: Path, rgb: str) -> Path:
     return path
 
 
-def _samples(film: Path) -> np.ndarray:
+def _samples(film: Path) -> array:
     raw = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(film), "-ac", "1", "-ar", "48000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
-    return np.frombuffer(raw, np.float32)
+    return array("f", raw)
 
 
-def _strength(samples: np.ndarray, at: float, hz: int, span: float = 0.08) -> float:
-    """How much of `hz` is in the sound around `at` seconds."""
+def _strength(samples: array, at: float, hz: int, span: float = 0.08) -> float:
+    """How much of `hz` is in the sound around `at` seconds (its share of a single-frequency sum: a sine of amplitude a gives about a/2)."""
     piece = samples[int((at - span / 2) * 48000) : int((at + span / 2) * 48000)]
-    t = np.arange(len(piece)) / 48000
-    return float(abs(np.dot(piece, np.exp(-2j * np.pi * hz * t))) / max(len(piece), 1))
+    step = -2j * math.pi * hz / 48000
+    return abs(sum(x * cmath.exp(step * n) for n, x in enumerate(piece))) / max(len(piece), 1)
 
 
 @needs_ffmpeg
