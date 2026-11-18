@@ -140,6 +140,7 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     scenes = {e["slug"]: e for e in rows if data(e).get("story") == story and ("ambience" in data(e) or "ambience_muffled" in data(e) or "overlay" in data(e) or "story_ambience_volume" in data(e) or "story_ambience_muffled" in data(e) or "music_volume" in data(e) or "camera" in data(e))}  # scenes that name an ambience or an overlay, or say how a bed is heard in them (a beat's own follows its scene's muffling)
     # Sounds belong to the library, not to a story: each is found by the slug a beat or scene names, whichever story made it.
     wanted = {str(item.get("sound")) for b in beats for item in (data(b).get("sounds") if isinstance(data(b).get("sounds"), list) else []) if isinstance(item, dict)}
+    wanted |= {str(c["sound"]) for b in beats for c in _cues(data(b)) if c.get("sound")}  # a sound on a word of a line (v211)
     wanted |= {str(data(sc).get("ambience")) for sc in scenes.values() if data(sc).get("ambience")}
     wanted |= {str(data(b).get("ambience")) for b in beats if data(b).get("ambience")}  # a beat's own bed, and the story's default
     if data(story_row).get("ambience"):
@@ -148,7 +149,8 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     taken: dict[str, Path] = {}  # an ambience's take is downloaded once, however many beats use it
     videos: dict[str, Path] = {}  # …and so is an overlay video
     size = formats.size_of(data(story_row)) or PLACEHOLDER_SIZE  # the picture shape the story asked for: the cards and placeholder cards are made to fit it
-    shots, missing, carded, skipped = [], [], [], []
+    shots, missing, carded, skipped, estimated = [], [], [], [], []
+    heard: dict[str, dict] = {}  # each line in the film by its slug, with its words and their timings: a cue on one of its words is placed from it
     opening: dict = {}  # the beat the first shot is made from
     scenes_of: list[str] = []  # the scene of each shot made, for the pause where a scene ends
     for beat in beats:
@@ -172,7 +174,9 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
             if words := spoken_words(d, record.get("metadataJson")):
                 entry["words"] = words
             spoken.append(entry)
+            heard[line["slug"]] = {"text": str(d.get("text") or ""), "words": spoken_words({}, record.get("metadataJson"))}
         effects = _sound_effects(creds, out, data(beat).get("sounds"), sounds, data, missing)
+        effects += _cue_sounds(creds, out, data(beat), sounds, data, missing, heard, estimated)
         is_card = cards.is_plain(data(beat))  # it shows a plain card: that is its picture, so it always plays and is never waiting for a still
         has_still = bool(data(beat).get("still")) or is_card
         if not spoken and not effects and not data(beat).get("hold_seconds") and not has_still:
@@ -197,7 +201,13 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
         scene_row = scenes.get(str(data(beat).get("scene")))
         shot.update(music_in(data(beat), data(scene_row) if scene_row else {}))
         own_hold = _positive(data(beat).get("hold_seconds"))
-        if own_hold is not None:
+        if (during := _starts_during(data(beat), heard, estimated)) is not None:
+            shot["starts_during"] = during  # it comes in at a word of the line before: no time of its own, and a dissolve unless it says otherwise
+            if "transition" not in shot:
+                shot.update({"transition": "dissolve", "transition_seconds": OVERLAY_DISSOLVE})
+            if own_hold is not None:
+                shot["hold"] = own_hold
+        elif own_hold is not None:
             shot["hold"] = own_hold  # the least this beat lasts: a silent one holds that long, a spoken one at least that long (the picture stays up after the last line)
         elif not spoken and has_still:
             shot["hold"] = DEFAULT_HOLD  # a silent beat with a picture and no time set lasts the default the Timeline also draws it at
@@ -236,7 +246,65 @@ def _pull(story: str, out: Path, creds: tuple[str, str], chosen=None, placeholde
     (out / "manifest.json").write_text(
         json.dumps({"title": story_row.get("title") or story, "shots": shots, **({"chapters": chapters} if chapters else {}), **({"size": list(size)} if formats.size_of(data(story_row)) else {}), **({"loudness": level} if (level := formats.loudness_of(data(story_row))) else {}), **({"caption": caption} if (caption := caption_of(data(story_row), speaker_colours(rows, story, data))) else {}), **({"music": music} if music else {}), **({"ambience": story_bed} if story_bed else {}), **({"start_fade": start_fade} if start_fade else {}), **({"end_fade": end_fade} if end_fade else {}), **ending, **({"ambience_duck": duck} if (duck := str(data(story_row).get("ambience_ducking") or "").strip()) in ("light", "strong") else {})}, indent=2, ensure_ascii=False)
     )
-    return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded, "skipped": skipped}
+    return {"manifest": str(out / "manifest.json"), "shots": len(shots), "lines": sum(len(s["lines"]) for s in shots), "not_recorded": missing, "placeholders": carded, "skipped": skipped, "estimated": estimated}
+
+
+OVERLAY_DISSOLVE = 0.6  # seconds a picture that comes in at a word dissolves over the one before, when its beat and the story set no transition
+
+
+def _cues(beat: dict) -> list[dict]:
+    """A beat's `cues` (v211): [{line, word, sound?, volume?, camera?, pic?}], only the well-formed ones."""
+    raw = beat.get("cues")
+    return [c for c in raw if isinstance(c, dict) and c.get("line") and isinstance(c.get("word", 0), (int, float))] if isinstance(raw, list) else []
+
+
+def word_place(line: dict, word: int, *, after: bool) -> tuple[str, float]:
+    """Where a cue on a word falls in its line: ("at", seconds into the line) from the take's word timings, else ("share", 0–1 of the line) from where
+    the word stands in the text. `after` is the end of the word before the cue (a sound: "strikes", then the clang); else the start of the word after
+    it (a picture comes in on the next word). A cue before the first word is the line's start; one after the last, its end."""
+    words, text = line.get("words") or [], line.get("text") or ""
+    word = max(0, int(word))
+    if words:
+        if after:
+            return "at", float(words[min(word, len(words)) - 1]["end"]) if word else 0.0
+        return "at", float(words[word]["start"]) if word < len(words) else float(words[-1]["end"])
+    spans = [m.span() for m in re.finditer(r"\S+", text)]
+    if not spans:
+        return "share", 0.0
+    if after:
+        chars = spans[min(word, len(spans)) - 1][1] if word else 0
+    else:
+        chars = spans[word][0] if word < len(spans) else len(text)
+    return "share", round(chars / max(len(text), 1), 4)
+
+
+def _cue_sounds(creds, out: Path, beat: dict, sounds: dict, data, missing: list, heard: dict, estimated: list) -> list[dict]:
+    """The sounds placed on words of a beat's lines, as manifest `sfx` on that word: each at the end of the word spoken before its note. One whose
+    Sound has no take is named in `not_recorded`; one on a line with no take is left out (the line is named there already)."""
+    effects = []
+    for cue in _cues(beat):
+        if not cue.get("sound") or str(cue["line"]) not in heard:
+            continue
+        found = _sound_effects(creds, out, [{"sound": cue["sound"], "volume": cue.get("volume")}], sounds, data, missing)
+        if not found:
+            continue
+        kind, value = word_place(heard[str(cue["line"])], int(cue.get("word") or 0), after=True)
+        if kind == "share":
+            estimated.append(f"{cue['line']} word {cue.get('word')}")
+        effects.append({**found[0], "line": str(cue["line"]), f"line_{kind}": value})
+    return effects
+
+
+def _starts_during(beat: dict, heard: dict, estimated: list) -> dict | None:
+    """For a beat that comes in at a word of a line (`starts_during`, from a Pic note among the words): that line and where in it, at the start of the
+    word after the note. None for any other beat, and for one whose line has no take (it plays as a beat of its own, held as any silent picture)."""
+    during = beat.get("starts_during")
+    if not (isinstance(during, dict) and str(during.get("line") or "") in heard):
+        return None
+    kind, value = word_place(heard[str(during["line"])], int(during.get("word") or 0), after=False)
+    if kind == "share":
+        estimated.append(f"{during['line']} word {during.get('word')}")
+    return {"line": str(during["line"]), kind: value}
 
 
 def spoken_words(d: dict, metadata: dict | None) -> list[dict]:

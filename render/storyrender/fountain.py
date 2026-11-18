@@ -111,6 +111,67 @@ def _take_nudges(block: list[str]) -> tuple[list[str], float | None]:
     return kept, found
 
 
+_CUE_PART = re.compile(r"^\s*(?P<kind>sound|pic|camera)\s*(?::\s*(?P<text>.*?))?\s*$", re.I | re.S)
+"""One part of a cue note: `Sound: clang`, `Camera: punch 1.08`, `Pic: a probe in dark space` (or a bare `Pic`)."""
+_CUE_MARK = "\u2064"  # a cue note inside a speech while the text is cut and read: `⁤<hex of the note's words>⁤`, no space in it, never cleared as a note
+
+
+def cue_parts(words: str) -> "dict[str, str] | None":
+    """A note's words as a cue, when every part of it (`|` between them) is a Sound, a Pic or a Camera: {"sound": "clang", "camera": "punch"}. None
+    for any other note."""
+    parts: dict[str, str] = {}
+    for piece in words.split("|"):
+        m = _CUE_PART.match(piece)
+        if not m or m["kind"].lower() in parts:
+            return None
+        said = " ".join((m["text"] or "").split())
+        parts[m["kind"].lower()] = said if m["kind"].lower() == "pic" else said.rstrip(".")  # a Pic's words are its Shot direction, as written
+    return parts if parts and all(v or k == "pic" for k, v in parts.items()) else None
+
+
+def _in_speech(note: "re.Match[str]") -> bool:
+    """Whether a note stands inside a speech: in a paragraph that starts with a speaker's cue, below the cue."""
+    s = note.string
+    start = s.rfind("\n", 0, note.start()) + 1
+    above = s[:start].split("\n")[:-1]
+    top = len(above)
+    while top and above[top - 1].strip():
+        top -= 1
+    return top < len(above) and _is_character(above[top]) and not above[top].lstrip().startswith("[[")
+
+
+def _cue_note(note: "re.Match[str]") -> "dict[str, str] | None":
+    """The cue a note is (see `cue_parts`) when it stands inside a speech: it marks a word of the line (v211). None for any other note."""
+    body = note.group(0)
+    return cue_parts(body[2:-2]) if body.endswith("]]") and _in_speech(note) else None
+
+
+def _cues_marked(text: str) -> str:
+    """The text with each cue note inside a speech replaced by a mark that no note-clearing removes and that holds its words, so the speech is read
+    whole and the place of the note among the words is kept."""
+    return _NOTE.sub(lambda m: f"{_CUE_MARK}{m.group(0)[2:-2].encode().hex()}{_CUE_MARK}" if _cue_note(m) else m.group(0), text)
+
+
+_MARKED = re.compile(f"{_CUE_MARK}([0-9a-f]*){_CUE_MARK}")
+
+
+def cues_out(text: str) -> "tuple[str, list[dict]]":
+    """A speech's words without its cue marks, and each cue with `word`: how many words are spoken before it (a [tag] is not one). The words close up round a mark as they
+    would round a note left out (a space, none before a stop or a comma)."""
+    cues: list[dict] = []
+    said = ""
+    for n, piece in enumerate(_MARKED.split(text)):
+        if n % 2:
+            parts = cue_parts(bytes.fromhex(piece).decode()) or {}
+            cues.append({"word": len([w for w in said.split() if not (w.startswith("[") and w.endswith("]"))]), **parts})  # a v3 tag ([sighs]) is not a word said
+            continue
+        piece = " ".join(piece.split()) if _MARKED.search(text) else piece
+        if not piece:
+            continue
+        said += (" " if said and not re.match(r"[,.;:!?…)\]'’\"”]", piece) else "") + piece
+    return said.strip(), cues
+
+
 _INFO_CARD_NOTE = re.compile(r"[ \t]*\[\[[ \t]*info[ \t]+card[ \t]*:(?P<text>(?:(?!\]\]).)*?)\]\][ \t]*", re.I)
 """The info card shown over a picture, on a line of its own inside that picture's text: `[[Info card: label | title | sentence]]`. Any slot may be
 empty; one slot alone is the title (`[[Info card: 2302]]`)."""
@@ -232,7 +293,7 @@ def _notes_out(text: str, gone) -> str:
 
 
 def _clean(text: str) -> str:
-    return _notes_out(_BONEYARD.sub("", _nudge_marked(_readable(_normal(text)))), lambda _m: "")  # a boneyard and a note are the writer's, not the story's
+    return _notes_out(_cues_marked(_BONEYARD.sub("", _nudge_marked(_readable(_normal(text))))), lambda _m: "")  # a boneyard and a note are the writer's, not the story's
 
 
 def _blocks_at(text: str, *, marks: bool = False) -> list[tuple[int, list[str]]]:
@@ -358,11 +419,12 @@ def _block_content(block: list[str]) -> list[dict]:
         for ln in block[1:]:
             s = ln.strip()
             (paren if s.startswith("(") and s.endswith(")") else speech).append(s.strip("()") if s.startswith("(") and s.endswith(")") else s.lstrip("~").strip())  # a sung line of a speech is the words, not the mark
-        if speech:
-            return [{"t": "dialogue", "name": _cue_name(first), "ext": (ext.group(1) if ext else ""), "paren": paren, "text": " ".join(speech).strip(), "dual": first.rstrip().endswith("^")}]
+        said, cues = cues_out(" ".join(speech).strip())  # a Sound, Pic or Camera note among the words marks a word of the line (v211): never spoken
+        if said:
+            return [{"t": "dialogue", "name": _cue_name(first), "ext": (ext.group(1) if ext else ""), "paren": paren, "text": said, "dual": first.rstrip().endswith("^"), **({"cues": cues} if cues else {})}]
     if all(ln.strip().startswith("~") for ln in block):  # lyrics: words that are sung, not described and not (yet) anyone's line
         return [{"t": "lyrics", "text": " ".join(ln.strip().lstrip("~").strip() for ln in block).strip()}]
-    text_ = " ".join(ln.strip().lstrip("!~") for ln in block).strip()
+    text_ = _MARKED.sub("", " ".join(ln.strip().lstrip("!~") for ln in block)).strip()
     text_ = re.sub(r"^>\s*(.*?)\s*<$", r"\1", text_)  # centred text is action
     return [{"t": "action", "text": text_}] if text_ else []
 
@@ -630,10 +692,20 @@ class Plan:
         return f"{i:02d}" if self.single else str(chapter.number * 1000 + i)
 
     def rows(self) -> list[tuple[Chapter | None, str, dict]]:
+        """Every beat with its number, in order: each chapter's beats, and right after a beat the overlay beats its lines' Pic notes start (see
+        `_beats_for`), numbered as beats inserted after it are (04a, 04b), past any number another beat already has."""
         out = []
+        taken = {self.number(ch, i) for ch in self.chapters for i in range(1, len(ch.beats) + 1)}
         for ch in self.chapters:
             for i, b in enumerate(ch.beats, 1):
-                out.append((None if self.single else ch, self.number(ch, i), b))
+                number = self.number(ch, i)
+                out.append((None if self.single else ch, number, b))
+                for overlay in b.get("overlays") or []:
+                    number = numbering.after(number)
+                    while number in taken:
+                        number = numbering.after(number)
+                    taken.add(number)
+                    out.append((None if self.single else ch, number, overlay))
         return out
 
     def sheet(self, parts: "set[int] | None" = None) -> str:
@@ -647,14 +719,14 @@ class Plan:
                 out += [f"## Chapter {ch.number} - {cell(ch.title) or 'Untitled'}", "| Beat | Time | Audio | Single still / composition |", "| --- | --- | --- | --- |"]
             elif not out:
                 out += ["| Beat | Time | Audio | Single still / composition |", "| --- | --- | --- | --- |"]
-            for i, b in enumerate(ch.beats, 1):
+            for _c, number, b in (row for row in self.rows() if (row[0] or self.chapters[0]) is ch):
                 audio = f" {LINE_SEP} ".join(f"{ln['speaker']}: {cell(ln['text'])}" for ln in b["lines"]) or "No speech."
                 if b.get("sung"):  # sung words are a cue for the sound library (a song, a hummed tune), kept with the beat as a note
                     audio += f" {LINE_SEP} Sound: sung: " + cell(" / ".join(b["sung"]))
                 picture = cell(b["picture"])
                 if b.get("card") and b["notes"]:  # how the lines read over a card are said: a dash stands where the picture's words would be
                     picture = f"— Delivery: {cell('; '.join(b['notes']))}."
-                out.append(f"| {self.number(ch, i)} | — | {audio} | {picture} |")
+                out.append(f"| {number} | — | {audio} | {picture} |")
             out.append("")
         return "\n".join(out).rstrip() + "\n"
 
@@ -781,7 +853,12 @@ def _beats_for(scenes: list[Scene], names: dict[str, str], carry: "dict | None" 
                 if len(cur["lines"]) >= LINES_PER_BEAT:
                     cur = start(f"(continued) {cur['picture'][:80]}", ln, sc)
                 who = names.get(el["name"], el["name"].capitalize())
-                cur["lines"].append({"speaker": who, "text": el["text"], "at": ln, "end": el.get("end"), "dual": bool(el.get("dual")), **({"nudge": el["nudge"]} if el.get("nudge") else {})})
+                cur["lines"].append({"speaker": who, "text": el["text"], "at": ln, "end": el.get("end"), "dual": bool(el.get("dual")), **({"nudge": el["nudge"]} if el.get("nudge") else {}), **({"cues": el["cues"]} if el.get("cues") else {})})
+                for cue in el.get("cues") or []:  # a Pic note among the words: a picture of its own that comes in at that word, over this one (v211)
+                    if "pic" in cue:
+                        cur.setdefault("overlays", []).append(
+                            {"picture": cue["pic"] or cur["picture"], "direction": cue["pic"], "lines": [], "notes": [], "sung": [], **({"place": cur["place"]} if cur.get("place") else {}), "starts_during": {"line": len(cur["lines"]), "word": cue["word"]}}
+                        )
                 note = ", ".join(el["paren"] + ([el["ext"]] if el["ext"] else []))
                 if note:
                     cur["notes"].append(f"{who} ({note})")
@@ -1040,6 +1117,72 @@ def _short(text: str, words: int = 4) -> str:
     return " ".join(re.sub(r"[^A-Za-z' -]", "", text).split()[:words]).strip().capitalize()
 
 
+def cue_sounds(beat: dict) -> list[dict]:
+    """The Sound notes among the words of a beat's lines (`The hammer strikes [[Sound: clang]] the wheel.`), as placeholders for a Sound each, with
+    the line (1, 2… in the beat) and the word they belong to."""
+    return [
+        {"kind": "effect", "title": _short(cue["sound"], 3), "prompt": cue["sound"], "line": i, "word": cue["word"]}
+        for i, ln in enumerate(beat.get("lines") or [], 1)
+        for cue in ln.get("cues") or []
+        if cue.get("sound")
+    ]
+
+
+CAMERA_CUES = ("punch", "shake", "nudge")
+
+
+def camera_cue(words: str) -> dict:
+    """A Camera note's words as the cue's camera: `punch` or `punch 1.1` ({"kind": "punch", "amount": 1.1}), `shake 2`, `nudge 0.7,0.4` ({"kind":
+    "nudge", "x": 0.7, "y": 0.4}). Any other words are kept as the kind, for the export to write back."""
+    kind, _, rest = " ".join(str(words or "").split()).partition(" ")
+    out: dict = {"kind": kind.lower()}
+    numbers = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", rest)]
+    if out["kind"] == "nudge" and len(numbers) >= 2:
+        out["x"], out["y"] = numbers[0], numbers[1]
+    elif out["kind"] in CAMERA_CUES and numbers:
+        out["amount"] = numbers[0]
+    elif rest:
+        out["said"] = rest
+    return out
+
+
+def camera_words(camera: dict) -> str:
+    """A cue's camera as its note writes it: the reverse of `camera_cue`."""
+    kind = str((camera or {}).get("kind") or "")
+    if "x" in camera and "y" in camera:
+        return f"{kind} {float(camera['x']):g},{float(camera['y']):g}"
+    if camera.get("amount") is not None:
+        return f"{kind} {float(camera['amount']):g}"
+    return f"{kind} {camera['said']}".strip() if camera.get("said") else kind
+
+
+def beat_cues(beat: dict, story: str, number: str, numbers: dict[int, str]) -> list[dict]:
+    """A beat's `cues`: each note among its lines' words as {line: the speech line's slug, word: words spoken before it, sound: the Sound's slug,
+    camera: {kind, …}, pic: the slug of the beat it starts}. `numbers` gives each overlay beat (by id) its number."""
+    sounds = beat.get("sounds") or []
+    out = []
+    for i, ln in enumerate(beat.get("lines") or [], 1):
+        for cue in ln.get("cues") or []:
+            entry: dict = {"line": f"{story}-line-{number}-{i}", "word": cue["word"]}
+            if cue.get("sound"):
+                k = next((k for k, c in enumerate(sounds, 1) if c.get("line") == i and c.get("word") == cue["word"] and c.get("prompt") == cue["sound"]), None)
+                if k:
+                    entry["sound"] = f"{story}-sound-{number}-{k}"
+            if cue.get("camera"):
+                entry["camera"] = camera_cue(cue["camera"])
+            if "pic" in cue:
+                overlay = next((o for o in beat.get("overlays") or [] if o["starts_during"] == {"line": i, "word": cue["word"]}), None)
+                if overlay is not None and id(overlay) in numbers:
+                    entry["pic"] = f"{story}-beat-{numbers[id(overlay)]}"
+            out.append(entry)
+    return out
+
+
+def own_sounds(beat: dict, story: str, number: str) -> list[dict]:
+    """A beat's `sounds`: the sounds its own words call for, placed from its start; a Sound note among a line's words is a cue instead (`beat_cues`)."""
+    return [{"sound": f"{story}-sound-{number}-{i}", "at": c.get("at", 0)} for i, c in enumerate(beat.get("sounds") or [], 1) if "line" not in c]
+
+
 def sound_cues(beat: dict) -> list[dict]:
     """The sounds a beat's own words call for, as placeholders for a Sound each: sung words (`~` lyrics) as music; the writer's `[[Sound: …]]` note,
     else `the sound of X` and `a X sound`, as effects. Each keeps the sentence it came from as its prompt. A word in capitals is not a sound: a
@@ -1056,7 +1199,11 @@ def sound_cues(beat: dict) -> list[dict]:
         about = next((x for x in sentences if _SINGING.search(x)), "")
         cues.append({"kind": "music", "title": "Sung: " + _short(beat["sung"][0]), "prompt": "Sung, as written: " + " / ".join(beat["sung"]) + (f". {about}" if about else "")})
     seen: set[str] = set()
-    for note in re.findall(r"\[\[(.*?)\]\]", beat.get("fountain") or "", re.S):  # a note that says `Sound: …` is the writer's own cue: the clearest there is
+    on_words = cue_sounds(beat)  # a Sound note among a line's words is that word's (v211): it comes after the beat's own sounds
+    for found in _NOTE.finditer(beat.get("fountain") or ""):  # a note that says `Sound: …` is the writer's own cue: the clearest there is
+        if not found.group(0).endswith("]]") or _cue_note(found) is not None:
+            continue
+        note = found.group(0)[2:-2]
         m = _SOUND_NOTE.match(note.strip())
         if not m:
             continue
@@ -1067,8 +1214,8 @@ def sound_cues(beat: dict) -> list[dict]:
         if said and said.lower() not in seen:
             seen.add(said.lower())
             cues.append({"kind": "effect", "title": _short(said, 3), "prompt": said, "at": float(at.group(1)) if at else 0.0})
-    if seen:  # the writer named this beat's sounds: what the words might suggest is not added to them
-        return cues
+    if seen or on_words:  # the writer named this beat's sounds: what the words might suggest is not added to them
+        return cues + on_words
     for sentence in sentences:
         found = []
         m = _SOUND_OF.search(sentence)
@@ -1081,7 +1228,7 @@ def sound_cues(beat: dict) -> list[dict]:
             if title and title.lower() not in seen:
                 seen.add(title.lower())
                 cues.append({"kind": "effect", "title": title, "prompt": sentence.strip()})
-    return cues
+    return cues + on_words
 
 
 def ambience_of(beats: list[dict], name: str) -> "dict | None":
@@ -1193,7 +1340,7 @@ def lint(text: str, limit: "int | None" = MAX_LINT) -> list[str]:
     a capitals line standing alone or ending in a full stop, which is read as a speaker (`CRUNCH.`), and a line that is a place and a time in capitals
     but does not start with INT. or EXT., which is not a scene. It reads the text only: nothing is changed. The split report lists the first
     `limit` and says how many more; the Fountain check (`limit=None`) lists them all."""
-    plain = _NOTE.sub(_blank_out, _BONEYARD.sub(_blank_out, _nudge_marked(_readable(_normal(text)))))
+    plain = _NOTE.sub(_blank_out, _cues_marked(_BONEYARD.sub(_blank_out, _nudge_marked(_readable(_normal(text))))))
     found: list[str] = []
     for index, (start, block) in enumerate(_blocks_at(plain)):
         first = block[0].strip()
@@ -1327,7 +1474,7 @@ def check(plan: Plan) -> list[str]:
 def _blank_comments(text: str) -> str:
     """The text with each note and boneyard replaced by as many line breaks as it held, so every line keeps its number."""
     keep = lambda m: "\n" * m.group().count("\n")  # noqa: E731
-    return _notes_out(_BONEYARD.sub(keep, _nudge_marked(text)), keep)  # (a nudge note stays a line of its own: a speech with one is still one speech)
+    return _notes_out(_cues_marked(_BONEYARD.sub(keep, _nudge_marked(text))), keep)  # (a nudge note stays a line of its own: a speech with one is still one speech)
 
 
 def chapter_texts(text: str, plan: Plan) -> "dict[int, str] | None":
@@ -1417,6 +1564,7 @@ def attach_source(imp: dict, plan: Plan, story: str) -> None:
     beat's own text as written (`fountain`), the transition written before it and the Shot direction of its Pic note, its Info card and Changes notes,
     each line's own text (`fountain`), whether it is spoken over the line before (`simultaneous`) and its nudge. New records only; one that exists is left as it is."""
     by_number = {n: b for _c, n, b in plan.rows()}
+    numbers = {id(b): n for _c, n, b in plan.rows()}
     for _slug, _title, data in imp["beats"]:
         beat = by_number.get(str(data.get("number")))
         for key in ("fountain", "transition", "transition_text", "direction"):
@@ -1432,8 +1580,14 @@ def attach_source(imp: dict, plan: Plan, story: str) -> None:
             data["hold_seconds"] = float(held.group(1))
         if beat and (seconds := transition_seconds(beat)) and not data.get("transition_seconds"):
             data["transition_seconds"] = seconds
-        if beat and beat.get("sounds"):
-            data["sounds"] = [{"sound": f"{story}-sound-{data.get('number')}-{i}", "at": c.get("at", 0)} for i, c in enumerate(beat["sounds"], 1)]
+        if beat and (placed := own_sounds(beat, story, str(data.get("number")))):
+            data["sounds"] = placed
+        if beat and (cues := beat_cues(beat, story, str(data.get("number")), numbers)):
+            data["cues"] = cues  # the notes among its lines' words (v211)
+        if beat and beat.get("starts_during"):  # a Pic note among a line's words: this picture comes in at that word, over the beat before
+            host = next((n for _c, n, b in plan.rows() if any(o is beat for o in b.get("overlays") or [])), None)
+            data["starts_during"] = {"line": f"{story}-line-{host}-{beat['starts_during']['line']}", "word": beat["starts_during"]["word"]}
+            data["hold_seconds"] = 0  # it adds no time of its own (a Timeline draws it at 0 s); a hold set here keeps it up past the end of the speech
         if beat:
             data.update(notes_to_fill(data, beat.get("fountain") or ""))  # `[[Info card: …]]` and `[[Changes: …]]` (a card's own words come first)
     for slug, _title, data in imp["lines"]:

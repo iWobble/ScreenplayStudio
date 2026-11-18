@@ -89,6 +89,9 @@ class Sfx:
     ref: str | None = None  # what the sound is called outside the manifest (its Marvin sound slug), so a timeline can name it
     fade_in: float = 0.0  # seconds to rise from silence at the start / fall to silence at the end, so a sound does not click on or off
     fade_out: float = 0.0
+    line: str | None = None  # placed on a word of a line (a cue, v211): the line's id; `at` is then ignored
+    line_at: float | None = None  # seconds into that line (from its word timings)
+    line_share: float | None = None  # …or how far into it, 0–1, when the take has no word timings (an estimate from the text)
 
 
 @dataclass
@@ -171,6 +174,9 @@ class Shot:
     """The id of the chapter this shot belongs to (a story is cut into chapters; see `chapters.py`)."""
     beat_ambience: Ambience | None = None
     """A beat's own bed, laid over `ambience` (its scene's), which runs on under it without a seam: a cheer over the tavern. None: only the scene's."""
+    starts_during: dict | None = None
+    """A picture that comes in at a word of a line of an earlier shot (a Pic note among the words, v211): {"line": its id, "at": seconds into it} or
+    {"line", "share": 0–1}. It adds no time of its own; `hold` keeps it up at least that long from where it comes in."""
     picture_lead: float | None = None
     """Seconds before its first word that the shot's picture arrives (a silent shot's: before its own start), over the end of the shot before; the
     sound does not move. None: the picture starts where the shot's sound starts, as it always did. 0: at the first word."""
@@ -227,6 +233,10 @@ class PlannedShot:
     """Where the shot's sound starts: its lead-in, then its lines; its sound effects' `at` counts from here. None: the picture's start (the same
     unless a picture lead or a nudge moved the picture)."""
     audio_duration: float | None = None
+    sfx_at: list[float] = field(default_factory=list)
+    """Where each of the shot's sound effects starts, in seconds from `audio_start` (one placed on a word, there)."""
+    anchor: float | None = None
+    """Where on the film the picture of a shot that `starts_during` a line comes in (None for any other shot)."""
 
     def __post_init__(self) -> None:
         if self.audio_start is None:
@@ -285,6 +295,21 @@ def _line_volume(value, where: str) -> float:
     if not 0 <= level <= 1:
         raise ManifestError(f"{where}: volume is 0–1 (got {level})")
     return level
+
+
+def _on_a_line(raw: dict, where: str) -> dict:
+    """A place on a word of a line: {"line": its id, "at": seconds into it} or {"line", "share": 0–1 of it}."""
+    out: dict = {"line": str(raw["line"])}
+    try:
+        if raw.get("at") not in (None, ""):
+            out["at"] = max(0.0, float(raw["at"]))
+        elif raw.get("share") not in (None, ""):
+            out["share"] = min(max(float(raw["share"]), 0.0), 1.0)
+        else:
+            out["at"] = 0.0
+    except (TypeError, ValueError):
+        raise ManifestError(f"{where}: at and share are numbers (got {raw})") from None
+    return out
 
 
 def _nudge(value, where: str) -> float:
@@ -347,6 +372,8 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             tail=float(s.get("tail", TAIL)),
             chapter=str(s["chapter"]) if s.get("chapter") else None,
         )
+        if isinstance(s.get("starts_during"), dict) and s["starts_during"].get("line"):
+            shot.starts_during = _on_a_line(s["starts_during"], f"{where} starts_during")
         if s.get("picture_lead") not in (None, ""):
             shot.picture_lead = float(s["picture_lead"])
             if not 0 <= shot.picture_lead <= MAX_PICTURE_LEAD:
@@ -427,6 +454,9 @@ def load(path: Path, *, probe: Callable[[Path], float], need_stills: bool = True
             shot.sfx.append(
                 Sfx(file, float(fx.get("at", 0)), float(fx.get("volume", 1)), probe(file), ref=fx.get("id"), fade_in=float(fx.get("fade_in") or 0), fade_out=float(fx.get("fade_out") or 0))
             )
+            if fx.get("line"):
+                placed = _on_a_line({"line": fx["line"], "at": fx.get("line_at"), "share": fx.get("line_share")}, f"{where} sfx {j}")
+                shot.sfx[-1].line, shot.sfx[-1].line_at, shot.sfx[-1].line_share = placed["line"], placed.get("at"), placed.get("share")
         shots.append(shot)
 
     music = raw.get("music")
@@ -497,6 +527,7 @@ def plan(manifest: Manifest) -> Timeline:
     (see `_pictures`), on the same clock, so the film is as long either way."""
     shots: list[PlannedShot] = []
     clock = 0.0
+    said: dict[str, PlannedLine] = {}  # every line laid so far, by its id: a cue on one of its words is placed from it
     for index, shot in enumerate(manifest.shots):
         cursor = shot.lead
         lines: list[PlannedLine] = []
@@ -516,14 +547,28 @@ def plan(manifest: Manifest) -> Timeline:
             cursor += line.duration + shot.gap
         moved = any(line.nudge or line.simultaneous for line in shot.lines)
         spoken = (max(cursor - shot.gap, last_end) if moved else cursor - shot.gap) + shot.tail if shot.lines else 0.0
-        sfx_end = max((fx.at + fx.duration for fx in shot.sfx), default=0.0)
-        duration = max(shot.hold, spoken, sfx_end) + shot.after
+        said.update((p.line.ref, p) for p in lines if p.line.ref)
+        sfx_at = [(_on_word(said, fx.line, fx.line_at, fx.line_share) - clock) if fx.line in said else fx.at for fx in shot.sfx]
+        sfx_end = max((at + fx.duration for at, fx in zip(sfx_at, shot.sfx, strict=True)), default=0.0)
+        hold, anchor = shot.hold, None
+        if shot.starts_during and shot.starts_during["line"] in said:  # it comes in at a word already spoken: its hold counts from there
+            anchor = _on_word(said, shot.starts_during["line"], shot.starts_during.get("at"), shot.starts_during.get("share"))
+            hold = max(0.0, anchor + shot.hold - clock) if shot.hold else 0.0
+        duration = max(hold, spoken, sfx_end) + shot.after
         if index == len(manifest.shots) - 1:
             duration += manifest.end_hold
-        shots.append(PlannedShot(shot, clock, duration, lines))
+        shots.append(PlannedShot(shot, clock, duration, lines, sfx_at=[max(at, 0.0) for at in sfx_at], anchor=anchor))
         clock += duration
     _pictures(shots, clock)
     return Timeline(shots)
+
+
+def _on_word(said: dict[str, PlannedLine], ref: str | None, at: float | None, share: float | None) -> float:
+    """Where on the film a place on a word of a line falls: the line's start, and the seconds into it (or its share of the line, for a take with no
+    word timings), never past the line's end."""
+    placed = said[str(ref)]
+    into = at if at is not None else (share or 0.0) * placed.line.duration
+    return placed.start + min(max(into, 0.0), placed.line.duration)
 
 
 def _pictures(shots: list[PlannedShot], total: float) -> None:
@@ -537,6 +582,8 @@ def _pictures(shots: list[PlannedShot], total: float) -> None:
         first_word = planned.lines[0].start if planned.lines else here
         lead = planned.shot.picture_lead
         wanted = first_word - lead if lead is not None else min(here, first_word)
+        if planned.anchor is not None:
+            wanted = planned.anchor  # a picture that comes in at a word of a line before it
         if k == 0:
             starts.append(0.0)
         elif wanted == here:

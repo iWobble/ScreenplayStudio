@@ -38,6 +38,7 @@ def audio_cut(job: dict, ctx: Context) -> dict:
     ctx.note(f"pulled {pulled['lines']} recorded lines in {pulled['shots']} shots")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration, need_stills=False)
     _note_overlaps(ctx, m)
+    _note_estimates(ctx, pulled)
     result = build.listen(m, ctx.work / f"{name}.mp3")
     ctx.note(f"mixed the audio: {result['seconds']} s")
     asset = marvin_api.upload_asset(
@@ -366,6 +367,7 @@ def make_filmstrip(job: dict, ctx: Context) -> dict:
         ctx.note(f"left out, because they have no words, no sound, no hold and no picture: beat {', '.join(pulled['skipped'])}")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)  # stills are needed: a beat with none is named, not skipped
     _note_overlaps(ctx, m)
+    _note_estimates(ctx, pulled)
     made = filmstrip.make(m, ctx.work / "filmstrip")
     ctx.note(f"mixed the sound and built the page: {made['seconds']} s, {made['shots']} shots")
     title = m.title or story
@@ -634,7 +636,7 @@ def _implied(ctx: Context, story: str, story_row: dict, fplan, plan: dict, link:
     want = {b[2]["scene"] for b in plan["beats"] if b[2].get("scene")} | {add["scene"] for _r, add in link if add.get("scene")}
     have_scenes = {e["slug"] for e in _all(ctx.creds, {"entry_type": "scene", "data": {"story": story}})}
     have_sounds = {e["slug"] for e in _all(ctx.creds, {"entry_type": "sound", "data": {"story": story}}) if not (fresh and _made_for_a_beat(story, e["slug"]))}
-    new_numbers = {str(b[2].get("number")) for b in plan["beats"]} | {str((r.get("dataJson") or {}).get("number")) for r, add in link if add.get("sounds")}
+    new_numbers = {str(b[2].get("number")) for b in plan["beats"]} | {str((r.get("dataJson") or {}).get("number")) for r, add in link if add.get("sounds") or add.get("cues")}
     for _chapter, number, beat in fplan.rows():  # a Sound to click, upload to or generate for each sound the beat's words call for
         if number not in new_numbers:
             continue
@@ -1240,6 +1242,8 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     made_pieces, made_count = {}, 0  # the beats already made from this Fountain, and the piece of it each holds: a revised Fountain is fitted to them by what it says
     for e in ([] if fresh else _all(ctx.creds, {"entry_type": "beat", "data": {"story": story}})):
         d_ = e.get("dataJson") or {}
+        if isinstance(d_.get("starts_during"), dict):
+            continue  # a picture that comes in at a word (v211) has no piece of its own: it is made again from its line's Pic note
         made_count += 1
         if str(d_.get("number") or "").strip() and str(d_.get("fountain") or "").strip():
             made_pieces[str(d_["number"]).strip()] = str(d_["fountain"])
@@ -1304,6 +1308,8 @@ def _import_beats(job: dict, ctx: Context) -> dict:
     extra: list[tuple[str, tuple[str, str, dict]]] = []  # the characters and scenes the screenplay implies that this story does not have yet
     link: list[tuple[dict, dict]] = []  # records that are already there and lack something the Fountain gives them (a Scene, sounds, their own piece of the text), with what to add
     hand_set: list[str] = []  # beats whose transition a person changed, so the script's line is not followed
+    moved: list[str] = []  # sounds of notes among a line's words that an earlier import placed from the beat's start
+    numbers = {id(b): n for _c, n, b in fplan.rows()}
     for _chapter, number, beat in fplan.rows():
         place = fountain.place_of(beat.get("place", ""))
         rec = have.get(f"{story}-beat-{number}")
@@ -1311,8 +1317,15 @@ def _import_beats(job: dict, ctx: Context) -> dict:
         add = {}
         if place and not str(data.get("scene") or "").strip():
             add["scene"] = f"{story}-{place['slug']}"
-        if beat.get("sounds") and not data.get("sounds"):
-            add["sounds"] = [{"sound": f"{story}-sound-{number}-{i}", "at": c.get("at", 0)} for i, c in enumerate(beat["sounds"], 1)]
+        if (placed := fountain.own_sounds(beat, story, number)) and not data.get("sounds"):
+            add["sounds"] = placed
+        if rec and not data.get("cues") and (cues := fountain.beat_cues(beat, story, number, numbers)):
+            already = {str(x.get("sound")) for x in (data.get("sounds") if isinstance(data.get("sounds"), list) else []) if isinstance(x, dict)}
+            for cue in cues:
+                if cue.get("sound") in already:  # an import before v211 placed this note's sound from the beat's start: it stays there, never twice
+                    moved.append(f"beat {number}: {cue.pop('sound')} is in its Sound effects from the start; move it to the word by hand if you want it there")
+            if kept := [c for c in cues if set(c) - {"line", "word"}]:
+                add["cues"] = kept  # the notes among its lines' words reach a beat that has none (v211)
         if rec and beat.get("fountain") and (not str(data.get("fountain") or "").strip() or (revision is not None and str(data.get("fountain")).strip() != beat["fountain"].strip())):
             add["fountain"] = beat["fountain"]  # a beat made before it kept its own piece of the text gets it; a revised text gives the beat it is the new piece (it is made from the text, not edited)
         if rec:
@@ -1393,6 +1406,8 @@ def _import_beats(job: dict, ctx: Context) -> dict:
         note += f" {len(plan['sounds'])} sound cues were not imported (sounds are placed from the library): " + "; ".join(plan["sounds"][:5]) + ("…" if len(plan["sounds"]) > 5 else "")
     if plan["problems"]:
         note += " " + "; ".join(plan["problems"]) + "."
+    if moved:
+        note += " Kept where they are: " + "; ".join(moved[:6]) + ("…" if len(moved) > 6 else ".")
     if hand_set:
         note += " Transitions kept as they are: " + "; ".join(hand_set[:8]) + ("…" if len(hand_set) > 8 else ".")
     result = {
@@ -1525,6 +1540,12 @@ def _write(ctx: Context, types: dict, extra: list, plan: dict, link: list, fill:
     return written
 
 
+def _note_estimates(ctx: Context, pulled: dict) -> None:
+    """Say which cues on a word were placed from the text because their line's take has no word timings (v211)."""
+    if pulled.get("estimated"):
+        ctx.note(f"placed from the text, as the take has no word timings: {', '.join(pulled['estimated'][:8])}" + ("…" if len(pulled["estimated"]) > 8 else ""))
+
+
 def _note_overlaps(ctx: Context, m: manifest.Manifest) -> None:
     """Say which lines a nudge has laid wholly over another (one voice hidden under the other), so a nudge gone too far is seen."""
     for one, other, seconds in manifest.overlaps(manifest.plan(m)):
@@ -1592,6 +1613,7 @@ def render_video(job: dict, ctx: Context) -> dict:
         ctx.note(f"no still yet for beat {', '.join(pulled['placeholders'])}: a plain card stands in for it in this draft")
     m = manifest.load(Path(pulled["manifest"]), probe=ffmpeg.duration)
     _note_overlaps(ctx, m)
+    _note_estimates(ctx, pulled)
     full = ctx.work / f"{name}.mp4"
     made = build.render(m, full, draft=draft)
     size_mb = full.stat().st_size / 1e6

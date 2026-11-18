@@ -81,9 +81,9 @@ def _notes(text: str) -> list[Finding]:
         body = m.group(0)
         if _PIC.match(body):
             pic = F._pic_of(m) if body.endswith("]]") else None
-            if not pic:
+            if not pic and F._cue_note(m) is None:  # (one inside a speech is a cue: its picture comes in at that word, v211)
                 out.append(Finding(row, "look", "pic-unread", "a [[Pic note that is not on a line of its own, is inside a speech or is not closed on its line is only a note: it starts no picture", "write it as `[[Pic: what the picture shows]]` alone on its line, before the speaker or the action of the picture it starts"))
-            elif len(pic["text"] or "") > F.PIC_CHARS:
+            elif pic and len(pic["text"] or "") > F.PIC_CHARS:
                 out.append(Finding(row, "look", "pic-long", f"the Pic note's direction is {len(pic['text'])} characters: the still reads it as the shot, and more than {F.PIC_CHARS} is more than a shot", "keep it to where the camera looks and what the frame holds; the action says the rest"))
         for code, start, pattern, has_words, name, fix in _BEAT_NOTES:
             if start.match(body):
@@ -274,7 +274,7 @@ def check(text: str) -> list[Finding]:
     plain = F._readable(plain)  # the rest reads the text as it looks, as the import does
     out += _notes(plain)
     out += _title(plain)
-    stripped = F._NOTE.sub(F._blank_out, F._BONEYARD.sub(F._blank_out, F._nudge_marked(plain)))
+    stripped = F._NOTE.sub(F._blank_out, F._cues_marked(F._BONEYARD.sub(F._blank_out, F._nudge_marked(plain))))
     found, speakers, lower = _blocks(stripped)
     out += found + _speakers(speakers, lower)
     for message in F.lint(text, limit=None):  # the capitals rules the import has always warned about, every one of them, with a place in this list

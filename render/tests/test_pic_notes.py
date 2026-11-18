@@ -135,13 +135,13 @@ def test_a_pic_note_after_a_speech_and_its_blank_line_is_the_one_boundary_before
     assert [(b["picture"], b.get("direction")) for _c, _n, b in plan.rows()] == [("Exterior: Deck, night. Rain.", None), ("Chet grips the wheel.", "Close on the wheel.")]
 
 
-def test_a_pic_note_inside_a_speech_stays_a_note_and_the_check_says_so():
+def test_a_pic_note_inside_a_speech_is_a_picture_that_comes_in_at_that_word_and_is_never_spoken():
+    # (until v211 it stayed a note and the check said so; now it is a cue on the word: see test_word_cues.py)
     text = "EXT. DECK - NIGHT\n\nRain.\n\nVALERIE\nHold the wheel.\n[[Pic: Close on her.]]\n\nChet grips the wheel.\n"
     plan = _cut(text)
-    assert [len(b["lines"]) for _c, _n, b in plan.rows()] == [1, 0] and all("direction" not in b for _c, _n, b in plan.rows())
+    assert [(n, len(b["lines"]), b.get("direction"), b.get("starts_during")) for _c, n, b in plan.rows()] == [("01", 1, None, None), ("01a", 0, "Close on her.", {"line": 1, "word": 3}), ("02", 0, None, None)]
     assert plan.rows()[0][2]["lines"][0]["text"] == "Hold the wheel."  # never spoken
-    found = [f for f in validate.check(text) if f.code == "pic-unread"]
-    assert [(f.line, f.level) for f in found] == [(7, "look")]
+    assert not [f for f in validate.check(text) if f.code == "pic-unread"]
 
 
 def test_other_notes_are_still_only_notes_and_hold_and_sound_still_act():
