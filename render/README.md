@@ -15,7 +15,7 @@ uvx --from pytest pytest                                  # tests (real ffmpeg r
 
 See `storyrender/manifest.py`. Per shot: a `still`, a camera `move` (`from` / `to`, each `{x, y, zoom}`: the centre as 0–1 of the
 picture and a zoom of 1 or more), `lines` (`audio` file, `text`, optional `words` timings for captions, `speaker`),
-optional `sfx` (`audio`, `at`, `volume`) and a `hold`. A shot lasts `max(hold, lead 0.3 s + lines + 0.25 s gaps + 0.35 s tail)`:
+optional `sfx` (`audio`, `at`, `volume`; `ring: true` lets it sound on over the next shots instead of lengthening its own) and a `hold`. A shot lasts `max(hold, lead 0.3 s + lines + 0.25 s gaps + 0.35 s tail)`:
 **measured audio decides**, as the edit plan says. A line with no audio and a `duration` is silence (not captioned). `music` is a
 bed under everything (`audio`, `volume`, faded out over the last 2 s); the result is normalised to -16 LUFS.
 

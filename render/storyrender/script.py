@@ -52,13 +52,15 @@ def _speech(ld: dict) -> tuple[str, bool]:
 
 
 def _cue_note(cue: dict, sounds: dict, beats: dict) -> str:
-    """A cue as the note the import reads back: `[[Sound: clang | Camera: punch 1.08 | Look: flash]]`, `[[Pic: a probe in dark space]]`. Empty for one
+    """A cue as the note the import reads back: `[[Sound: clang | Ring | Camera: punch 1.08 | Look: flash]]`, `[[Pic: a probe in dark space]]`. Empty for one
     that says nothing."""
     parts = []
     if cue.get("sound"):
         snd = sounds.get(str(cue["sound"]), {})
         said = _clean(_data(snd).get("prompt")) or _clean(snd.get("title")) or _slug_words(str(cue["sound"]))
         parts.append(f"Sound: {said.rstrip('.')}")
+        if cue.get("ring") is True:
+            parts.append("Ring")  # beside its Sound: it rings over the beats after it (v225)
     if isinstance(cue.get("camera"), dict) and cue["camera"].get("kind"):
         parts.append(f"Camera: {fountain_mod.camera_words(cue['camera'])}")
     if isinstance(cue.get("look"), dict) and cue["look"].get("kind"):
