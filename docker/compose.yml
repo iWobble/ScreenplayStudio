@@ -4,6 +4,10 @@
 #   cp docker/worker.env.example ~/.config/screenplay-studio/worker.env   # then fill it in; keep it out of the repository
 #   export STUDIO_ENV_FILE=~/.config/screenplay-studio/worker.env
 #   docker compose -f docker/compose.yml up -d
+#
+# The image also holds the Media package's kinds (media-describe, media-transcribe, media-link, media-backfill: it builds FROM
+# marvin-media-worker), but neither container below offers them: the Media worker's own container does (InnerOpen/marvin-media
+# docker/compose.yml), and two containers offering one kind would both poll for it. See docker/README.md before moving them here.
 name: screenplay-studio
 
 x-worker: &worker

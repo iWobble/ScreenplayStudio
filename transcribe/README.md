@@ -19,6 +19,8 @@ assets and names them on its result: the words (written line by line as they are
 the words in paragraphs, and JSON. `WHISPER_MODEL` picks the model (default `small`; `base` is quicker, `medium` and `large-v3` more exact).
 On 10 CPU cores `small` is about 4x real time (50 minutes of speech in about 13).
 
-Tests: `uv run --with pytest --with-editable . --with-editable ../../MarvinWorker python -m pytest`.
+Tests: `uv run --with pytest --with-editable . --with-editable ../../MarvinWorker --with-editable ../../MarvinMedia python -m pytest`. Loading the
+model, the sound check and the text forms are the Media package's (`mediajobs.transcribe`, `mediajobs.text`) since P6; how the model is run
+stays here.
 
 > **Container:** the worker image is built from `docker/` (one image for every job kind); see docker/README.md. The per-package Dockerfile that used to be here is gone.

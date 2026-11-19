@@ -1,4 +1,6 @@
-# Runs the tests. They import the generic Marvin worker, which lives in a separate (public) repository, InnerOpen/marvin-worker.
+# Runs the tests. They import the generic Marvin worker, which lives in a separate (public) repository, InnerOpen/marvin-worker, and the Media
+# package's `mediajobs` (InnerOpen/marvin-media: since P6 the render's ffmpeg, audio-measure, waveform and video-describe helpers are its), both
+# checked out next to this one. marvin-media is private: MARVIN_MEDIA_TOKEN is a token that can read it (contents: read).
 name: tests
 on:
   workflow_dispatch:
@@ -15,6 +17,11 @@ jobs:
           repository: InnerOpen/marvin-worker
           path: MarvinWorker
           token: ${{ secrets.MARVIN_WORKER_TOKEN || github.token }}
+      - uses: actions/checkout@v4
+        with:
+          repository: InnerOpen/marvin-media
+          path: MarvinMedia
+          token: ${{ secrets.MARVIN_MEDIA_TOKEN || github.token }}
       # The mirror can stall for an hour: short network timeouts and retries make a bad moment fail fast or pass on a second try.
       - name: ffmpeg
         timeout-minutes: 5
@@ -26,9 +33,11 @@ jobs:
           done
           exit 1
       - uses: astral-sh/setup-uv@v5
+      # STUDIO_REQUIRE_MEDIA_PARITY: Media's describe parity test, run against this checkout (tests/test_media_parity.py), fails here instead of skipping.
       - name: render
         working-directory: ScreenplayStudio/render
-        run: uv run --python 3.12 --with pytest --with pytest-timeout --with screenplain==0.12.0 --with reportlab==5.1.0 --with pillow --with-editable . --with-editable ../../MarvinWorker python -m pytest -q --timeout=300
+        env: { STUDIO_REQUIRE_MEDIA_PARITY: "1" }
+        run: uv run --python 3.12 --with pytest --with pytest-timeout --with screenplain==0.12.0 --with reportlab==5.1.0 --with pillow --with-editable . --with-editable ../../MarvinWorker --with-editable ../../MarvinMedia python -m pytest -q --timeout=300
       - name: transcribe
         working-directory: ScreenplayStudio/transcribe
-        run: uv run --python 3.12 --with pytest --with pytest-timeout --with-editable . --with-editable ../../MarvinWorker python -m pytest -q --timeout=300
+        run: uv run --python 3.12 --with pytest --with pytest-timeout --with-editable . --with-editable ../../MarvinWorker --with-editable ../../MarvinMedia python -m pytest -q --timeout=300

@@ -18,7 +18,8 @@ One image, `screenplay-studio-worker`, holds every kind of job the Screenplay St
 The workers only reach **out** to Marvin and poll for `job` records; nothing listens. Run one container for the light jobs and one for transcribing (a long transcription then never holds up a filmstrip); `WORKER_KINDS` chooses what each offers.
 
 ```
-docker/build.sh                                  # builds marvin-worker-base (../MarvinWorker) then screenplay-studio-worker:v<package version>
+docker/build.sh                                  # builds marvin-worker-base (../MarvinWorker), marvin-media-worker:m<N> (../MarvinMedia), then screenplay-studio-worker:v<package version>
+STUDIO_SKIP_MEDIA=1 docker/build.sh              # or on the marvin-media-worker:m<N> already built (MEDIA_VERSION=m<N> picks another)
 mkdir -p ~/.config/screenplay-studio ~/screenplay-studio-out
 cp docker/worker.env.example ~/.config/screenplay-studio/worker.env   # fill in MARVIN_USER_TOKEN; keep it out of the repository (chmod 600)
 docker volume create transcribe-models
@@ -32,6 +33,13 @@ docker exec -it desktop-runner bash              # a shell inside it
 - **The transcription model** is downloaded the first time and kept in the `transcribe-models` volume.
 - **After changing the code**, rebuild with `docker/build.sh` and `docker compose up -d --force-recreate`. A running container keeps the code it was built with.
 - Needs a Marvin workspace with the package installed and a token pinned to that workspace.
+- **The image chain** (Media package design §6): `marvin-worker-base` → `marvin-media-worker:m<N>` (InnerOpen/marvin-media: ffmpeg,
+  faster-whisper, and the `mediajobs` helpers the render imports) → `screenplay-studio-worker:v<N>`. Build them in that order (`docker/build.sh`
+  does). The image also holds the Media package's kinds (`media-describe`, `media-transcribe`, `media-link`, `media-backfill`), but the compose
+  file does not offer them: the Media worker (`<workspace>-media`, from InnerOpen/marvin-media's compose) does, so Media's version moves on
+  its own and a backfill never queues ahead of a render. Two containers offering one kind would both poll for it. To move them here instead,
+  stop the Media container first, then add `media-describe,media-link` to the runner's `WORKER_KINDS` and `media-transcribe,media-backfill` to
+  the transcriber's (a backfill can transcribe inside its own job).
 
 ## Which image is running
 
