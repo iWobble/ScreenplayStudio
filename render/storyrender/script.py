@@ -549,7 +549,54 @@ def pull_records(story: str, creds: tuple[str, str]) -> dict:
         "chapters": {e["slug"]: e for e in rows if e.get("slug", "").startswith(f"{story}-chapter-") and _data(e).get("story") == story},
         "revisions": sorted((e for e in rows if _data(e).get("story") == story and _data(e).get("status") == "applied" and _data(e).get("applied_at")), key=lambda e: float(_data(e).get("number") or 0)),
         "characters": [e for e in rows if _data(e).get("story") == story and "profile" in _data(e) and _data(e).get("cast_id")],  # a character has a profile; a casting (also story + cast_id) does not
+        "recordings": recordings_named([ln for group in lines.values() for ln in group], creds),  # the Recordings its lines name (Media package): the breakdown reads a line's length from them
     }
+
+
+RECORDING_TYPE = "recording"  # the Media package's entry type: one per audio or video file, holding what is known of it
+RECORDING_FIELD = "recording"  # a line's field naming the Recording of the file in its `audio` (kept by Media's media-link)
+QUERY_MAX = 500  # the most entries Marvin answers one query with
+
+
+def recordings_named(rows: list[dict], creds: tuple[str, str]) -> dict[str, dict]:
+    """The Recordings (Media package) these records name, by slug and by id, in one query (or one per 500). None is asked for when no record
+    names one, and a workspace without the Recording type, or a Marvin that does not answer, gives none: each record then keeps its own facts."""
+    from marvin_worker import marvin_api
+
+    named = sorted({str(_data(r).get(RECORDING_FIELD) or "").strip() for r in rows} - {""})
+    found: dict[str, dict] = {}
+    for start in range(0, len(named), QUERY_MAX):
+        try:
+            got = marvin_api.query(creds, {"entry_type": RECORDING_TYPE, "entries": named[start : start + QUERY_MAX]}, limit=QUERY_MAX)
+        except marvin_api.MarvinError:
+            break
+        found.update({str(key): rec for rec in got for key in (rec.get("slug"), rec.get("id")) if key})
+    return found
+
+
+def _file_id(value: object) -> str:
+    """An asset field's value as the id it holds (a field may hold `{"id": ...}`), compared without case or spaces."""
+    if isinstance(value, dict):
+        value = value.get("id")
+    return str(value or "").strip().lower()
+
+
+def _number(value: object) -> float | None:
+    try:
+        return None if value in (None, "") else float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def line_seconds(ld: dict, recordings: dict[str, dict]) -> float:
+    """How long a line is: its Recording's length when the line names a Recording of the very file in its `audio` (the trust rule, as Media's
+    mirror keeps it: a pointer left on another file's Recording is ignored), else the line's own `duration_seconds`, else 0. A Recording that
+    does not know its length leaves the line's own."""
+    rd = _data(recordings.get(str(ld.get(RECORDING_FIELD) or "").strip()) or {})
+    held = _file_id(ld.get("audio"))
+    if held and _file_id(rd.get("asset")) == held and (seconds := _number(rd.get("duration_seconds"))) is not None:
+        return seconds
+    return _number(ld.get("duration_seconds")) or 0.0
 
 
 def _ids(value: object) -> list[str]:
@@ -564,7 +611,7 @@ def breakdown(records: dict) -> dict:
     A character is anyone named as a speaker or on screen (a beat's `cast`); beat numbers are the story's own, so they stay stable when beats are added.
     """
     scenes, sounds = records.get("scenes", {}), records.get("sounds", {})
-    lines_by_beat = records.get("lines", {})
+    lines_by_beat, recordings = records.get("lines", {}), records.get("recordings", {})
     people: dict[str, dict] = {}
     places: dict[str, dict] = {}
     heard: dict[str, dict] = {}
@@ -614,10 +661,7 @@ def breakdown(records: dict) -> dict:
             who = person(str(ld.get("speaker") or "voice").strip().lower())
             who["speaks"] += 1
             who["words"] += len(_clean(ld.get("text")).split())
-            try:
-                seconds = float(ld.get("duration_seconds") or 0)
-            except (TypeError, ValueError):
-                seconds = 0.0
+            seconds = line_seconds(ld, recordings)
             who["seconds"] = round(who["seconds"] + seconds, 2)
             total += seconds
             mark(who, number)

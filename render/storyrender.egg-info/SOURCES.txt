@@ -98,6 +98,7 @@ tests/test_roundtrip.py
 tests/test_scene_numbers.py
 tests/test_scene_order.py
 tests/test_script.py
+tests/test_script_recordings.py
 tests/test_script_roundtrip.py
 tests/test_sound_before_beat.py
 tests/test_sound_fades.py
