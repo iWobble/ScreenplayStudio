@@ -409,6 +409,14 @@ def test_a_take_is_drawn_as_a_waveform_on_the_timeline_from_peaks_the_worker_wri
     assert flow["actions"][0]["data"]["kind"] == "make-waveform" and flow["actions"][0]["data"]["args"]["wave_field"] == "waveform"
 
 
+def test_a_placed_sound_names_its_own_level_so_the_beat_page_shows_its_slider_and_the_timeline_plays_it():
+    blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
+    placed = [lane["placed"] for lane in blueprints["story-timeline"]["payload"]["lanes"] if "placed" in lane]
+    assert placed and all(p.get("volume") == "volume" for p in placed)  # the key marvin_pull._sound_effects reads on each row (v232)
+    sounds = next(f for f in blueprints["beat"]["payload"]["schema_json"]["fields"] if f["key"] == "sounds")
+    assert '"volume"' in sounds["helpText"]  # the field's help names the same key
+
+
 def test_a_take_keeps_what_the_worker_hears_in_it_a_new_take_is_described_and_music_fades_show_as_a_slope():
     blueprints = {b["slug"]: b for b in json.loads(PACKAGE.read_text(encoding="utf-8"))["blueprints"]}
     take = {f["key"]: f for f in blueprints["take"]["payload"]["schema_json"]["fields"]}
