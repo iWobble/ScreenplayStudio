@@ -6,7 +6,7 @@ import pytest
 
 from tests.test_world_context import BLUEPRINTS
 
-PAID = {("openai_images", "edit"), ("openai_images", "generate"), ("elevenlabs", "sound_effect"), ("elevenlabs", "music"), ("elevenlabs", "synthesize"), ("elevenlabs", "dialogue")}
+PAID = {("openai_images", "edit"), ("openai_images", "generate"), ("elevenlabs", "sound_effect"), ("elevenlabs", "music"), ("elevenlabs", "synthesize"), ("elevenlabs", "dialogue"), ("elevenlabs", "make_video")}
 
 
 def _workflows():
