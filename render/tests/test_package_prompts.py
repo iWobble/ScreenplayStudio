@@ -286,6 +286,8 @@ def test_everything_made_from_a_script_is_listed_in_the_scripts_order_never_by_t
             if s["kind"] in ("choose", "list", "gallery") and s.get("entry_type") in {*by, "speech-line"}:
                 if s["entry_type"] == "speech-line":  # a beat's own lines by their order; lines of several beats by beat, then order
                     want = {"by": "order"} if s.get("parent_field") == "beat" else lines
+                elif s["entry_type"] == "scene":  # v234: by the scene number, those with none as made (the import numbers them as they first appear)
+                    want = {"by": "number", "then": "created_at"}
                 else:
                     want = {"by": by[s["entry_type"]]}
                 assert s.get("sort") == want, (b["slug"], s["id"], s.get("sort"))
@@ -314,7 +316,7 @@ def test_the_lists_on_an_entrys_page_are_in_the_scripts_order_too_never_by_title
     want = {
         ("story", "Chapters"): numbered,
         ("story", "Beats"): numbered,
-        ("story", "Scenes"): numbered,  # by the scene number: places as the script first meets them, one put in later where it plays (v210)
+        ("story", "Scenes"): {"by": "number", "then": "created_at"},  # by the scene number (v210), those with none as made (v234)
         ("story", "Speech lines"): {"by": "beat", "then": "order"},  # beat by beat (its slug ends in its number), then as spoken
         ("story", "Takes"): {"by": "line", "then": "created_at"},  # line by line, each line's takes as recorded
         ("story", "Characters"): made,  # as they first appear

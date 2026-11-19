@@ -41,7 +41,7 @@ def test_a_scene_has_a_number_and_the_story_lists_its_scenes_by_it():
     number = next(f for f in blueprints["scene"]["payload"]["schema_json"]["fields"] if f["key"] == "number")
     assert number["type"] == "text" and number["label"] == "Scene number"
     listed = next(c for c in blueprints["story"]["payload"]["schema_json"]["children"] if c["entry_type"] == "scene")
-    assert listed["sort"] == {"by": "number"}
+    assert listed["sort"] == {"by": "number", "then": "created_at"}  # v234: those with no number, as made
 
 
 def test_a_scene_with_a_number_is_still_read_as_a_scene_and_exports_with_its_note_and_its_own_number(monkeypatch):
