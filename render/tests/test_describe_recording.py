@@ -14,6 +14,9 @@ from storyrender import audio_measure, jobs
 from tests.test_clip import _clip_file
 from tests.test_world_context import BLUEPRINTS
 
+# The Transcript type as Studio last shipped it (v229 to v232), before Media took it over (P8).
+TRANSCRIPT_V232 = json.loads((Path(__file__).parent / "data" / "transcript_type_v232.json").read_text(encoding="utf-8"))
+
 needs_ffmpeg = pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg not installed")
 ID = "a6e76f6c-1362-43f3-8bfa-c11642c974d2"
 
@@ -157,5 +160,21 @@ def test_a_transcript_points_at_its_recording_by_the_id_the_job_reports():
     (make, _mark) = _flow("screenplay-make-transcript")["actions"]
     assert make["data"]["source"] == "${entry.data.result.source_id}" and "args.audio" not in json.dumps(make)
     assert "result.source_name" in make["title"]
-    source = next(f for f in BLUEPRINTS["transcript"]["payload"]["schema_json"]["fields"] if f["key"] == "source")
+    source = next(f for f in TRANSCRIPT_V232["payload"]["schema_json"]["fields"] if f["key"] == "source")
     assert source["type"] == "asset"
+
+
+def test_the_transcript_type_is_medias_now_and_the_workflow_that_makes_one_waits_for_it():
+    """Design §2.2 (P8): Media owns the Transcript type (Studio's fields exactly, plus `recording`; MarvinMedia's tests pin that against this
+    same v232 copy). Studio no longer brings it: a workspace that had Studio keeps its type (an update removes nothing) and Media's update
+    adds the one field; a new workspace gets the type from Media. Without Media the workflow that makes a Transcript is not installed (its
+    `requires` is not met) and arrives with the next Studio update after Media; transcribing by hand still works (the job keeps the files)."""
+    assert "transcript" not in BLUEPRINTS
+    assert BLUEPRINTS["screenplay-make-transcript"]["requires"] == ["entry_type:transcript"]
+    assert BLUEPRINTS["screenplay-transcribe"]["requires"] == []  # the job and its files need no Transcript type
+    (make, _mark) = _flow("screenplay-make-transcript")["actions"]
+    keys = {f["key"] for f in TRANSCRIPT_V232["payload"]["schema_json"]["fields"]}
+    assert make["entry_type"] == "transcript" and set(make["data"]) <= keys  # every field it fills is one Media's type has
+    for slug, b in BLUEPRINTS.items():  # nothing else in the package leans on the type
+        if slug != "screenplay-make-transcript" and b["kind"] != "playbook":
+            assert '"entry_type": "transcript"' not in json.dumps(b) and "entry_type:transcript" not in b.get("requires", []), slug

@@ -1,0 +1,82 @@
+{
+  "kind": "entry_type",
+  "slug": "transcript",
+  "name": "Transcript",
+  "description": "What was said in a recording, as text: the transcript files a worker made, the recording they came from, and your notes. A transcribe job is the request; this is what it gives you.",
+  "required": false,
+  "category": "General",
+  "source": "core",
+  "requires": [],
+  "parameters": [],
+  "payload": {
+    "name": "Transcript",
+    "icon": "\ud83d\udcdd",
+    "description": "What was said in a recording, as text: the transcript files a worker made, the recording they came from, and your notes. A transcribe job is the request; this is what it gives you.",
+    "sort_order": 0,
+    "is_rendered": false,
+    "schema_json": {
+      "fields": [
+        {
+          "key": "source",
+          "label": "Recording",
+          "type": "asset",
+          "helpText": "The audio or video that was transcribed.",
+          "accept": "audio/*,video/*"
+        },
+        {
+          "key": "paragraphs",
+          "label": "Transcript",
+          "type": "asset",
+          "helpText": "The words in paragraphs: the one to read or hand on.",
+          "accept": "text/plain,.txt,.md"
+        },
+        {
+          "key": "timestamped",
+          "label": "With times",
+          "type": "asset",
+          "helpText": "The same, a line per phrase with the time it starts.",
+          "accept": "text/plain,.txt,.md"
+        },
+        {
+          "key": "words",
+          "label": "Words",
+          "type": "asset",
+          "helpText": "The plain text, unbroken.",
+          "accept": "text/plain,.txt,.md"
+        },
+        {
+          "key": "json",
+          "label": "As JSON",
+          "type": "asset",
+          "helpText": "The words with their times, for a program to read.",
+          "accept": "application/json,.json"
+        },
+        {
+          "key": "language",
+          "label": "Language",
+          "type": "text",
+          "helpText": "The language the speech was in."
+        },
+        {
+          "key": "duration_seconds",
+          "label": "Length (seconds)",
+          "type": "number",
+          "helpText": "How long the recording is."
+        },
+        {
+          "key": "job",
+          "label": "Job",
+          "type": "text",
+          "helpText": "Slug of the transcribe job that made it."
+        },
+        {
+          "key": "notes",
+          "label": "Notes",
+          "type": "textarea",
+          "helpText": "Who is speaking, what to fix, what it is for.",
+          "rows": 3
+        }
+      ]
+    }
+  }
+}
