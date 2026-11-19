@@ -104,6 +104,7 @@ tests/test_sound_before_beat.py
 tests/test_sound_fades.py
 tests/test_story_bed.py
 tests/test_storyrender.py
+tests/test_timeline_recording_key.py
 tests/test_transitions.py
 tests/test_unchanged_pull.py
 tests/test_unchanged_render.py
