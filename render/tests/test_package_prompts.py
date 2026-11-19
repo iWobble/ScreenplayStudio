@@ -291,7 +291,7 @@ def test_everything_made_from_a_script_is_listed_in_the_scripts_order_never_by_t
                 assert s.get("sort") == want, (b["slug"], s["id"], s.get("sort"))
                 assert set(want.values()) <= fields[s["entry_type"]] | {"created_at"}
                 seen.append(s["id"])
-    assert len(seen) == 15
+    assert len(seen) == 16  # v231: Moving shots of a story lists a story's beats by number
     for slug, sort in (("screenplay-sync-line-voices", {**lines, "direction": "asc"}), ("screenplay-make-sounds", None), ("screenplay-keep-sounds", None)):
         collects = [a for a in _flow(slug)["actions"] if a.get("kind") == "collect"]
         assert [c["query"].get("sort") for c in collects] == [sort or {"by": "created_at", "direction": "asc"}], slug
@@ -1053,9 +1053,14 @@ def test_every_paid_button_is_followed_on_its_page_from_the_click_to_the_result_
                 assert ("Redo" in choices) == (step.get("redo") == "Redo"), where  # a Redo answered here starts the run again here
                 continue
             assert step["kind"] == "gallery" and step.get("approve"), where
-            written = {i["data"]["status"] for i in step["add"]["buttons"] if i.get("paid")} | {
-                i["set"]["status"] for i in step["card_actions"] if i.get("paid")
+            paid_cards = [i for i in step.get("card_actions", []) if i.get("paid")]
+            written = {i["data"]["status"] for i in (step.get("add") or {}).get("buttons", []) if i.get("paid")} | {
+                i["set"]["status"] for i in paid_cards if "status" in i["set"]
             }
+            # A gallery watches only `status` (Marvin's `working`); a button that queues another field (a beat's moving shot: its
+            # Status is its still's) shows that field on the card instead, and its questions on the step.
+            for i in paid_cards:
+                assert all(k in (step.get("badges") or []) for k in i["set"] if k != "status"), where
             redone = set().union(*(_redo_writes(w) for w in step["approve"]))
             assert written | redone <= set(step.get("working") or {}), where  # every way it is being made is watched until it is made
             for w in step["approve"]:
