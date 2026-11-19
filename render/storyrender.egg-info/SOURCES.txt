@@ -79,6 +79,7 @@ tests/test_jobs.py
 tests/test_line_level.py
 tests/test_lines.py
 tests/test_listen_pull.py
+tests/test_media_parity.py
 tests/test_moving_shot.py
 tests/test_music_levels.py
 tests/test_overlay_music.py
@@ -90,10 +91,12 @@ tests/test_placeholder.py
 tests/test_plain_cards.py
 tests/test_pull_words.py
 tests/test_ready.py
+tests/test_recording_links.py
 tests/test_render_job.py
 tests/test_ring_over.py
 tests/test_roundtrip.py
 tests/test_scene_numbers.py
+tests/test_scene_order.py
 tests/test_script.py
 tests/test_script_roundtrip.py
 tests/test_sound_before_beat.py
