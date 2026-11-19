@@ -34,11 +34,13 @@ Built and used on one real story. Known rough edges: package upgrades do not cha
 ## Tests
 
 ```
-cd render && uv run --with pytest --with-editable . --with-editable ../../MarvinWorker python -m pytest
-cd transcribe && uv run --with pytest --with-editable . --with-editable ../../MarvinWorker python -m pytest
+cd render && uv run --with pytest --with-editable . --with-editable ../../MarvinWorker --with-editable ../../MarvinMedia python -m pytest
+cd transcribe && uv run --with pytest --with-editable . --with-editable ../../MarvinWorker --with-editable ../../MarvinMedia python -m pytest
 ```
 
-(`MarvinWorker` is a checkout of the generic Marvin worker next to this repository.)
+(`MarvinWorker` is a checkout of the generic Marvin worker next to this repository, and `MarvinMedia` one of the Media package
+(InnerOpen/marvin-media), whose `mediajobs` holds the ffmpeg, audio-measure, waveform, video-describe and model helpers the render and the
+transcriber use since P6.)
 
 ## Licence
 

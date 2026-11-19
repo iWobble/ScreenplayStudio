@@ -8,28 +8,19 @@ only the first job after a new model is chosen waits for a download.
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 
 from marvin_worker import marvin_api
 from marvin_worker.jobs import Context, JobError, job_kind
 
+# The model (WHISPER_MODEL, default small; WHISPER_THREADS cores, 0 for all), read once per worker and kept, and whether a file has a sound
+# stream at all: the Media package's since P6 (mediajobs/transcribe.py, moved there unchanged), so one worker keeps ONE copy of a model for
+# these kinds and Media's media-transcribe. The names stay here (`jobs.load_model` is what a test replaces). How the model is run stays
+# Studio's own below: `transcribe` runs it without word times and `time-words`/`transcribe-clip` with them, as before.
+from mediajobs.transcribe import MODEL, has_sound, load_model
+
 from . import align, text
-
-MODEL = os.environ.get("WHISPER_MODEL", "small")
-"""tiny, base, small, medium or large-v3: bigger is more exact and slower. `small` is about 4x real time on 10 CPU cores."""
-THREADS = int(os.environ.get("WHISPER_THREADS", "0"))  # 0: all cores
-_models: dict[str, object] = {}
-
-
-def load_model(name: str):
-    """The model, read once and kept (CPU, int8: no GPU needed)."""
-    if name not in _models:
-        from faster_whisper import WhisperModel
-
-        _models[name] = WhisperModel(name, device="cpu", compute_type="int8", cpu_threads=THREADS)
-    return _models[name]
 
 
 def transcribe_file(model, audio: Path, out: Path, *, language: str | None = None, hotwords: str | None = None, note=lambda _t: None, every: int = 50) -> dict:
@@ -170,14 +161,6 @@ def time_words(job: dict, ctx: Context) -> dict:
     note = f"{len(words)} words timed in {record.get('name') or held}" + ("" if script else " (heard, as the take has no written text)") + told
     ctx.note(note)
     return {"result": {"entry": slug, "asset": record.get("id") or held, "words": len(words), "language": language, "from_text": bool(script)}, "log": note + "."}
-
-
-def has_sound(path: Path) -> bool:
-    """Whether the file holds a sound stream at all (decoding one with none fails inside faster-whisper with an IndexError)."""
-    import av
-
-    with av.open(str(path)) as container:
-        return bool(container.streams.audio)
 
 
 def _clip_now(ctx: Context, slug: str, field: str) -> tuple[dict, str]:

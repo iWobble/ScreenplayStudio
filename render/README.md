@@ -52,7 +52,9 @@ docker run --rm -p 8080:8080 -e MARVIN_API_URL=https://your-marvin.example.com -
 |---|---|---|
 | `audio-cut` | `{"story": "the-last-onion"}` | pulls the recorded lines, stitches them (`listen`), uploads the mp3 as an asset and sets the record's `audio`, `timeline` (each line's start and end, named by its speech-line slug), `status` and `log` |
 
-Without a container platform it is plain Python: `pip install -e ../../MarvinWorker`, then
+Without a container platform it is plain Python: `pip install -e ../../MarvinWorker -e ../../MarvinMedia` (the Media package's `mediajobs`:
+since P6 `storyrender.ffmpeg`, `audio_measure`, `waveform` and the describe half of `clip` are its modules, so `storyrender` needs it even run
+by hand), then
 `WORKER_JOB_MODULES=storyrender.jobs python -m marvin_worker`. `listen` and `pull` also work by hand
 (`python3 -m storyrender pull the-last-onion --out build/onion`, then `python3 -m storyrender listen build/onion/manifest.json`):
 they print each line's time next to its slug.

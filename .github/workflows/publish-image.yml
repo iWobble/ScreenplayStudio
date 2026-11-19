@@ -2,7 +2,8 @@
 #   git tag v34 && git push origin v34
 # The tag must match the package version in docs/screenplay-studio.marvin-package.json (the image goes with the package of the same version): v35,
 # or v35.1, v35.2... to publish the image again without a new package.
-# The image is built on the generic Marvin worker (https://github.com/InnerOpen/marvin-worker), which is public, so no extra token is needed.
+# The chain: the generic Marvin worker (https://github.com/InnerOpen/marvin-worker, public) -> the Media worker (InnerOpen/marvin-media, its
+# main; private: MARVIN_MEDIA_TOKEN reads it) -> this image. Note: the published image carries Media's mediajobs code.
 name: publish-image
 on:
   push:
@@ -21,6 +22,11 @@ jobs:
           repository: InnerOpen/marvin-worker
           path: MarvinWorker
           token: ${{ secrets.MARVIN_WORKER_TOKEN || github.token }}
+      - uses: actions/checkout@v4
+        with:
+          repository: InnerOpen/marvin-media
+          path: MarvinMedia
+          token: ${{ secrets.MARVIN_MEDIA_TOKEN || github.token }}
       - name: The tag matches the package version
         run: |
           package="v$(python3 -c "import json;print(json.load(open('ScreenplayStudio/docs/screenplay-studio.marvin-package.json'))['version'])")"
@@ -32,8 +38,11 @@ jobs:
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           image="ghcr.io/${owner}/screenplay-studio-worker"
+          media="m$(python3 -c "import json;print(json.load(open('MarvinMedia/docs/media.marvin-package.json'))['version'])")"
           docker build -f MarvinWorker/docker/Dockerfile -t marvin-worker-base MarvinWorker
-          docker build -f ScreenplayStudio/docker/Dockerfile --build-arg STUDIO_VERSION="${GITHUB_REF_NAME}" --build-arg STUDIO_REVISION="${GITHUB_SHA::7}" \
+          docker build -f MarvinMedia/docker/Dockerfile --build-arg MEDIA_VERSION="${media}" --build-arg MEDIA_REVISION="$(git -C MarvinMedia rev-parse --short HEAD)" \
+            -t "marvin-media-worker:${media}" MarvinMedia
+          docker build -f ScreenplayStudio/docker/Dockerfile --build-arg MEDIA_VERSION="${media}" --build-arg STUDIO_VERSION="${GITHUB_REF_NAME}" --build-arg STUDIO_REVISION="${GITHUB_SHA::7}" \
             --label org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}" \
             -t "${image}:${GITHUB_REF_NAME}" -t "${image}:latest" ScreenplayStudio
           docker push "${image}:${GITHUB_REF_NAME}"
