@@ -114,7 +114,7 @@ def convert_audio(job: dict, ctx: Context) -> dict:
                 name=audio_convert.named(name, fmt),
                 mime=audio_convert.FORMATS[fmt][1],
                 description=f"{name}, converted to {fmt} for {slug}.",
-                metadata={"seconds": round(seconds, 2), "kind": "converted-audio", "from": source.get("id") or held},
+                metadata={"seconds": round(seconds, 2), "kind": "converted-audio", "from": source.get("id") or held, "derived_from": source.get("id") or held},  # a version of the recording (Marvin folds it under it)
             )
             break
         except marvin_api.MarvinError as e:
@@ -491,7 +491,7 @@ def _make_poster(ctx: Context, src: Path, total: float, poster_slug: str, slug: 
             name=f"Poster: {name}",
             mime="image/jpeg",
             description=f"A frame of the clip on {slug}, about {clip.poster_at(total):g} s in.",
-            metadata={"kind": "clip-poster", "beat": slug, "clip": clip_id, "at": round(clip.poster_at(total), 3)},
+            metadata={"kind": "clip-poster", "beat": slug, "clip": clip_id, "derived_from": clip_id, "at": round(clip.poster_at(total), 3)},
         )
     except (ffmpeg.FfmpegError, marvin_api.MarvinError) as e:
         ctx.note(f"no poster: {str(e).splitlines()[0][:200]}")
@@ -641,7 +641,7 @@ def import_voices(job: dict, ctx: Context) -> dict:
             clip = ctx.work / f"{v['voice_id']}.mp3"
             req = urllib.request.Request(v["preview_url"], headers={"User-Agent": marvin_api.USER_AGENT})
             clip.write_bytes(urllib.request.urlopen(req, timeout=60).read())  # noqa: S310 — an https address ElevenLabs gave us
-            asset = marvin_api.upload_asset(ctx.creds, clip, slug=f"{slug}-clip", name=f"{voices.short_name(v.get('name') or '')} (voice preview)", mime="audio/mpeg", description=f"ElevenLabs' preview clip of the voice {v.get('name')}.")
+            asset = marvin_api.upload_asset(ctx.creds, clip, slug=f"{slug}-clip", name=f"{voices.short_name(v.get('name') or '')} (voice preview)", mime="audio/mpeg", description=f"ElevenLabs' preview clip of the voice {v.get('name')}.", metadata={"kind": "voice-preview", "voice": slug, "elevenlabs_voice_id": v["voice_id"]})
             data["preview"] = asset["id"]
         body = {"entryTypeId": type_id, "title": v.get("name") or slug, "slug": slug, "status": "draft", "summary": voices.summary_for(v.get("labels")), "dataJson": {k: x for k, x in data.items() if x}}
         entry = json.loads(marvin_api.request(ctx.creds, "/api/platform/entries", method="POST", data=json.dumps(body).encode(), content_type="application/json"))
