@@ -101,7 +101,7 @@ def transcribe(job: dict, ctx: Context) -> dict:
             name=f"{LABEL[kind].capitalize()}: {title}",
             mime=MIME[kind],
             description=f"Speech in {title}, as text (faster-whisper).",
-            metadata={"kind": "transcript", "source": asset_id, "language": made["language"], "seconds": made["seconds"]},
+            metadata={"kind": "transcript", "source": asset_id, "derived_from": asset_id, "language": made["language"], "seconds": made["seconds"]},
         )
         uploaded[kind] = {"id": asset["id"], "url": asset.get("publicUrl")}
     ctx.note(f"{made['segments']} segments")

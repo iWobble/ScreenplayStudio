@@ -141,6 +141,7 @@ def test_the_job_writes_the_clips_facts_to_the_beat_and_the_video_and_asks_for_t
     assert beat["clip_poster"] == "poster-1" and "clip_text" not in beat and "clip_words" not in beat  # the last clip's words are gone until these are heard
     (poster,) = m.uploaded
     assert poster["slug"] == "describe-clip-1-poster" and poster["mime"] == "image/jpeg" and poster["bytes"] == b"\xff\xd8" and poster["metadata"]["beat"] == "b04"
+    assert poster["metadata"]["kind"] == "clip-poster" and poster["metadata"]["derived_from"] == "vid-1"  # a version of the clip: never taken for a person's upload
     assert m.deleted == ["old-poster"]  # the poster this kind made for the last clip goes to the Trash
     video = m.asset_meta["vid-1"]
     assert video["recording"] == {"source": "browser"} and set(video["video"]) == {"duration_seconds", "width", "height", "fps", "has_audio"} and video["video"]["has_audio"] is True

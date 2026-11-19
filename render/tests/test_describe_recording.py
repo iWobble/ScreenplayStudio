@@ -1,6 +1,6 @@
 """A recording that is not a beat's clip is described on its own: `describe-video` with `{asset}` and no entry writes the facts to the asset's
-own metadata (`video` for a file with a picture, `audio` for a sound) and nothing else. Started by hand (`screenplay-describe-recording`) or,
-when switched on, for each new upload (`screenplay-describe-recording-uploaded`). And a Transcript points at its recording by id."""
+own metadata (`video` for a file with a picture, `audio` for a sound) and nothing else. Started by hand (`screenplay-describe-recording`); a new
+upload is the Media package's to describe, so Studio has no upload workflow. And a Transcript points at its recording by id."""
 
 import json
 import shutil
@@ -135,24 +135,18 @@ def test_the_manual_workflow_is_made_as_transcribe_a_recording_is():
     assert act["data"] == {"kind": "describe-video", "args": {"asset": "${input.asset}"}, "status": "queued"}
 
 
-def test_a_new_upload_is_described_only_when_it_is_a_persons_recording_and_not_yet_described():
-    flow = _flow("screenplay-describe-recording-uploaded")
-    assert flow["trigger"] == {"type": "event", "event": "asset_uploaded"}
-    (act,) = flow["actions"]
-    assert act["data"] == {"kind": "describe-video", "args": {"asset": "${asset.id}"}, "status": "queued"}
-    matcher = pytest.importorskip("marvin.services.automation.matcher")
-
-    def up(mime, meta=None, derived=None):
-        return {"event": {"event_type": "asset_uploaded"}, "asset": {"id": ID, "name": "r", "mime_type": mime, "metadata": meta or {}, "derived_from": derived}}
-
-    yes = [up("video/webm"), up("video/mp4"), up("audio/webm;codecs=opus", {"recording": {"source": "browser"}}), up("audio/mpeg")]
-    no = [up("image/png"), up("text/plain", {"kind": "transcript"}), up("audio/mpeg", {"kind": "audio-cut"}), up("video/mp4", {"kind": "video"}), up("video/mp4", derived="x"), up("video/webm", {"video": {}}), up("audio/wav", {"audio": {}})]
-    assert all(matcher.matches(flow["conditions"], c) for c in yes) and not any(matcher.matches(flow["conditions"], c) for c in no)
+def test_studio_describes_no_upload_by_itself():
+    """v229's `screenplay-describe-recording-uploaded` is dropped (Media package design, Decision 4): the Media
+    package's upload workflow describes a person's new recording, and two owners would look at each file twice. No Studio workflow listens for an
+    upload; a workspace that had v229 keeps the workflow (a package update deletes nothing), switched off as it arrived."""
+    assert "screenplay-describe-recording-uploaded" not in BLUEPRINTS
+    on_upload = [slug for slug, b in BLUEPRINTS.items() if b["kind"] == "workflow" and (b["payload"]["definition"].get("trigger") or {}).get("event") == "asset_uploaded"]
+    assert on_upload == []
 
 
 def test_the_new_workflows_pass_marvins_own_check():
     validation = pytest.importorskip("marvin.services.automation.validation")
-    for slug in ("screenplay-describe-recording", "screenplay-describe-recording-uploaded", "screenplay-make-transcript"):
+    for slug in ("screenplay-describe-recording", "screenplay-make-transcript"):
         assert validation.structural_issues(_flow(slug)) == [], slug
 
 

@@ -89,6 +89,7 @@ def test_the_result_names_the_recording_by_its_id_whichever_it_was_asked_with(tm
 
     assert done["result"]["source_id"] == record["id"] and done["result"]["source_name"] == "Recording Nov 18"
     assert fetched == [record["id"]] and {kw["metadata"]["source"] for kw in seen.values()} == {record["id"]}
+    assert {(kw["metadata"]["kind"], kw["metadata"]["derived_from"]) for kw in seen.values()} == {("transcript", record["id"])}  # each file is a version of the recording, by id
     assert seen["transcribe-1-paragraphs"]["name"] == "Transcript in paragraphs: Recording Nov 18"
 
 
