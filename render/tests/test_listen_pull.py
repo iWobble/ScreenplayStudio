@@ -176,12 +176,11 @@ class _FakeMarvin(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         _FakeMarvin.seen_agents.append(self.headers.get("User-Agent"))
-        routes = {
-            "/api/platform/entries?limit=500": _FakeMarvin.rows,
-            "/api/platform/assets/asset-1": {"mimeType": "audio/mpeg"},
-        }
+        routes = {"/api/platform/assets/asset-1": {"mimeType": "audio/mpeg"}}
         if self.path == "/api/platform/assets/asset-1/file":
             body = self.audio
+        elif self.path.startswith("/api/platform/entries?"):  # the listing, whichever page of it is asked for
+            body = json.dumps(_FakeMarvin.rows).encode()
         elif self.path in routes:
             body = json.dumps(routes[self.path]).encode()
         else:
